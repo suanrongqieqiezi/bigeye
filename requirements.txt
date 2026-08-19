@@ -1,0 +1,10 @@
+# 大眼X - 全能超级个体
+# 核心依赖 (纯 Python 标准库即可运行)
+# 
+# 可选: 记忆系统需要 sentence-transformers (本地embedding)
+# pip install sentence-transformers
+#
+# 可选: web_search 使用 DuckDuckGo (无需 API key, 标准库即可)
+#
+# 运行方式:
+#   python server.py --port 9890

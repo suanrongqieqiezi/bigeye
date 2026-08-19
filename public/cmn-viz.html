@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CMN 晶体记忆网络 - 可视化调试</title>
+<script src="vendor/dagre.min.js"></script>
+<script src="vendor/x6.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --panel: #141414;
+    --panel-2: #1c1c1c;
+    --border: #2a2a2a;
+    --text: #e5e5e5;
+    --text-dim: #888;
+    --accent: #3b82f6;
+    --green: #22c55e;
+    --red: #ef4444;
+    --yellow: #eab308;
+    --purple: #a855f7;
+    --teal: #14b8a6;
+    --gray: #6b7280;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  /* ── 顶部标题栏 ── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 20px;
+    height: 52px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .topbar h1 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .topbar h1 .sub { color: var(--text-dim); font-weight: 400; margin-left: 8px; }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-left: 24px;
+  }
+  .tab {
+    padding: 6px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-dim);
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .tab:hover { color: var(--text); background: var(--panel-2); }
+  .tab.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  .topbar .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .btn {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--panel-2);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { opacity: 0.9; color: #fff; }
+  .zoom-display {
+    font-size: 12px;
+    color: var(--text-dim);
+    min-width: 48px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── 主内容区 ── */
+  .main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+  .sidebar {
+    width: 260px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .sidebar h3 {
+    font-size: 12px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+  .ctrl-group { display: flex; flex-direction: column; gap: 8px; }
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+  }
+  .ctrl-row label { color: var(--text-dim); }
+  .ctrl-row input[type="number"] {
+    width: 70px;
+    padding: 4px 6px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 12px;
+  }
+  .ctrl-row select {
+    padding: 4px 6px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 12px;
+    max-width: 130px;
+  }
+  .ctrl-row input[type="checkbox"] { cursor: pointer; }
+  .file-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+  .file-item {
+    padding: 8px 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s;
+    word-break: break-all;
+  }
+  .file-item:hover { border-color: var(--accent); }
+  .file-item.active { border-color: var(--accent); background: rgba(59,130,246,0.15); }
+  .file-item .meta { color: var(--text-dim); font-size: 11px; margin-top: 4px; }
+  .file-item .meta .badge {
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--border);
+    margin-right: 4px;
+  }
+
+  /* ── 画布区 ── */
+  .canvas-wrap {
+    flex: 1;
+    position: relative;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  #graph-container {
+    width: 100%;
+    height: 100%;
+  }
+  .empty-state {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--text-dim);
+    text-align: center;
+    font-size: 14px;
+  }
+  .empty-state .icon { font-size: 48px; opacity: 0.3; margin-bottom: 12px; }
+  .loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--accent);
+    font-size: 14px;
+  }
+  .loading::before {
+    content: "";
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--accent);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── 详情面板 ── */
+  .detail-panel {
+    position: absolute;
+    right: 16px;
+    top: 16px;
+    width: 320px;
+    max-height: calc(100% - 32px);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    display: none;
+  }
+  .detail-panel.show { display: block; }
+  .detail-panel .close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 18px;
+    line-height: 1;
+  }
+  .detail-panel .close:hover { color: var(--text); }
+  .detail-panel h4 {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .detail-panel .id-line {
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 12px;
+    color: var(--accent);
+    margin-bottom: 12px;
+    word-break: break-all;
+  }
+  .detail-panel .field { margin-bottom: 10px; }
+  .detail-panel .field-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+  }
+  .detail-panel .field-value {
+    font-size: 13px;
+    line-height: 1.5;
+    word-break: break-all;
+  }
+  .detail-panel .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    margin-right: 4px;
+    margin-bottom: 4px;
+  }
+
+  /* ── 状态栏 ── */
+  .statusbar {
+    height: 28px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .statusbar .stat { display: flex; align-items: center; gap: 4px; }
+  .statusbar .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+  }
+
+  /* ── 图例 ── */
+  .legend {
+    position: absolute;
+    left: 16px;
+    bottom: 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .legend .item { display: flex; align-items: center; gap: 6px; }
+  .legend .swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .legend .line {
+    width: 18px;
+    height: 2px;
+    flex-shrink: 0;
+  }
+
+  /* 滚动条 */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>CMN 晶体记忆网络 <span class="sub">可视化调试</span></h1>
+  <div class="tabs">
+    <div class="tab active" data-view="network">晶体网络</div>
+    <div class="tab" data-view="relations">实体关系</div>
+    <div class="tab" data-view="pyramid">金字塔结构</div>
+  </div>
+  <div class="right">
+    <button class="btn" id="btn-zoom-out" title="缩小">−</button>
+    <span class="zoom-display" id="zoom-display">100%</span>
+    <button class="btn" id="btn-zoom-in" title="放大">+</button>
+    <button class="btn" id="btn-fit" title="适应屏幕">适应</button>
+    <button class="btn" id="btn-reset" title="重置">重置</button>
+    <button class="btn btn-primary" id="btn-refresh">刷新</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="sidebar" id="sidebar">
+    <!-- 动态内容 -->
+  </div>
+  <div class="canvas-wrap">
+    <div id="graph-container"></div>
+    <div class="empty-state" id="empty-state">
+      <div class="icon">◇</div>
+      <div>点击右上角"刷新"加载数据</div>
+    </div>
+    <div class="loading" id="loading" style="display:none;">加载中...</div>
+    <div class="detail-panel" id="detail-panel">
+      <span class="close" id="detail-close">&times;</span>
+      <div id="detail-content"></div>
+    </div>
+    <div class="legend" id="legend"></div>
+  </div>
+</div>
+
+<div class="statusbar">
+  <div class="stat"><span class="dot"></span><span id="status-text">就绪</span></div>
+  <div class="stat" id="status-stats"></div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// CMN 可视化 — 三视图统一管理
+// ════════════════════════════════════════════════════════════
+
+const API = '/api/cmn/viz';
+let graph = null;
+let currentView = 'network';
+let currentData = null;
+let selectedFile = null;
+
+// ── 节点/边样式配置 ──
+const NODE_STYLES = {
+  file:   { fill: '#0a0a0a', stroke: '#3b82f6', text: '#93c5fd' },
+  self:   { fill: '#0a0a0a', stroke: '#22c55e', text: '#86efac' },
+  person: { fill: '#0a0a0a', stroke: '#3b82f6', text: '#93c5fd' },
+  concept:{ fill: '#0a0a0a', stroke: '#a855f7', text: '#d8b4fe' },
+  entity: { fill: '#0a0a0a', stroke: '#6b7280', text: '#d1d5db' },
+  value:  { fill: '#1c1c1c', stroke: '#4a4a4a', text: '#9ca3af', dashed: true },
+};
+
+const EDGE_STYLES = {
+  pyramid:    { color: '#3b82f6', label: '金字塔', solid: true },
+  derive:     { color: '#22c55e', label: '派生', solid: true },
+  link:       { color: '#6b7280', label: '链接', solid: true },
+  similar:    { color: '#a855f7', label: '类似', solid: false },
+  cause:      { color: '#ef4444', label: '因果', solid: true },
+  reverse:    { color: '#6b7280', label: '被引', solid: false },
+  fact:       { color: '#6b7280', label: '事实', solid: true },
+  causal:     { color: '#ef4444', label: '因果', solid: true },
+  temporal:   { color: '#3b82f6', label: '时序', solid: true },
+  support:    { color: '#22c55e', label: '支持', solid: true },
+  negate:     { color: '#dc2626', label: '否定', solid: true },
+  weak_assoc: { color: '#a855f7', label: '弱关联', solid: false },
+};
+
+// ── 初始化 X6 Graph ──
+function initGraph() {
+  if (graph) { try { graph.dispose(); } catch(_) {} graph = null; }
+  const container = document.getElementById('graph-container');
+  // 显式设置容器像素尺寸（X6 要求，避免 height:100% 导致 0 高度）
+  const wrap = container.parentElement;
+  const w = wrap.clientWidth || window.innerWidth - 260;
+  const h = wrap.clientHeight || window.innerHeight - 80;
+  container.style.width = w + 'px';
+  container.style.height = h + 'px';
+  graph = new X6.Graph({
+    container,
+    background: { color: '#0a0a0a' },
+    grid: { visible: true, type: 'dot', args: { color: '#1a1a1a', thickness: 1 } },
+    panning: { enabled: true, eventTypes: ['leftMouseDown', 'rightMouseDown'] },
+    mousewheel: { enabled: true, modifiers: null, minScale: 0.2, maxScale: 3 },
+    interacting: { nodeMovable: false, edgeMovable: false, magnet: false },
+    connecting: { enabled: false },
+  });
+  // 滚轮缩放手动绑定（X6 v1 在某些环境不响应 mousewheel）
+  container.addEventListener('wheel', (e) => {
+    if (!graph) return;
+    e.preventDefault();
+    const factor = e.deltaY > 0 ? 0.9 : 1.1;
+    const current = graph.zoom();
+    const next = Math.max(0.2, Math.min(3, current * factor));
+    const point = graph.clientToLocal(e.clientX, e.clientY);
+    graph.zoomTo(next, { center: point });
+    updateZoomDisplay();
+  }, { passive: false });
+  // 节点点击
+  graph.on('node:click', ({ node }) => {
+    showDetail(node.getData());
+  });
+  graph.on('blank:click', () => {
+    hideDetail();
+  });
+  graph.on('scale', () => updateZoomDisplay());
+}
+
+function updateZoomDisplay() {
+  if (!graph) return;
+  const z = graph.zoom();
+  document.getElementById('zoom-display').textContent = Math.round(z * 100) + '%';
+}
+
+// ── dagre 自动布局 ──
+function dagreLayout(nodes, edges, rankdir = 'TB') {
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({ rankdir, ranksep: 60, nodesep: 40, marginx: 40, marginy: 40 });
+  g.setDefaultEdgeLabel(() => ({}));
+  const NODE_W = 160, NODE_H = 56;
+  nodes.forEach(n => {
+    g.setNode(n.id, { width: NODE_W, height: NODE_H });
+  });
+  edges.forEach(e => {
+    if (g.hasNode(e.source) && g.hasNode(e.target)) {
+      g.setEdge(e.source, e.target);
+    }
+  });
+  dagre.layout(g);
+  return nodes.map(n => {
+    const pos = g.node(n.id);
+    return { ...n, x: pos.x - NODE_W / 2, y: pos.y - NODE_H / 2, w: NODE_W, h: NODE_H };
+  });
+}
+
+// ── 渲染图数据 ──
+function renderGraph(data) {
+  // 每次渲染都重建 graph，确保干净状态和正确容器尺寸
+  if (graph) { try { graph.dispose(); } catch(_) {} graph = null; }
+  initGraph();
+  const { nodes, edges } = data;
+  if (!nodes || nodes.length === 0) {
+    document.getElementById('empty-state').style.display = 'block';
+    return;
+  }
+  document.getElementById('empty-state').style.display = 'none';
+
+  // 布局
+  const layout = currentView === 'pyramid' ? 'TB' : 'LR';
+  const laid = dagreLayout(nodes, edges, layout);
+  const nodeIdSet = new Set(laid.map(n => n.id));
+
+  // 添加节点
+  laid.forEach(n => {
+    const style = NODE_STYLES[n.type] || NODE_STYLES.entity;
+    const labelText = n.label || n.id;
+    const lines = wrapText(labelText, 16);
+    const isAuthority = n.authority || n.type === 'file' && n.source_type === 'knowledge_base';
+    graph.addNode({
+      id: n.id,
+      x: n.x,
+      y: n.y,
+      width: n.w,
+      height: n.h,
+      shape: 'rect',
+      attrs: {
+        body: {
+          fill: style.fill,
+          stroke: style.stroke,
+          strokeWidth: isAuthority ? 2 : 1.5,
+          strokeDasharray: style.dashed ? '4 3' : undefined,
+          rx: 6, ry: 6,
+        },
+        label: {
+          text: lines.join('\n'),
+          fill: style.text,
+          fontSize: 11,
+          lineHeight: 1.3,
+          refX: 0.5, refY: 0.5,
+          textAnchor: 'middle',
+          textVerticalAnchor: 'middle',
+        },
+      },
+      data: n,
+    });
+  });
+
+  // 添加边
+  (edges || []).forEach((e, i) => {
+    const style = EDGE_STYLES[e.type] || EDGE_STYLES.fact;
+    const color = e.color || style.color;
+    const labelText = e.label || style.label;
+    if (!nodeIdSet.has(e.source) || !nodeIdSet.has(e.target)) return;
+    graph.addEdge({
+      id: `e_${i}_${e.source}_${e.target}`,
+      source: e.source,
+      target: e.target,
+      attrs: {
+        line: {
+          stroke: color,
+          strokeWidth: 1.5,
+          strokeDasharray: style.solid ? null : '5 4',
+          targetMarker: {
+            name: 'block',
+            width: 8, height: 6,
+            fill: color,
+          },
+        },
+      },
+      labels: labelText ? [{
+        position: 0.5,
+        attrs: {
+          label: {
+            text: labelText.length > 8 ? labelText.slice(0, 8) + '…' : labelText,
+            fill: color,
+            fontSize: 10,
+            textAnchor: 'middle',
+            textVerticalAnchor: 'middle',
+          },
+          rect: {
+            fill: '#0a0a0a',
+            stroke: color,
+            strokeWidth: 1,
+            rx: 3, ry: 3,
+            refWidth: '100%', refHeight: '100%',
+            refX: 0, refY: 0,
+          },
+        },
+      }] : [],
+      router: { name: 'orth' },
+      connector: { name: 'rounded' },
+    });
+  });
+
+  // 适应屏幕
+  setTimeout(() => {
+    graph.zoomToFit({ padding: 30, maxScale: 1.5 });
+    updateZoomDisplay();
+  }, 50);
+}
+
+function wrapText(text, maxChars) {
+  if (!text) return [''];
+  const allLines = String(text).split('\n');
+  const result = [];
+  for (const line of allLines) {
+    let remaining = line;
+    while (remaining.length > maxChars) {
+      result.push(remaining.slice(0, maxChars));
+      remaining = remaining.slice(maxChars);
+    }
+    result.push(remaining);
+  }
+  // 最多 4 行
+  if (result.length > 4) {
+    return result.slice(0, 4).slice(0, 3).concat(['…']);
+  }
+  return result.slice(0, 4);
+}
+
+// ── 详情面板 ──
+function showDetail(nodeData) {
+  if (!nodeData) return;
+  const panel = document.getElementById('detail-panel');
+  const content = document.getElementById('detail-content');
+  let html = '';
+  html += `<h4>节点</h4><div class="id-line">${escapeHtml(nodeData.id || '')}</div>`;
+  if (nodeData.type) {
+    html += `<div class="field"><div class="field-label">类型</div><div class="field-value"><span class="tag" style="background:${(NODE_STYLES[nodeData.type]||{}).stroke || '#666'}33;color:${(NODE_STYLES[nodeData.type]||{}).text || '#ccc'}">${nodeData.type}</span></div></div>`;
+  }
+  if (nodeData.label) {
+    html += `<div class="field"><div class="field-label">标签</div><div class="field-value">${escapeHtml(nodeData.label)}</div></div>`;
+  }
+  if (nodeData.summary) {
+    html += `<div class="field"><div class="field-label">晶体摘要</div><div class="field-value" style="white-space:pre-wrap">${escapeHtml(nodeData.summary)}</div></div>`;
+  }
+  if (nodeData.text) {
+    html += `<div class="field"><div class="field-label">原文</div><div class="field-value" style="white-space:pre-wrap">${escapeHtml(nodeData.text)}</div></div>`;
+  }
+  if (nodeData.content_preview) {
+    html += `<div class="field"><div class="field-label">内容预览</div><div class="field-value" style="white-space:pre-wrap">${escapeHtml(nodeData.content_preview)}</div></div>`;
+  }
+  if (nodeData.layer !== undefined) {
+    html += `<div class="field"><div class="field-label">金字塔层</div><div class="field-value">Layer ${nodeData.layer}${nodeData.slice_index !== undefined ? ' / 切片 #' + nodeData.slice_index : ''}</div></div>`;
+  }
+  if (nodeData.ts) {
+    html += `<div class="field"><div class="field-label">时间</div><div class="field-value">${formatTs(nodeData.ts)}</div></div>`;
+  }
+  if (nodeData.epistemic) {
+    html += `<div class="field"><div class="field-label">认识论类型</div><div class="field-value">${nodeData.epistemic}</div></div>`;
+  }
+  if (nodeData.authority) {
+    html += `<div class="field"><div class="field-label">权威</div><div class="field-value">★ 权威晶体</div></div>`;
+  }
+  if (nodeData.source_path) {
+    html += `<div class="field"><div class="field-label">源文件</div><div class="field-value" style="word-break:break-all">${escapeHtml(nodeData.source_path)}</div></div>`;
+  }
+  if (nodeData.source_type) {
+    html += `<div class="field"><div class="field-label">来源类型</div><div class="field-value">${nodeData.source_type}</div></div>`;
+  }
+  if (nodeData.importance !== undefined) {
+    html += `<div class="field"><div class="field-label">重要性</div><div class="field-value">${nodeData.importance}/10</div></div>`;
+  }
+  if (nodeData.mention_count !== undefined) {
+    html += `<div class="field"><div class="field-label">提及次数</div><div class="field-value">${nodeData.mention_count}</div></div>`;
+  }
+  if (nodeData.confidence !== undefined) {
+    html += `<div class="field"><div class="field-label">置信度</div><div class="field-value">${(nodeData.confidence * 100).toFixed(0)}%</div></div>`;
+  }
+  content.innerHTML = html;
+  panel.classList.add('show');
+}
+function hideDetail() {
+  document.getElementById('detail-panel').classList.remove('show');
+}
+document.getElementById('detail-close').addEventListener('click', hideDetail);
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function formatTs(ts) {
+  if (!ts || ts.length < 8) return ts || '';
+  return `${ts.slice(0,4)}-${ts.slice(4,6)}-${ts.slice(6,8)}${ts.length>=14 ? ' '+ts.slice(8,10)+':'+ts.slice(10,12) : ''}`;
+}
+
+// ── 加载数据 ──
+async function loadView(view) {
+  currentView = view;
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.view === view);
+  });
+  showLoading(true);
+  hideDetail();
+  try {
+    let data;
+    if (view === 'network') {
+      const limit = document.getElementById('ctrl-limit')?.value || 100;
+      const incFiles = document.getElementById('ctrl-files')?.checked !== false;
+      const incSelf = document.getElementById('ctrl-self')?.checked !== false;
+      const qs = `limit=${limit}&include_files=${incFiles?1:0}&include_self=${incSelf?1:0}`;
+      const resp = await fetch(`${API}/network?${qs}`);
+      data = await resp.json();
+      renderNetworkLegend();
+      updateStatus(`晶体网络：${data.stats.file_nodes} 文件 / ${data.stats.self_nodes} 自传 / ${data.stats.edges} 边`);
+    } else if (view === 'relations') {
+      const limit = document.getElementById('ctrl-rel-limit')?.value || 200;
+      const et = document.getElementById('ctrl-edge-type')?.value || '';
+      const qs = `limit=${limit}${et ? '&edge_type=' + et : ''}`;
+      const resp = await fetch(`${API}/relations?${qs}`);
+      data = await resp.json();
+      renderRelationsLegend(data.edge_type_colors);
+      updateStatus(`实体关系：${data.stats.entities} 实体 / ${data.stats.literals} 字面量 / ${data.stats.edges} 边`);
+    } else if (view === 'pyramid') {
+      if (!selectedFile) {
+        showLoading(false);
+        document.getElementById('empty-state').style.display = 'block';
+        document.getElementById('empty-state').innerHTML = '<div class="icon">△</div><div>请从左侧选择一个文件</div>';
+        updateStatus('请选择文件');
+        return;
+      }
+      const resp = await fetch(`${API}/pyramid?path=${encodeURIComponent(selectedFile)}`);
+      data = await resp.json();
+      renderPyramidLegend();
+      updateStatus(`金字塔：${data.path} | Layer 0~${data.top_layer} | ${data.total_crystals} 晶体`);
+    }
+    currentData = data;
+    renderGraph(data);
+  } catch (e) {
+    updateStatus('加载失败：' + e.message);
+    console.error(e);
+  } finally {
+    showLoading(false);
+  }
+}
+
+function showLoading(show) {
+  document.getElementById('loading').style.display = show ? 'block' : 'none';
+  if (show) document.getElementById('empty-state').style.display = 'none';
+}
+function updateStatus(text) {
+  document.getElementById('status-text').textContent = text;
+}
+
+// ── 图例 ──
+function renderNetworkLegend() {
+  const legend = document.getElementById('legend');
+  legend.innerHTML = `
+    <div class="item"><div class="swatch" style="background:#0a0a0a;border:2px solid #3b82f6"></div>文件晶体</div>
+    <div class="item"><div class="swatch" style="background:#0a0a0a;border:2px solid #22c55e"></div>自传晶体</div>
+    <div class="item"><div class="line" style="background:#3b82f6"></div>金字塔父子</div>
+    <div class="item"><div class="line" style="background:#22c55e"></div>派生</div>
+    <div class="item"><div class="line" style="background:#6b7280"></div>链接</div>
+    <div class="item"><div class="line" style="background:#a855f7;border-top:1px dashed #a855f7"></div>类似</div>
+    <div class="item"><div class="line" style="background:#ef4444"></div>因果</div>
+  `;
+}
+function renderRelationsLegend(colors) {
+  const legend = document.getElementById('legend');
+  const items = Object.entries(colors || {}).map(([type, color]) => {
+    const label = (EDGE_STYLES[type] || {}).label || type;
+    return `<div class="item"><div class="line" style="background:${color}"></div>${label}</div>`;
+  }).join('');
+  legend.innerHTML = `
+    <div class="item"><div class="swatch" style="background:#0a0a0a;border:2px solid #3b82f6"></div>person</div>
+    <div class="item"><div class="swatch" style="background:#0a0a0a;border:2px solid #a855f7"></div>concept</div>
+    <div class="item"><div class="swatch" style="background:#1c1c1c;border:1px dashed #4a4a4a"></div>字面量</div>
+    ${items}
+  `;
+}
+function renderPyramidLegend() {
+  const legend = document.getElementById('legend');
+  legend.innerHTML = `
+    <div class="item"><div class="swatch" style="background:#0a0a0a;border:2px solid #3b82f6"></div>文件晶体</div>
+    <div class="item"><div class="line" style="background:#3b82f6"></div>金字塔父子</div>
+    <div class="item" style="margin-top:4px;color:#888">★ = 权威晶体</div>
+  `;
+}
+
+// ── 侧边栏渲染 ──
+function renderSidebar() {
+  const sb = document.getElementById('sidebar');
+  if (currentView === 'network') {
+    sb.innerHTML = `
+      <div>
+        <h3>筛选</h3>
+        <div class="ctrl-group">
+          <div class="ctrl-row">
+            <label>节点上限</label>
+            <input type="number" id="ctrl-limit" value="100" min="10" max="500" step="10">
+          </div>
+          <div class="ctrl-row">
+            <label>文件晶体</label>
+            <input type="checkbox" id="ctrl-files" checked>
+          </div>
+          <div class="ctrl-row">
+            <label>自传晶体</label>
+            <input type="checkbox" id="ctrl-self" checked>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:auto;color:var(--text-dim);font-size:11px;line-height:1.6">
+        <h3>说明</h3>
+        <p>展示自传晶体与文件晶体之间的派生、金字塔父子、碎片链接关系。</p>
+        <p style="margin-top:6px">滚轮缩放，左键拖动平移，点击节点查看详情。</p>
+      </div>
+    `;
+  } else if (currentView === 'relations') {
+    sb.innerHTML = `
+      <div>
+        <h3>筛选</h3>
+        <div class="ctrl-group">
+          <div class="ctrl-row">
+            <label>边上限</label>
+            <input type="number" id="ctrl-rel-limit" value="200" min="10" max="1000" step="10">
+          </div>
+          <div class="ctrl-row">
+            <label>边类型</label>
+            <select id="ctrl-edge-type">
+              <option value="">全部</option>
+              <option value="fact">fact 事实</option>
+              <option value="causal">causal 因果</option>
+              <option value="temporal">temporal 时序</option>
+              <option value="derive">derive 派生</option>
+              <option value="support">support 支持</option>
+              <option value="negate">negate 否定</option>
+              <option value="weak_assoc">weak_assoc 弱关联</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:auto;color:var(--text-dim);font-size:11px;line-height:1.6">
+        <h3>说明</h3>
+        <p>展示实体（人、概念等）及其关系边。虚线节点为字面量值。</p>
+        <p style="margin-top:6px">边颜色对应类型，悬停或点击查看 predicate 和置信度。</p>
+      </div>
+    `;
+  } else if (currentView === 'pyramid') {
+    sb.innerHTML = `
+      <div>
+        <h3>文件列表</h3>
+        <div class="file-list" id="file-list"><div style="color:var(--text-dim);font-size:12px">加载中...</div></div>
+      </div>
+      <div style="margin-top:auto;color:var(--text-dim);font-size:11px;line-height:1.6">
+        <h3>说明</h3>
+        <p>选择文件后展示其金字塔层级结构。顶层在上方，逐层下钻到原始切片。</p>
+      </div>
+    `;
+    loadFileList();
+  }
+}
+
+async function loadFileList() {
+  try {
+    const resp = await fetch(`${API}/files`);
+    const data = await resp.json();
+    const list = document.getElementById('file-list');
+    if (!data.files || data.files.length === 0) {
+      list.innerHTML = '<div style="color:var(--text-dim);font-size:12px">暂无已建晶体的文件</div>';
+      return;
+    }
+    list.innerHTML = data.files.map(f => {
+      const shortPath = f.source_path.split(/[\\/]/).pop();
+      const isStale = f.stale_count > 0;
+      return `<div class="file-item ${selectedFile === f.source_path ? 'active' : ''}" data-path="${escapeHtml(f.source_path)}">
+        <div>${escapeHtml(shortPath)}</div>
+        <div class="meta">
+          <span class="badge">L0~${f.top_layer}</span>
+          <span class="badge">${f.crystals_count}晶体</span>
+          ${f.source_type === 'knowledge_base' ? '<span class="badge" style="background:#22c55e33;color:#86efac">权威</span>' : ''}
+          ${isStale ? `<span class="badge" style="background:#ef444433;color:#fca5a5">${f.stale_count}stale</span>` : ''}
+        </div>
+        <div class="meta" style="margin-top:2px;font-size:10px;opacity:0.7">${escapeHtml(f.source_path)}</div>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.file-item').forEach(el => {
+      el.addEventListener('click', () => {
+        selectedFile = el.dataset.path;
+        list.querySelectorAll('.file-item').forEach(x => x.classList.remove('active'));
+        el.classList.add('active');
+        loadView('pyramid');
+      });
+    });
+  } catch (e) {
+    document.getElementById('file-list').innerHTML = `<div style="color:var(--red);font-size:12px">加载失败: ${e.message}</div>`;
+  }
+}
+
+// ── 事件绑定（用事件委托，确保 tab 点击可靠）──
+document.querySelector('.tabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('.tab');
+  if (!tab) return;
+  const view = tab.dataset.view;
+  currentView = view;  // 先更新 currentView，renderSidebar 依赖它
+  // 统一切换 tab active 状态（pyramid 不走 loadView，需在此切换）
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.view === view);
+  });
+  renderSidebar();
+  if (view === 'pyramid') {
+    document.getElementById('empty-state').style.display = 'block';
+    document.getElementById('empty-state').innerHTML = '<div class="icon">△</div><div>请从左侧选择一个文件</div>';
+    if (graph) { try { graph.dispose(); } catch(_) {} graph = null; }
+    updateStatus('请选择文件');
+  } else {
+    loadView(view);
+  }
+});
+
+document.getElementById('btn-refresh').addEventListener('click', () => {
+  if (currentView === 'pyramid' && !selectedFile) {
+    loadFileList();
+  } else {
+    loadView(currentView);
+  }
+});
+
+document.getElementById('btn-zoom-in').addEventListener('click', () => {
+  if (!graph) return;
+  graph.zoomTo(graph.zoom() * 1.2);
+  updateZoomDisplay();
+});
+document.getElementById('btn-zoom-out').addEventListener('click', () => {
+  if (!graph) return;
+  graph.zoomTo(graph.zoom() * 0.8);
+  updateZoomDisplay();
+});
+document.getElementById('btn-fit').addEventListener('click', () => {
+  if (!graph) return;
+  graph.zoomToFit({ padding: 30, maxScale: 1.5 });
+  updateZoomDisplay();
+});
+document.getElementById('btn-reset').addEventListener('click', () => {
+  if (!graph) return;
+  graph.zoomTo(1);
+  graph.centerContent();
+  updateZoomDisplay();
+});
+
+// ── 启动 ──
+window.addEventListener('DOMContentLoaded', () => {
+  initGraph();
+  renderSidebar();
+  loadView('network');
+});
+
+// 窗口大小变化时重适应
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (graph && currentData) {
+      graph.zoomToFit({ padding: 30, maxScale: 1.5 });
+      updateZoomDisplay();
+    }
+  }, 200);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "topic_unnamed",
+      "name": "任务未命名",
+      "desc": "当前话题标题仍是默认的'新任务'，说明意图未抓取、任务无身份",
+      "severity": "high",
+      "condition": "topic_title == '新任务' or topic_title == '新话题' or topic_title == ''",
+      "hint": "任务无身份：请先抓取意图（这个任务交付什么？），然后改任务名，格式：动词开头短语",
+      "action": "改任务名 + 写意图brief"
+    },
+    {
+      "id": "dag_missing",
+      "name": "多步任务缺DAG规划",
+      "desc": "任务消息数较多或含多个步骤，但没有对应的DAG规划",
+      "severity": "high",
+      "condition": "msg_count >= 10 and dag_nodes == 0",
+      "hint": "任务已跑起来但无DAG：说明可能直接扎进细节了。停下，按真实复杂度画流程图（节点具体到可验证产出，动词开头、数据依赖），再继续",
+      "action": "create_task 或 get_task_dag 查看规划"
+    },
+    {
+      "id": "book_leak",
+      "name": "工具书泄漏",
+      "desc": "非常驻工具书页面处于打开状态，占用上下文",
+      "severity": "medium",
+      "condition": "extra_pages_open > 0",
+      "hint": "有 {extra_pages_open} 页非常驻工具书开着（{extra_pages}）：用 book_turn_to 关闭，只保留 core_rules + mission_workflow",
+      "action": "关闭非必要工具书页面"
+    },
+    {
+      "id": "dag_blackbox",
+      "name": "DAG存在黑盒节点",
+      "desc": "检测DAG中是否存在'执行核心任务'类黑盒节点，提示细分",
+      "severity": "high",
+      "condition": "dag_nodes > 0 and blackbox_count > 0",
+      "hint": "DAG里有黑盒节点（{blackbox_nodes}）：节点=可独立验证的待办，禁止'执行核心任务'这类把整件事装进一个节点的写法。停下细分：把这个节点拆成多个具体可验证的动作（动词开头，每个做完能说'证据是什么'），再继续",
+      "action": "拆分黑盒节点为多个可验证节点"
+    }
+  ]
+}

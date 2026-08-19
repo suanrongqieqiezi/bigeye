@@ -1,0 +1,31 @@
+{
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com",
+    "api_key": "",
+    "max_tokens": 8192,
+    "fallback_chain": [
+        {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "base_url": "https://api.deepseek.com",
+            "api_key": ""
+        },
+        {
+            "provider": "openrouter",
+            "model": "openrouter/free",
+            "base_url": "https://openrouter.ai/api/v1"
+        },
+        {
+            "provider": "zhipu",
+            "model": "glm-5-turbo",
+            "base_url": "https://open.bigmodel.cn/api/paas/v4"
+        },
+        {
+            "provider": "ollama",
+            "model": "Ornith:latest",
+            "base_url": "http://localhost:11434/v1",
+            "api_key": "ollama"
+        }
+    ]
+}
