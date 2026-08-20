@@ -1,4 +1,4 @@
-<img width="295" height="106" alt="098d98de-a5b7-4526-afec-3cd29276379e" src="https://github.com/user-attachments/assets/7150eb38-dc6c-4383-8ccf-edc281f7aaa7" />这是可以让现有大语言模型拥有无限上下文的能力的系统（大眼），主要为长航时大型任务而设计
+这是可以让现有大语言模型拥有无限上下文的能力的系统（大眼），主要为长航时大型任务而设计
 <img width="2543" height="1523" alt="bbe449f4f34548cccb6b8cfeb1ccfbc8" src="https://github.com/user-attachments/assets/b7766fea-a62f-4893-9da7-c081f579a5e8" />
 
 有趣的是这个系统使得即使是对驾驭工具能力比较弱的deepseekV3，都能有很好的处理复杂任务能力（发现这个原因是当时调错API模型导致我几天都以为在用deepseek V4 flash开发项目🤫，并且发现deepseekV3正常智力在13k上下文以内，如果在这个项目里使用deepseekV3只要把工作记忆设定在13k就能让模型一直保持思路清晰）
