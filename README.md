@@ -1,3 +1,5 @@
+这儿是源码还在持续更新，只适合开发交流不建议做生产环境，如果大家需要稳定版本可以到release里滑到最底部下载，已经打包好环境开箱即用
+
 这是可以让现有大语言模型拥有无限上下文的能力的系统（大眼），主要为长航时大型任务而设计
 <img width="2543" height="1523" alt="bbe449f4f34548cccb6b8cfeb1ccfbc8" src="https://github.com/user-attachments/assets/b7766fea-a62f-4893-9da7-c081f579a5e8" />
 
