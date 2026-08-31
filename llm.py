@@ -6,6 +6,7 @@ LLM API client — direct OpenAI-compatible calls, streaming, function calling.
 import json
 import os
 import ssl
+import base64
 import urllib.request
 import time
 
@@ -99,7 +100,93 @@ def _build_messages(system_msg=None, history=None, new_msg=None):
     return msgs
 
 
-# ── Tool schema compaction (借鉴 Codex 的多遍有损压缩) ──
+# ── 多模态（vision）支持 ──
+# DeepSeek vision 模型（deepseek-v4-flash-vision-exp 等）通过 OpenAI 兼容的
+# content 数组接收图片：{"type":"image_url","image_url":{"url":"data:<mime>;base64,..."}}。
+# 本地图片走 base64 data URL；非 vision 模型不认 image 块，需在发送前剥离。
+
+_IMAGE_MIME = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+# 显式声明支持图片的模型（模型名不含 "vision" 但原生多模态）。
+# GLM-5.3-Flash 是智谱原生多模态模型，通过 OpenAI 兼容接口收图。
+_VISION_MODEL_PREFIXES = ("glm-5.3-flash",)
+
+
+def image_mime_type(path):
+    """返回图片路径对应的 MIME，非图片返回 None。"""
+    return _IMAGE_MIME.get(os.path.splitext(str(path))[1].lower())
+
+
+def is_vision_model(model):
+    """支持图片的模型：显式前缀集合（glm-5.3-flash 等原生多模态）或模型名含 vision。"""
+    if not model:
+        return False
+    mid = str(model).lower()
+    for prefix in _VISION_MODEL_PREFIXES:
+        if mid == prefix or mid.startswith(prefix + "-") or mid.startswith(prefix + ":"):
+            return True
+    return "vision" in mid
+
+
+def build_multimodal_content(text, image_paths):
+    """把文本 + 本地图片路径列表编码成 OpenAI 多模态 content 数组。
+
+    返回 None 表示没有任何图片成功编码（调用方应回退到纯文本）。
+    """
+    content = []
+    if text:
+        content.append({"type": "text", "text": text})
+    encoded = 0
+    for p in image_paths:
+        mime = image_mime_type(p)
+        if not mime:
+            continue
+        try:
+            with open(p, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("ascii")
+        except Exception as e:
+            print(f"[llm] 图片读取失败 {p}: {e}")
+            continue
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64,{b64}"},
+        })
+        encoded += 1
+    if encoded == 0:
+        return None
+    return content
+
+
+def strip_image_content(messages, model):
+    """非 vision 模型：把 messages 里 content 为数组的图片消息降级为纯文本。
+
+    - vision 模型：原样返回（保留 image 块）。
+    - 非 vision 模型：删掉 image_url 块，text 块拼回字符串，避免 API 报错。
+    返回新列表（不修改入参）。
+    """
+    if is_vision_model(model):
+        return messages
+    out = []
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, list):
+            texts = [b.get("text", "") for b in content
+                     if isinstance(b, dict) and b.get("type") == "text"]
+            m2 = dict(m)
+            m2["content"] = "\n".join(t for t in texts if t)
+            out.append(m2)
+        else:
+            out.append(m)
+    return out
+
+
+# ── Tool schema compaction
 # 单工具 schema 超过预算时，按损失从小到大依次压缩：
 #   1. 删 properties/items 上的 description
 #   2. 删 $defs/definitions，$ref → {}
@@ -454,3 +541,124 @@ def chat_stream(config, messages, tools=None, cancel_event=None, verify_ssl=True
                        duration_ms=duration_ms, status_code=200,
                        input_tokens=usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0),
                        output_tokens=usage.get("completion_tokens", 0) or usage.get("output_tokens", 0))
+
+
+# ── 全链路本地缓存 ──────────────────────────────────────
+# 默认关闭，由 server.py 根据 meta.llm_cache_enabled 切换。
+# 开启后：所有 chat_stream 调用先查本地缓存，命中即整段重放（秒回），
+# 未命中走原逻辑；纯文本回复（无 tool_calls）落库供下次命中。
+# 带 tool_calls / ERROR 的响应不缓存（工具必须真执行）。
+_LLM_CACHE_ENABLED = False
+
+
+def set_cache_enabled(on):
+    """开关本地缓存（由 server 根据用户设置调用）。"""
+    global _LLM_CACHE_ENABLED
+    _LLM_CACHE_ENABLED = bool(on)
+
+
+def is_cache_enabled():
+    return _LLM_CACHE_ENABLED
+
+
+def chat_stream_cached(config, messages, tools=None, cancel_event=None, verify_ssl=True):
+    """带本地缓存层的 chat_stream 包装。
+
+    命中：一次性重放 text/thinking + DONE，不走网络。
+    未命中：透传原 chat_stream 事件，并在纯文本回复结束时落库。
+    带 tool_calls / ERROR 的响应不缓存。
+    """
+    if not _LLM_CACHE_ENABLED:
+        # 开关关闭：完全透传，零开销
+        yield from chat_stream(config, messages, tools=tools,
+                               cancel_event=cancel_event, verify_ssl=verify_ssl)
+        return
+
+    try:
+        import llm_cache
+        cache = llm_cache.get_cache()
+        key = llm_cache.compute_key(config, messages, tools, config.max_tokens)
+        hit = cache.get(key)
+    except Exception:
+        # 缓存层任何异常都不影响主流程，直接透传
+        yield from chat_stream(config, messages, tools=tools,
+                               cancel_event=cancel_event, verify_ssl=verify_ssl)
+        return
+
+    if hit:
+        # ── 命中：重放 ──
+        # usage 归零：命中没走 API、没花钱，重放旧 usage 会让上层重复计费
+        thinking = hit.get("full_thinking") or ""
+        text = hit.get("full_text") or ""
+        if thinking:
+            yield {"type": EVENT_THINKING_DELTA, "delta": thinking}
+        if text:
+            yield {"type": EVENT_TEXT_DELTA, "delta": text}
+        yield {"type": EVENT_DONE, "finish_reason": "stop",
+               "full_text": text, "full_thinking": thinking,
+               "usage": {}, "_cache_hit": True}
+        return
+
+    # ── 未命中：透传，并收集结果用于落库 ──
+    collected_text = ""
+    collected_thinking = ""
+    collected_usage = {}
+    had_tool_calls = False
+    had_error = False
+    done_emitted = False
+
+    for event in chat_stream(config, messages, tools=tools,
+                             cancel_event=cancel_event, verify_ssl=verify_ssl):
+        et = event.get("type")
+        if et == EVENT_TEXT_DELTA:
+            collected_text += event.get("delta", "")
+        elif et == EVENT_THINKING_DELTA:
+            collected_thinking += event.get("delta", "")
+        elif et == EVENT_TOOL_CALL:
+            had_tool_calls = True
+        elif et == EVENT_ERROR:
+            had_error = True
+        elif et == EVENT_DONE:
+            done_emitted = True
+            collected_text = event.get("full_text", collected_text)
+            collected_thinking = event.get("full_thinking", collected_thinking)
+            collected_usage = event.get("usage", {}) or {}
+        yield event
+
+    # ── 落库条件：正常结束 + 无 tool_calls + 无错误 + 有内容 ──
+    if (done_emitted and not had_tool_calls and not had_error
+            and (collected_text or collected_thinking)):
+        try:
+            cache.put(key, config.model, collected_text, collected_thinking,
+                      collected_usage, has_tool_calls=0)
+        except Exception:
+            pass
+
+
+def chat_once_cached(config, messages, tools=None, verify_ssl=True):
+    """非流式入口：返回完整文本。带本地缓存层，命中即秒回。
+
+    供 memory/reflection 等非流式调用方使用，确保全链路覆盖。
+    返回 dict: {"text": str, "thinking": str, "usage": dict, "cache_hit": bool}
+    """
+    text = ""
+    thinking = ""
+    usage = {}
+    cache_hit = False
+    for event in chat_stream_cached(config, messages, tools=tools,
+                                    cancel_event=None, verify_ssl=verify_ssl):
+        et = event.get("type")
+        if et == EVENT_TEXT_DELTA:
+            text += event.get("delta", "")
+        elif et == EVENT_THINKING_DELTA:
+            thinking += event.get("delta", "")
+        elif et == EVENT_DONE:
+            text = event.get("full_text", text)
+            thinking = event.get("full_thinking", thinking)
+            usage = event.get("usage", {}) or {}
+            cache_hit = bool(event.get("_cache_hit", False))
+        elif et == EVENT_ERROR:
+            return {"text": "", "thinking": "", "usage": {},
+                    "cache_hit": False, "error": event.get("error", "")}
+    return {"text": text, "thinking": thinking, "usage": usage,
+            "cache_hit": cache_hit}

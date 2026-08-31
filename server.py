@@ -39,7 +39,7 @@ PORT = 8765
 # ── Imports ─────────────────────────────────────────
 sys.path.insert(0, BASE_DIR)
 from db import get_db, Database
-from llm import LLMConfig, chat_stream, _build_messages, is_transient_conn_error
+from llm import LLMConfig, chat_stream, chat_stream_cached, _build_messages, is_transient_conn_error, build_multimodal_content, strip_image_content, image_mime_type, is_vision_model
 from tools.registry import get_tool_defs, execute_tool, register_tool
 import loop_detector  # 目标级打转检测（探索类占比高且零落地 → 注入提醒）
 # Import tool modules to register them
@@ -144,6 +144,7 @@ MSG_COUNT_WARN = 15                # 未整理消息条数警告阈值
 MSG_COUNT_WALL = 0                 # 消息条数墙阈值（0=禁用，仅用 token 预算）
 _VERIFY_SSL = True                 # 是否校验 HTTPS 证书（False=跳过，用于 VPN/抓包等证书注入环境）
 _DEV_MODE = False                  # 开发者模式：开启后才记录 API 原始日志和 HTTP 访问日志
+_LLM_CACHE_ENABLED = False         # LLM 响应本地缓存：开启后全链路命中即秒回，避免重复消费
 ESTIMATE_SAFETY = 0.85  # 估算安全余量：实际 token 数可能比 _estimate_tokens 高 ~15%
 _INTERMEDIATE_MAX = 8000  # 中间过程叙述上限（字符）：工具轮输出累积超此值丢弃，防止几十万字符单条消息炸工作记忆
 
@@ -207,6 +208,7 @@ _MODEL_CONTEXT_WINDOWS = {
     "deepseek-v4-flash": 1000000,
     "deepseek-chat": 1000000,
     "deepseek-reasoner": 1000000,
+    "glm-5.3-flash": 1000000,
 }
 _DEFAULT_CONTEXT_WINDOW = 128000
 
@@ -240,7 +242,7 @@ _compress_config_loaded = False
 def _load_compress_config(db=None):
     """Load compress settings from DB into module globals. Idempotent after first load."""
     global PER_MESSAGE_COMPRESS_CHARS, TOKEN_LIMIT, COMPRESS_WARN_PCT, TURN_BUDGET, MSG_COUNT_WARN, MSG_COUNT_WALL
-    global _VERIFY_SSL, _DEV_MODE, _compress_config_loaded
+    global _VERIFY_SSL, _DEV_MODE, _compress_config_loaded, _LLM_CACHE_ENABLED
     try:
         db = db or get_db()
         PER_MESSAGE_COMPRESS_CHARS = int(db.get_meta("compress_per_msg_chars") or 500)
@@ -257,6 +259,12 @@ def _load_compress_config(db=None):
         try:
             import api_logger
             api_logger.set_enabled(_DEV_MODE)
+        except Exception:
+            pass
+        _LLM_CACHE_ENABLED = db.get_meta("llm_cache_enabled") == "1"
+        try:
+            import llm as _llm_mod
+            _llm_mod.set_cache_enabled(_LLM_CACHE_ENABLED)
         except Exception:
             pass
     except Exception:
@@ -293,28 +301,158 @@ def _get_enabled_tool_names():
     return _tools_enabled_cache
 
 
-def _get_enabled_tool_defs():
-    """Return tool defs for LLM: 常驻工具 + 元工具（工具折叠模式）。
+def _get_scene_tools(tid=None):
+    """按话题场景动态注入工具（场景裁剪 v2）。
+
+    规则：
+    - 有 DAG 文件（活跃任务）→ 注入任务执行工具 start_node/complete_node/finish_task/list_topics
+    - 有思维导图 → 注入 add_mindmap_node
+    - 最近 20 轮用过记忆/上下文工具 → 注入 trace_memory/remember_knowledge（自举：用过后保留）
+    其余场景工具在折叠组可 discover 到，不注入也不丢失可达性。
+    """
+    if not tid:
+        return set()
+    scene = set()
+    try:
+        from tools.registry import SCENE_TOOLS
+        # 任务场景：话题有 DAG 文件（活跃任务）
+        dag_path = os.path.join(ROOT_DIR, "data", "missions", tid, "dag.json")
+        if os.path.exists(dag_path):
+            scene |= {"start_node", "complete_node", "finish_task", "list_topics"}
+        # 导图场景：话题有思维导图
+        mm_path = os.path.join(ROOT_DIR, "data", "missions", tid, "mindmap.json")
+        if os.path.exists(mm_path):
+            scene |= {"add_mindmap_node"}
+        # 记忆场景：最近用过记忆/上下文工具（自举：用过后保留）
+        db = get_db()
+        usage = json.loads(db.get_topic_meta(tid, "tool_usage") or "[]")
+        if set(usage) & {"crystal_recall", "remember", "organize_context", "expand_compressed"}:
+            scene |= {"trace_memory", "remember_knowledge"}
+    except Exception:
+        pass
+    return scene & SCENE_TOOLS
+
+
+
+
+
+# ── 动态工具检索：按用户意图注入长尾工具（记忆网络复用）──
+_dynamic_tool_cache: dict = {}
+_dynamic_tool_cache_key = ""
+
+
+def _get_dynamic_tool_names(tid=None, top_k: int = 8):
+    """按最近用户消息的语义检索长尾工具名（向量索引）。
+
+    复用 memory/embedder + vec_index（与记忆系统同一条向量链路）：
+    - query = 最近一条用户消息（意图）；消息相同则命中缓存不重算
+    - 返回 top_k 个最相关工具名；无索引/失败时返回空集（不阻塞主流程）
+    """
+    global _dynamic_tool_cache, _dynamic_tool_cache_key
+    if not tid:
+        return set()
+    try:
+        db = get_db()
+        msgs = db.get_messages(tid, limit=6, skip_hidden=True, skip_process=True)
+        # 取最近一条非空用户消息作为意图 query
+        query = ""
+        for m in reversed(msgs):
+            role = m.get("role") if isinstance(m, dict) else m[1]
+            text = m.get("text") if isinstance(m, dict) else m[2]
+            if role == "user" and text and text.strip() and not text.startswith("["):
+                query = text.strip()[-2000:]  # 截断防超长
+                break
+        if not query:
+            return set()
+        key = f"{tid}:{query}"
+        if key == _dynamic_tool_cache_key and _dynamic_tool_cache:
+            return _dynamic_tool_cache
+        from tools.tool_router import retrieve
+        names = retrieve(query, top_k=top_k)
+        _dynamic_tool_cache = set(names)
+        _dynamic_tool_cache_key = key
+        return _dynamic_tool_cache
+    except Exception as e:
+        print(f"[tool_router] dynamic retrieve failed: {e}")
+        return set()
+
+
+def _record_tool_usage(tid, tool_name):
+    """记录话题最近使用的工具（去重，保留最近 20 个），供场景工具自举判断。"""
+    if not tid or not tool_name:
+        return
+    try:
+        db = get_db()
+        usage = json.loads(db.get_topic_meta(tid, "tool_usage") or "[]")
+        if tool_name in usage:
+            usage.remove(tool_name)
+        usage.append(tool_name)
+        db.set_topic_meta(tid, "tool_usage", json.dumps(usage[-20:], ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def _estimate_task_complexity(tid=None):
+    """按任务 DAG 节点数评估复杂度，返回建议注意力等级（10/12）或 None（不降级）。
+
+    复杂任务（节点多）自动降级减少干扰；无任务/简单任务保持 15 全量。
+    """
+    if not tid:
+        return None
+    try:
+        dag_path = os.path.join(ROOT_DIR, "data", "missions", tid, "dag.json")
+        if not os.path.exists(dag_path):
+            return None
+        with open(dag_path, encoding="utf-8") as f:
+            dag = json.load(f)
+        n = len(dag.get("nodes") or [])
+        if n >= 25:
+            return 10
+        if n >= 12:
+            return 12
+    except Exception:
+        pass
+    return None
+
+
+def _get_enabled_tool_defs(tid=None):
+    """Return tool defs for LLM: 常驻工具 + 场景工具 + 元工具（工具折叠模式）。
 
     工具折叠机制（借鉴 OpenAI namespace + Codex tool_search）：
-    - 常驻工具（~28个高频核心）始终暴露给 LLM
-    - 折叠工具（~56个低频）通过 discover_tools(group) 按需发现
+    - 常驻工具（CORE 16 + PROTECTED 13 = 29 个高频核心）始终暴露给 LLM
+    - 场景工具（7 个低频）按话题状态动态注入（有 DAG/导图/记忆历史时）
+    - 折叠工具（~56 个低频）通过 discover_tools(group) 按需发现
     - 元工具：discover_tools + execute_advanced_tool
-    - 预期省 60%+ 工具 schema token
 
     若用户设置了 tools_enabled 白名单，则按白名单过滤常驻工具，
     但元工具始终保留（否则折叠工具无法访问）。
     """
     from tools.registry import get_always_on_tool_defs, META_TOOLS, _tools
-    # 常驻工具定义
+    # 常驻工具定义（CORE + PROTECTED）
     defs = get_always_on_tool_defs()
+    # 场景工具定义（按话题状态动态注入，保证可达性）
+    scene = _get_scene_tools(tid)
+    if scene:
+        defs = defs + [t["definition"] for name, t in _tools.items() if name in scene]
+    # 动态工具检索：按最近用户意图注入长尾工具（向量索引，记忆网络复用）
+    _retrieved = _get_dynamic_tool_names(tid)
+    if _retrieved:
+        defs = defs + [t["definition"] for name, t in _tools.items() if name in _retrieved]
     # 元工具定义（discover_tools + execute_advanced_tool）
     meta_defs = [t["definition"] for name, t in _tools.items() if name in META_TOOLS]
     all_defs = defs + meta_defs
+    # 去重（场景/检索/元工具可能有交集，如 start_node 同时在 SCENE 和折叠组）
+    seen, unique = set(), []
+    for d in all_defs:
+        n = d.get("name")
+        if n not in seen:
+            seen.add(n)
+            unique.append(d)
+    all_defs = unique
 
     enabled = _get_enabled_tool_names()
     if enabled is None:
-        # 默认：返回常驻 + 元工具（折叠模式）
+        # 默认：返回常驻 + 场景 + 元工具（折叠模式）
         return all_defs
     # 用户自定义白名单：按白名单过滤，但元工具强制保留
     enabled_with_meta = set(enabled) | META_TOOLS
@@ -363,6 +501,7 @@ def _llm_summarize(text: str, llm_config=None) -> str | None:
 
     The model uses its own judgment to decide what key info to keep.
     Returns None if unavailable (falls back to mechanical compression).
+    走 chat_once_cached 缓存层：相同消息重复整理（多次触发上下文压缩）时命中秒回。
     """
     if not llm_config:
         # 调用方没传配置时，自己从 model_config.json 拉取，否则永远 None（之前修了一半的 bug）
@@ -373,27 +512,13 @@ def _llm_summarize(text: str, llm_config=None) -> str | None:
     if not llm_config or not llm_config.api_key or not llm_config.base_url:
         return None
     try:
+        from llm import chat_once_cached
         prompt = "用你自己的话整理下面这条消息，保留关键信息。控制在50-100字。只输出整理结果，不要前缀。"
-        url = f"{llm_config.base_url}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {llm_config.api_key}",
-        }
-        body = json.dumps({
-            "model": llm_config.model,
-            "messages": [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": text[:3000]},
-            ],
-            "stream": False,
-            "max_tokens": 200,
-            "temperature": 0.3,
-        }).encode("utf-8")
-        import urllib.request
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=15, context=None if _VERIFY_SSL else _UNVERIFIED_SSL_CTX) as resp:
-            data = json.loads(resp.read())
-        result = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": text[:3000]},
+        ]
+        result = chat_once_cached(llm_config, messages).get("text", "")
         if result and len(result) > 5:
             return result.strip()
         return None
@@ -768,17 +893,42 @@ def _build_clipboard_recovery(topic_id: str) -> dict:
 
 def _estimate_tokens(messages):
     """Estimate token count including overhead (tools, formatting ~1.5x multiplier).
-    CJK chars ≈ 1.2 tokens/char, ASCII ≈ 0.3 tokens/char."""
+    CJK chars ≈ 1.2 tokens/char, ASCII ≈ 0.3 tokens/char.
+    图片消息（content 为数组）的 image 块不按 base64 字符数估算（否则撑爆预算），
+    按固定值 _EST_IMAGE_TOKENS 计。"""
+    def _count_text(s):
+        c = 0.0
+        for ch in s:
+            if '\u4e00' <= ch <= '\u9fff' or '\u3000' <= ch <= '\u303f' or '\uff00' <= ch <= '\uffef':
+                c += 1.2
+            else:
+                c += 0.3
+        return c
+
     total = 0.0
     for m in messages:
-        text = json.dumps(m, ensure_ascii=False)
-        for ch in text:
-            if '\u4e00' <= ch <= '\u9fff' or '\u3000' <= ch <= '\u303f' or '\uff00' <= ch <= '\uffef':
-                total += 1.2
-            else:
-                total += 0.3
+        content = m.get("content")
+        if isinstance(content, list):
+            # 多模态消息：text 块正常计，image 块按估算值，其余字段（role 等）按 JSON 计
+            for block in content:
+                if isinstance(block, dict):
+                    t = block.get("type")
+                    if t == "text":
+                        total += _count_text(block.get("text", ""))
+                    elif t == "image_url":
+                        total += _EST_IMAGE_TOKENS
+            rest = {k: v for k, v in m.items() if k != "content"}
+            if rest:
+                total += _count_text(json.dumps(rest, ensure_ascii=False))
+        else:
+            total += _count_text(json.dumps(m, ensure_ascii=False))
     # ×1.5 for unseen overhead: tool definitions, API formatting, special tokens
     return int(total * 1.5)
+
+
+# 单张图片的 token 估算值：DeepSeek vision 按尺寸算（约 85 + 每 512² tile×170），
+# 普通照片在几百到两千 token；固定 1000 足够避免误触发上下文截断。
+_EST_IMAGE_TOKENS = 1000
 
 
 def _estimate_tools_tokens(tool_defs):
@@ -1387,14 +1537,16 @@ def _build_model_list(cfg) -> list[dict]:
         })
 
     # Zhipu: hardcoded
+    zhipu_key = _get_provider_key(cfg, "zhipu")
     for mid, name, desc in [
-        ("glm-4-flash", "GLM-4 Flash", "免费快速模型"),
+        ("glm-5.3-flash", "GLM-5.3 Flash", "原生多模态,1M上下文,视觉编码"),
         ("glm-5-turbo", "GLM-5 Turbo", "旗舰模型"),
+        ("glm-4-flash", "GLM-4 Flash", "免费快速模型"),
     ]:
         result.append({
             "provider": "zhipu",
             "id": mid, "name": name, "desc": desc,
-            "available": False,
+            "available": bool(zhipu_key),
             "current": cfg.provider == "zhipu" and cfg.model == mid,
         })
 
@@ -1431,6 +1583,22 @@ _paused_lock = threading.Lock()
 # Cancel events for active chat loops — allows stop-thinking to interrupt streaming
 _cancel_events = {}
 _cancel_lock = threading.Lock()
+
+# Injection queues for active chat loops — 循环运行中收到的新用户消息进队列，
+# agent 循环在轮次边界取出注入上下文继续思考，避免起第二个并行循环
+_inject_queues = {}
+_inject_lock = threading.Lock()
+
+
+def _drain_injections(tid):
+    """取出并清空该话题的插话队列；无则返回空列表。"""
+    with _inject_lock:
+        q = _inject_queues.get(tid)
+        if not q:
+            return []
+        items = list(q)
+        q.clear()
+        return items
 
 
 def set_working(tid, status, thinking="", intermediate="", response="", tool_calls=None, turn=0, remaining=None):
@@ -1474,6 +1642,15 @@ _PRICING_NEW = {  # 2026-08-17 起，分闲时/高峰
 }
 _NEW_PRICING_TS = 1786982400  # 2026-08-17 00:00 北京时间
 
+# 智谱定价（USD / 1M tokens，国际站 z.ai 官方价，乘实时汇率折 CNY）。
+# 与 DeepSeek 价格体系完全独立，禁止掉进上面 DeepSeek 表（历史 bug：
+# glm-5.3-flash 含 "flash" 被当 DeepSeek flash 档，高估数十倍）。
+# Flash 为限时 5 折价（原价 0.15/0.03/0.50），恢复原价时改这里。
+_ZHIPU_PRICING = {
+    "glm-5.3-flash": {"hit": 0.015, "miss": 0.075, "out": 0.25},
+    "glm-5.3":       {"hit": 0.26,  "miss": 1.4,   "out": 4.4},
+}
+
 _total_cost_cny = 0.0
 _total_tokens_global = 0
 _cost_lock = threading.Lock()
@@ -1487,10 +1664,23 @@ def _is_peak_hour():
 
 
 def _cost_cny(input_tokens, output_tokens, cache_hit_tokens=0, model=""):
-    """精确估价（CNY）：缓存命中/未命中分开计价，8-17 后区分峰谷。"""
-    tier = "pro" if "pro" in (model or "").lower() else "flash"
+    """精确估价（CNY）：DeepSeek 用官方人民币价，智谱用 USD 价×实时汇率。
+    缓存命中/未命中分开计价；DeepSeek 8-17 后区分峰谷。"""
+    m = (model or "").lower()
     hit = min(cache_hit_tokens or 0, input_tokens)
     miss = max(0, input_tokens - hit)
+    if m in _ZHIPU_PRICING:
+        p = _ZHIPU_PRICING[m]
+        usd = (hit * p["hit"] + miss * p["miss"] + output_tokens * p["out"]) / 1_000_000
+        return usd * _cny_rate
+    if "glm" in m:
+        # 智谱新模型未录入价格表：用 Flash 价兜底并提醒，绝不掉进 DeepSeek 表
+        print(f"[cost] WARNING: {model} not in _ZHIPU_PRICING, fallback to glm-5.3-flash price (update table!)")
+        p = _ZHIPU_PRICING["glm-5.3-flash"]
+        usd = (hit * p["hit"] + miss * p["miss"] + output_tokens * p["out"]) / 1_000_000
+        return usd * _cny_rate
+    # DeepSeek：兼容旧模型名前缀（deepseek-chat→flash 档）
+    tier = "pro" if "pro" in m else "flash"
     if time.time() >= _NEW_PRICING_TS:
         p = _PRICING_NEW[tier]["peak" if _is_peak_hour() else "off"]
     else:
@@ -1541,31 +1731,48 @@ _balance_cache = (0, None)
 _balance_cache_lock = threading.Lock()
 _total_spent_cny = 0.0
 _last_balance_cny = 0.0
+_balance_provider = None  # 余额基线所属供应商；切换供应商时重置基线不累计消费
 
 
 def _balance_now():
-    """实时查询余额（无缓存），返回 float 或 None（失败时）。"""
+    """实时查询当前供应商余额（无缓存），返回 float 或 None（失败时）。"""
     try:
-        api_key = get_model_config().api_key
+        cfg = get_model_config()
+        api_key = cfg.api_key
         if not api_key:
             return None
-        req = urllib.request.Request("https://api.deepseek.com/user/balance")
-        req.add_header("Authorization", "Bearer " + api_key)
-        rr = urllib.request.urlopen(req, timeout=10, context=None if _VERIFY_SSL else _UNVERIFIED_SSL_CTX)
-        data = json.loads(rr.read())
-        if data and data.get("is_available"):
-            info = data.get("balance_infos", [{}])[0]
-            try:
-                return float(info.get("total_balance", "0"))
-            except (ValueError, TypeError):
-                return None
+        if cfg.provider == "zhipu":
+            # 智谱：控制台内部接口，API key 直接鉴权（实测 200）
+            req = urllib.request.Request(
+                "https://open.bigmodel.cn/api/biz/account/query-customer-account-report")
+            req.add_header("Authorization", "Bearer " + api_key)
+            rr = urllib.request.urlopen(req, timeout=10,
+                                        context=None if _VERIFY_SSL else _UNVERIFIED_SSL_CTX)
+            data = json.loads(rr.read())
+            if data and data.get("success") and isinstance(data.get("data"), dict):
+                try:
+                    return float(data["data"].get("balance", "0"))
+                except (ValueError, TypeError):
+                    return None
+        else:
+            req = urllib.request.Request("https://api.deepseek.com/user/balance")
+            req.add_header("Authorization", "Bearer " + api_key)
+            rr = urllib.request.urlopen(req, timeout=10,
+                                        context=None if _VERIFY_SSL else _UNVERIFIED_SSL_CTX)
+            data = json.loads(rr.read())
+            if data and data.get("is_available"):
+                info = data.get("balance_infos", [{}])[0]
+                try:
+                    return float(info.get("total_balance", "0"))
+                except (ValueError, TypeError):
+                    return None
     except Exception as e:
         print(f"[balance] query failed: {e}")
     return None
 
 
 def _query_balance(force=False):
-    """Query DeepSeek balance API, cached 120s."""
+    """Query current provider balance API, cached 120s."""
     global _total_spent_cny, _last_balance_cny, _balance_cache
     now = time.time()
     with _balance_cache_lock:
@@ -1583,7 +1790,13 @@ def _query_balance(force=False):
             now_bal = float(info.get("total_balance", "0"))
         except (ValueError, TypeError):
             now_bal = 0.0
-        if _last_balance_cny == 0:
+        global _balance_provider
+        cur_provider = get_model_config().provider
+        if _balance_provider != cur_provider:
+            # 供应商切换（或首次启动）：两池资金独立，重置基线，不把差额误算成消费
+            _balance_provider = cur_provider
+            _last_balance_cny = now_bal
+        elif _last_balance_cny == 0:
             _last_balance_cny = now_bal
         if now_bal < _last_balance_cny:
             _delta = _last_balance_cny - now_bal
@@ -1611,8 +1824,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # HTTP 访问日志：常态落盘到 data/http_access.log（轻量），便于排查网络/连接问题
         try:
-            os.makedirs(os.path.join(BASE_DIR, "data"), exist_ok=True)
-            with open(os.path.join(BASE_DIR, "data", "http_access.log"), "a", encoding="utf-8") as _f:
+            os.makedirs(os.path.join(ROOT_DIR, "data"), exist_ok=True)
+            with open(os.path.join(ROOT_DIR, "data", "http_access.log"), "a", encoding="utf-8") as _f:
                 _f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {self.address_string()} {self.command} {self.path} -> {format % args}\n")
         except Exception:
             pass
@@ -1686,7 +1899,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(200, {
                 "status": "ok",
                 "pid": os.getpid(),
-                "base_dir": BASE_DIR,
+                "base_dir": ROOT_DIR,
                 "root_dir": ROOT_DIR,
                 "cwd": os.getcwd(),
                 "port": self.port,
@@ -1828,6 +2041,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/settings/devmode":
             db = get_db()
             self._json(200, {"dev_mode": db.get_meta("dev_mode") == "1"})
+
+        # ── LLM 响应本地缓存 ──
+        elif path == "/api/settings/llm_cache":
+            db = get_db()
+            enabled = db.get_meta("llm_cache_enabled") == "1"
+            stats = {}
+            try:
+                import llm_cache
+                stats = llm_cache.get_cache().stats()
+            except Exception:
+                pass
+            # 诊断:llm 模块内开关实际值
+            llm_mod_enabled = None
+            try:
+                import llm as _llm_diag2
+                llm_mod_enabled = _llm_diag2.is_cache_enabled()
+            except Exception as e:
+                llm_mod_enabled = f"err: {e}"
+            self._json(200, {"enabled": enabled, "stats": stats,
+                             "llm_module_enabled": llm_mod_enabled})
 
         # ── User avatar (跨浏览器持久化) ──
         elif path == "/api/settings/avatar":
@@ -2511,7 +2744,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(403, {"error": "unauthorized"})
             return
 
-        path = self.path
+        path = self.path.split("?")[0]   # 与 do_GET 一致：去掉 query string，避免带参请求 404
+        params = self._parse_query()
         try:
             body = self._read_body().decode("utf-8")
             data = json.loads(body) if body else {}
@@ -2785,17 +3019,50 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 pass
             self._json(200, {"ok": True, "dev_mode": on})
 
+        # ── LLM 响应本地缓存：开关 + 清空 ──
+        elif path == "/api/settings/llm_cache":
+            db = get_db()
+            if "enabled" in data:
+                on = bool(data["enabled"])
+                db.set_meta("llm_cache_enabled", "1" if on else "0")
+                global _LLM_CACHE_ENABLED
+                _LLM_CACHE_ENABLED = on
+                try:
+                    import llm as _llm_mod
+                    _llm_mod.set_cache_enabled(on)
+                except Exception:
+                    pass
+            if data.get("clear"):
+                try:
+                    import llm_cache
+                    llm_cache.get_cache().clear()
+                except Exception:
+                    pass
+            stats = {}
+            try:
+                import llm_cache
+                stats = llm_cache.get_cache().stats()
+            except Exception:
+                pass
+            self._json(200, {"ok": True,
+                             "enabled": db.get_meta("llm_cache_enabled") == "1",
+                             "stats": stats})
+
         # ── AI 自动建议分析：开关/频率/立即生成/预览 ──
         elif path == "/api/settings/suggestions":
             db = get_db()
             cfg = _suggestion_cfg()
+            # 统一 enabled 为 "1"/"0" 字符串：_suggestion_cfg() 返回布尔，
+            # 若不规范化，读请求返回时 cfg["enabled"]=="1" 恒为 False（True!="1"）
+            cfg["enabled"] = "1" if cfg["enabled"] else "0"
             if "enabled" in data:
                 cfg["enabled"] = "1" if data["enabled"] else "0"
             if "freq" in data and str(data["freq"]) in _SUGGESTION_FREQ_HOURS:
                 cfg["freq"] = str(data["freq"])
-            # 统一存 "1"/"0" 字符串，避免 bool 写回造成读取端判断失忆
+            # 统一存 "1"/"0" 字符串（cfg["enabled"] 已是规范化字符串，
+            # 不能再三元判断——非空字符串 "0" 是 truthy，会导致关闭永远写不进库）
             db.set_meta("suggestion_cfg", json.dumps(
-                {"enabled": "1" if cfg["enabled"] else "0", "freq": cfg["freq"]},
+                {"enabled": cfg["enabled"], "freq": cfg["freq"]},
                 ensure_ascii=False))
             resp = {"ok": True, "enabled": cfg["enabled"] == "1", "freq": cfg["freq"],
                     "pool": _suggestion_pool(),
@@ -3099,7 +3366,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # ── File Crystals: build ──
         elif path == "/api/file-crystals/build" and self.command == "POST":
             try:
-                body = self._read_json_body()
+                body = data
                 fpath = body.get("path", "").strip()
                 if not fpath:
                     self._json(400, {"error": "缺少 path 参数"})
@@ -3135,7 +3402,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # ── File Crystals: recall ──
         elif path == "/api/file-crystals/recall" and self.command == "POST":
             try:
-                body = self._read_json_body()
+                body = data
                 query = body.get("query", "").strip()
                 top_k = int(body.get("top_k", 5))
                 if not query:
@@ -3163,7 +3430,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # ── File Crystals: build pyramid ──
         elif path == "/api/file-crystals/pyramid" and self.command == "POST":
             try:
-                body = self._read_json_body()
+                body = data
                 fpath = body.get("path", "").strip()
                 if not fpath:
                     self._json(400, {"error": "缺少 path 参数"})
@@ -3226,7 +3493,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # ── CMN Retriever: retrieve ──
         elif path == "/api/cmn/retrieve" and self.command == "POST":
             try:
-                body = self._read_json_body()
+                body = data
                 query = body.get("query", "").strip()
                 top_k = int(body.get("top_k", 10))
                 if not query:
@@ -3246,7 +3513,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # ── CMN Retriever: verify hash ──
         elif path == "/api/cmn/verify":
             try:
-                crystal_id = params.get("id", [""])[0]
+                # id 优先从 body 取（POST 语义），兼容 query string
+                crystal_id = data.get("id") or (params.get("id") or [""])[0]
                 if not crystal_id:
                     self._json(400, {"error": "缺少 id 参数"})
                     return
@@ -3525,6 +3793,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         message = data.get("message", "").strip()
         tid = data.get("topic_id", "")
         attachments = data.get("attachments", []) or []
+        _image_abs_paths = []  # 图片附件绝对路径（用于 vision 多模态）
         if not message and not attachments:
             self._json(400, {"error": "message required"})
             return
@@ -3551,6 +3820,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         _p = os.path.abspath(_c)
                         break
                 _items.append(f"{_fn} -> {_p}" if _p else _fn)
+                # 收集图片附件（jpg/png/gif/webp），供 vision 模型多模态接入
+                if _p and image_mime_type(_p):
+                    _image_abs_paths.append(_p)
             _att_line = "[附件: " + ", ".join(_items) + "]"
             message = (message + "\n" + _att_line).strip() if message else _att_line
         # Auto-set workspace if not already set（存储绝对路径）
@@ -3558,6 +3830,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.db.set_topic_meta(tid, "workspace", os.path.abspath(ws_dir))
         # 附件清单存进 args，前端刷新后能恢复 chip
         _msg_args = {"attachments": attachments} if attachments else None
+        # ── 插话：该话题已有运行中的 agent 循环时，不起第二个并行循环。
+        # 消息落库后进入注入队列，运行中的循环会在轮次边界取出、插入上下文继续思考。
+        with _cancel_lock:
+            _loop_active = _cancel_events.get(tid) is not None
+        if _loop_active:
+            self.db.add_message(tid, "user", message, args=_msg_args, ts=time.time())
+            self.db.update_topic(tid, updated_at=time.time())
+            with _inject_lock:
+                _inject_queues.setdefault(tid, []).append(message)
+            print(f"[agent] message injected into running loop (topic {tid[:8]})")
+            self._json(200, {"status": "injected", "response": "", "topic_id": tid})
+            return
         self.db.add_message(tid, "user", message, args=_msg_args, ts=time.time())
         # Auto-create task root fragment (first message in topic)
         store = _get_memory_store()
@@ -3592,6 +3876,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             rule_lines.append("")
             rule_lines.append(_vocab("matters_manage_hint"))
             blocks.append(_vocab("matters_title") + "\n" + "\n".join(rule_lines))
+
+        # Block 1.1: 互动基调（氛围记忆，表达调节）——中性标题，不随视角切换
+        try:
+            from tools.important_matters import get_tone as _get_tone
+            _tone = _get_tone()
+            if _tone and _tone.get("tone"):
+                _trust_map = {
+                    "high": "高（可直说、可反驳、少客气话）",
+                    "mid": "中（正常交流）",
+                    "low": "低（谨慎、多解释、少玩笑）",
+                }
+                _tone_lines = [f"互动基调：{_tone['tone']}"]
+                if _tone.get("trust"):
+                    _tone_lines.append(f"信任度：{_trust_map.get(_tone['trust'], _tone['trust'])}")
+                _tone_lines.append("💡 氛围明显变化时用 interaction_tone_update 更新")
+                blocks.append("【当前互动氛围】\n" + "\n".join(_tone_lines))
+        except Exception:
+            pass
+
 
         # Block 1.5: 领域书（开关控制入口）
         try:
@@ -3749,10 +4052,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             from skills_scanner import scan_skills
             skills = scan_skills()
             if skills:
-                skill_lines = [f"skills/{s['name']}.md — {s['description']}" for s in skills]
+                skill_lines = []
+                for s in skills:
+                    line = f"skills/{s['name']}.md — {s['description']}"
+                    trigs = s.get("triggers") or []
+                    if trigs:
+                        line += f"（何时想起: {'；'.join(trigs)}）"
+                    if s.get("status") == "trial":
+                        line += "【试用中：匹配场景先按技能实测一次，验证有效后把 frontmatter 的 status 改为 active】"
+                    skill_lines.append(line)
                 skill_lines.append("")
                 skill_lines.append("💡 用 discover_tools('memory_advanced') 获取技能管理工具(查看模板/创建技能)")
-                skill_lines.append("   或用 write_file 直接写 skills/新技能.md（支持 YAML 元数据）")
+                skill_lines.append("   或用 write_file 直接写 skills/新技能.md（支持 YAML 元数据，status: trial 表示试用期）")
                 blocks.append(_vocab("skills_title") + "\n" + "\n".join(skill_lines))
         except Exception:
             pass
@@ -3884,8 +4195,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 _msg_clean2 = message.strip().replace(" ", "")
                 _skip2 = _msg_clean2 in _skip_words or not message or len(_msg_clean2) < 4
                 if not _skip2:
-                    from memory.msg_vectors import recall_related_dialogs
-                    _related = recall_related_dialogs(message[:300], exclude_topic_id=tid, top_k=4)
+                    from memory.msg_vectors import recall_with_context
+                    _related = recall_with_context(message[:300], exclude_topic_id=tid, top_k=3)
                     if _related:
                         _dlg_lines = []
                         for _item in _related:
@@ -3893,12 +4204,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             _tsv = _item.get("ts") or 0
                             _ts_str = time.strftime("%m-%d %H:%M", time.localtime(_tsv)) if _tsv else ""
                             _txt = (_item.get("text") or "").replace("\n", " ").strip()
-                            if len(_txt) > 80:
-                                _txt = _txt[:80] + "…"
+                            if len(_txt) > 60:
+                                _txt = _txt[:60] + "…"
                             _dlg_lines.append(f"[{_ts_str}][{_tt}] 你说：{_txt}")
+                            # 带前后文（"念头"看到对话现场）
+                            for _c in (_item.get("context") or [])[-2:]:
+                                _ct = (_c.get("text") or "").replace("\n", " ").strip()
+                                if not _ct:
+                                    continue
+                                if len(_ct) > 50:
+                                    _ct = _ct[:50] + "…"
+                                _cr = "我说" if _c.get("role") == "ai" else "你说"
+                                _dlg_lines.append(f"   ↳ {_cr}：{_ct}")
                         if _dlg_lines:
                             _dlg_lines.append("")
-                            _dlg_lines.append("💭 这些是历史对话里的用户原话，跨任务相关。翻阅完整对话: read_topic_messages")
+                            _dlg_lines.append("💭 这些是历史对话里的用户原话，跨任务相关，附了当时的上下文。翻阅完整对话: read_topic_messages")
                             blocks.append("【关联对话】\n" + "\n".join(_dlg_lines))
             except Exception as e:
                 print(f"[memory] related-dialog recall failed: {e}")
@@ -4016,6 +4336,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             _focus_custom = json.loads(_focus_custom_json)
         except Exception:
             _focus_custom = []
+        # ── 自动注意力调节（主动）：任务复杂度评估 ──
+        # AI 显式 set_focus_level（focus_explicit=1）优先，自动调节不覆盖
+        _focus_auto_note = ""
+        _focus_explicit = self.db.get_topic_meta(tid, "focus_explicit") or "0"
+        if _focus_explicit != "1" and _focus_level >= 15 and not _focus_custom:
+            _auto_focus = _estimate_task_complexity(tid)
+            if _auto_focus:
+                _focus_level = _auto_focus
+                _focus_auto_note = f"（自动调节：任务复杂 → 等级 {_auto_focus}，可 set_focus_level 手动覆盖）"
 
         # ── Assemble system message ──
         # 结构化分组：6 个逻辑组 + section header + 强分隔线
@@ -4057,37 +4386,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if b.startswith(prefix):
                         return (sec_order, blk_order)
             return (99, 99)
-        # 按分组排序
-        blocks.sort(key=_block_group_key)
-        # ── 注意力等级过滤 ──
-        if _focus_level < 15 or _focus_custom:
-            blocks, _removed_titles = _apply_focus_filter(blocks, _focus_level, _focus_custom)
-            if _removed_titles:
-                _memo = self.db.get_topic_meta(tid, "focus_memo") or ""
-                _restore_at = self.db.get_topic_meta(tid, "focus_restore_at") or "-1"
-                _restore_hint = f"，{(_restore_at)} 轮后自动恢复" if _restore_at != "-1" else "，需手动恢复"
-                blocks.append(
-                    f"━━━ 专注模式 ━━━\n"
-                    f"等级 {_focus_level}/15{_restore_hint}\n"
-                    f"备忘：{_memo}\n"
-                    f"已移除：{', '.join(_removed_titles)}\n"
-                    f"💡 记得完成任务后 set_focus_level(15) 恢复"
-                )
-        # 分组拼接：section header + 强分隔线隔开 block
-        _BLOCK_SEP = "\n\n" + "─" * 15 + "\n\n"      # 组内 block 间
-        _SECTION_SEP = "\n\n" + "═" * 15 + "\n\n"     # 组间
-        from itertools import groupby
-        _parts = []
-        for sec_order, group_blocks in groupby(blocks, key=lambda b: _block_group_key(b)[0]):
-            sec_header = next((sh for so, sh, _ in _BLOCK_GROUPS if so == sec_order), None)
-            group_list = list(group_blocks)
-            if not group_list or not sec_header:
-                continue
-            section_text = sec_header + "\n" + group_list[0]
-            for b in group_list[1:]:
-                section_text += _BLOCK_SEP + b
-            _parts.append(section_text)
-        system_msg = _SECTION_SEP.join(_parts)
+        def _compose_system(blocks, focus_level, custom_blocks, auto_note=""):
+            """按注意力等级过滤 block 并组装 system prompt。返回 (system_msg, removed_titles)。
+
+            用 sorted 拷贝，不修改外层 blocks —— 上下文压力被动降级时可基于原始 blocks 重新组装。
+            """
+            blocks = sorted(blocks, key=_block_group_key)
+            removed = []
+            if focus_level < 15 or custom_blocks:
+                blocks, removed = _apply_focus_filter(blocks, focus_level, custom_blocks)
+                if removed:
+                    _memo = self.db.get_topic_meta(tid, "focus_memo") or ""
+                    _restore_at = self.db.get_topic_meta(tid, "focus_restore_at") or "-1"
+                    _restore_hint = f"，{_restore_at} 轮后自动恢复" if _restore_at != "-1" else "，需手动恢复"
+                    blocks.append(
+                        f"━━━ 专注模式 ━━━\n"
+                        f"等级 {focus_level}/15{_restore_hint} {auto_note}\n"
+                        f"备忘：{_memo}\n"
+                        f"已移除：{', '.join(removed)}\n"
+                        f"💡 记得完成任务后 set_focus_level(15) 恢复"
+                    )
+            _BLOCK_SEP = "\n\n" + "─" * 15 + "\n\n"      # 组内 block 间
+            _SECTION_SEP = "\n\n" + "═" * 15 + "\n\n"     # 组间
+            from itertools import groupby
+            _parts = []
+            for sec_order, group_blocks in groupby(blocks, key=lambda b: _block_group_key(b)[0]):
+                sec_header = next((sh for so, sh, _ in _BLOCK_GROUPS if so == sec_order), None)
+                group_list = list(group_blocks)
+                if not group_list or not sec_header:
+                    continue
+                section_text = sec_header + "\n" + group_list[0]
+                for b in group_list[1:]:
+                    section_text += _BLOCK_SEP + b
+                _parts.append(section_text)
+            return _SECTION_SEP.join(_parts), removed
+
+        system_msg, _removed_titles = _compose_system(blocks, _focus_level, _focus_custom, _focus_auto_note)
         # ── 规则引擎：事件触发（用户发消息瞬间实时检查，不落库、不推APP）──
         try:
             sys.path.insert(0, os.path.join(ROOT_DIR, "rules_engine"))
@@ -4095,7 +4429,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             _hits = rule_worker.check_rules_for_topic(
                 f"http://127.0.0.1:{self.port}", tid)
             if _hits:
-                _rule_block = ("━━━ 规则提醒（请立即处理；处理完自动消失，勿留占上下文）━━━\n"
+                _rule_block = ("━━━ 规则提醒（这是系统最重要的规则，如果你看到请在符合条件后做出处理；处理完本提醒自动消失）━━━\n"
                                + "\n\n".join(_hits))
                 # 置顶：放在 system_msg 最前，确保一眼看到，不被其他内容分散注意力
                 system_msg = _rule_block + "\n\n" + "═" * 15 + "\n\n" + system_msg
@@ -4209,10 +4543,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         old_msgs = _compress_context(msgs[:-1], tid, store, self.db)
         msgs = old_msgs + [current_msg]
         llm_config = get_model_config()
+        # ── 看图：图片附件 → 多模态 content + 切 vision 模型 ──
+        if _image_abs_paths:
+            _mm = build_multimodal_content(message, _image_abs_paths)
+            if _mm is not None:
+                current_msg["content"] = _mm
+                # 当前模型是视觉模型（如 glm-5.3-flash）直接用，否则回退 deepseek vision
+                if not is_vision_model(llm_config.model):
+                    llm_config = llm_config.clone_with(model="deepseek-v4-flash-vision-exp")
+        else:
+            # 非 vision 轮次：剥离历史残留的图片 content，避免 v4-pro 报错
+            msgs = strip_image_content(msgs, llm_config.model)
         _inject_context_hints(msgs, tid, limit_truncated=limit_truncated)
         # 缓存调试快照：包含 messages + tools + token 拆解
         # 之前只存 msgs，导致工具 schema（可达 13k+ tokens）不可见，调试时对不上 token 数
-        _active_tools = _get_enabled_tool_defs()
+        _active_tools = _get_enabled_tool_defs(tid)
         _tools_tokens = _estimate_tools_tokens(_active_tools)
         _snapshot = {
             "model": llm_config.model,
@@ -4239,11 +4584,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.db.set_topic_meta(tid, "focus_restore_at", "-1")
             self.db.set_topic_meta(tid, "focus_memo", "")
             self.db.set_topic_meta(tid, "focus_custom_blocks", "[]")
+            self.db.set_topic_meta(tid, "focus_explicit", "0")
             print(f"[agent] focus auto-restore at iteration 0")
         print(f"[agent] task started, budget {remaining} turns")
         set_working(tid, "thinking", turn=0, remaining=remaining)
         _budget_warned = False  # 每个预算周期只提醒一次
         _budget_exhausted = False
+        _auto_downgraded = False  # 上下文压力被动降级标记（每任务最多降一次）
         _turn_retries = 0  # 连接层瞬时故障的轮级重试计数
         _dangling_retries = 0  # 防悬空检测：每请求最多强制续跑 2 次
         while remaining > 0:
@@ -4266,7 +4613,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 )
                 msgs.append({"role": "user", "content": _budget_hint_msg})
 
-            for event in chat_stream(llm_config, msgs, tools=_get_enabled_tool_defs(), cancel_event=cancel_evt, verify_ssl=_VERIFY_SSL):
+            for event in chat_stream_cached(llm_config, msgs, tools=_get_enabled_tool_defs(tid), cancel_event=cancel_evt, verify_ssl=_VERIFY_SSL):
                 et = event["type"]
                 if et == "thinking_delta":
                     full_thinking += event["delta"]
@@ -4279,6 +4626,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif et == "tool_call":
                     has_tool_calls = True
                     turn_tool_calls.append(event)
+                    _record_tool_usage(tid, event.get("tool_name"))
                 elif et == "done":
                     turn_finish_reason = event.get("finish_reason") or "stop"
                     usage = event.get("usage", {})
@@ -4335,6 +4683,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if turn_text.strip() and not full_response:
                     full_intermediate = _append_intermediate(full_intermediate, turn_text)
                 break
+            # ── 插话注入：运行中收到的新用户消息插入上下文，同一循环继续思考 ──
+            # 最终轮边界：模型正要收尾时被打断 → 把已说内容记为 assistant，
+            # 插话作为 user 追加，continue 让模型带着新输入继续想
+            _injs = _drain_injections(tid)
+            if _injs and not has_tool_calls:
+                if turn_text.strip():
+                    msgs.append({"role": "assistant", "content": turn_text})
+                for _inj in _injs:
+                    msgs.append({"role": "user", "content": _inj})
+                print(f"[agent] injected {len(_injs)} user message(s) at final-turn boundary, continuing")
+                set_working(tid, "thinking", thinking=full_thinking,
+                            intermediate=full_intermediate, response="",
+                            turn=turn+1, remaining=remaining)
+                continue
             if not has_tool_calls:
                 # 最终轮（无 tool_call）：turn_text 就是最终答案
                 # ── 防悬空检测：预告但没调用工具 / 生成被截断 → 强制续跑 ──
@@ -4511,17 +4873,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                           "turn": turn},
                                     ts=time.time())
 
+            # ── 插话注入（工具轮边界）：工具结果落库后、下一轮 LLM 调用前，
+            # 把运行中收到的新用户消息插入上下文，模型下一轮即可看到并纳入思考 ──
+            _injs = _drain_injections(tid)
+            if _injs:
+                for _inj in _injs:
+                    msgs.append({"role": "user", "content": _inj})
+                print(f"[agent] injected {len(_injs)} user message(s) after tool turn, continuing")
+
             # ── Context wall: trim if over budget (dialogue-granular) ──
             # 预算必须计入 tools schema token，否则工具+消息总和可能超限
             # （方案D：之前只算 messages，导致 tools 13k+ tokens 不计入预算）
             loop_msgs_tokens = _estimate_tokens(msgs)
-            loop_tools_tokens = _estimate_tools_tokens(_get_enabled_tool_defs())
+            loop_tools_tokens = _estimate_tools_tokens(_get_enabled_tool_defs(tid))
             loop_total_tokens = loop_msgs_tokens + loop_tools_tokens
             eff_limit = _effective_limit()
             if loop_total_tokens >= eff_limit:
                 print(f"[context-wall] 循环触发: msgs={loop_msgs_tokens} + tools={loop_tools_tokens} "
-                      f"= {loop_total_tokens} tokens >= {eff_limit} 有效上限({TOKEN_LIMIT}*{ESTIMATE_SAFETY}), 开始截断")
-                # 给 tools 留出预算，只对 messages 截断
+                      f"= {loop_total_tokens} tokens >= {eff_limit} 有效上限({TOKEN_LIMIT}*{ESTIMATE_SAFETY})")
+                # 第一优先：自动降级 system prompt（比裁对话消息更优——保留对话完整性）
+                # 被动降级仅本次组装生效（_focus_level 是局部变量，不写回 DB，下条消息自动恢复）
+                if not _auto_downgraded and _focus_level > 8:
+                    _focus_level -= 2
+                    _new_system, _removed2 = _compose_system(blocks, _focus_level, _focus_custom, "（上下文压力自动降级）")
+                    if _removed2:
+                        msgs[0] = {"role": "system", "content": _new_system}
+                        _auto_downgraded = True
+                        print(f"[context-wall] 自动降级 system → focus {_focus_level}, 移除: {_removed2}")
+                        continue  # 重新估算
+                    _focus_level += 2  # 降级无效（无 block 可裁），恢复原等级
+                # 第二优先：给 tools 留出预算，只对 messages 截断
                 msgs_budget = max(eff_limit - loop_tools_tokens, 5000)
                 msgs, trimmed = _trim_context_to_budget(
                     msgs, msgs_budget, store=store, topic_id=tid
@@ -4538,6 +4919,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.db.set_topic_meta(tid, "focus_restore_at", "-1")
                 self.db.set_topic_meta(tid, "focus_memo", "")
                 self.db.set_topic_meta(tid, "focus_custom_blocks", "[]")
+                self.db.set_topic_meta(tid, "focus_explicit", "0")
                 print(f"[agent] focus auto-restore at iteration {_focus_iterations}")
                 _focus_restore_at = "-1"
 
@@ -4554,6 +4936,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if cancel_evt.is_set():
             with _cancel_lock:
                 _cancel_events.pop(tid, None)
+            with _inject_lock:
+                _inject_queues.pop(tid, None)
             # 组装回复内容：优先用 full_response（最终轮已有内容），
             # 其次用 full_intermediate（工具轮过程叙述），让用户看到 AI 跑到的位置。
             # 附上 [用户已停止] 标记落库，AI 下次加载历史时知道用户中断过。
@@ -4586,13 +4970,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             full_response = "（本轮工作轮次已用完，过程叙述见前端 intermediate 面板。）" + _exhaust_note
 
         print(f"[agent] done after {turn+1} turns")
+        # 先释放 cancel 事件：此后到达的新消息会走正常流程起新循环
+        # （插话消息已落库，新循环历史自然包含），不会被误判为"运行中"
+        with _cancel_lock:
+            _cancel_events.pop(tid, None)
+        # 收尾竞态：循环刚结束的瞬间到达的插话，本轮已来不及纳入，
+        # 在最终回复里明示已收到（消息已落库，下轮历史自然包含）
+        _tail_injs = _drain_injections(tid)
+        if _tail_injs and full_response:
+            full_response += "\n\n（你刚发来的补充我已收到，会结合它继续。）"
         if full_response:
             self.db.add_message(tid, "ai", full_response,
                                 thinking=full_thinking, ts=time.time())
         self.db.update_topic(tid, updated_at=time.time())
         clear_working(tid)
-        with _cancel_lock:
-            _cancel_events.pop(tid, None)
+        with _inject_lock:
+            _inject_queues.pop(tid, None)
         # ── CMN P4: 空闲触发反思回路（2026-08-17 已禁用：自动反思产出的碎片平时不加载，对行为零约束，且每次对话后烧 LLM 调用；行为修正改由重要事项第12条承担，需要时手动调 reflect 工具/API）──
         # def _idle_reflect():
         #     try:
@@ -4601,6 +4994,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
         #     except Exception as e:
         #         print(f"[memory] idle reflection failed: {e}")
         # threading.Thread(target=_idle_reflect, daemon=True).start()
+        # ── 轻量叙事触发（2026-08-30：story 断更修复。不恢复完整空闲反思，
+        #    只在积压≥30条 且 距上次≥2h 时，后台跑一次 narrative_consolidation；
+        #    该函数输入本身是增量的（只取未整理碎片），单次成本≈1-3次小 LLM 调用）──
+        def _lightweight_narrative():
+            try:
+                if not hasattr(Handler, "_narrative_lock"):
+                    return  # 未初始化（create_server 应已初始化）
+                now_ts = time.time()
+                with Handler._narrative_lock:
+                    if now_ts - Handler._last_narrative_ts < 7200:
+                        return
+                    Handler._last_narrative_ts = now_ts  # 先占位防并发重复触发
+                from memory.reflection_loop import get_loop
+                loop = get_loop()
+                backlog = loop.fragment_store.count_unconsolidated_cores()
+                if backlog < 30:
+                    return
+                n = loop.narrative_consolidation()
+                print(f"[memory] lightweight narrative: +{n} stories (backlog was {backlog})")
+            except Exception as e:
+                print(f"[memory] lightweight narrative failed: {e}")
+        threading.Thread(target=_lightweight_narrative, daemon=True).start()
         self._json(200, {
             "response": full_response,
             "thinking": full_thinking,
@@ -4617,6 +5032,9 @@ def create_server(port=PORT):
     Handler.topics = TopicManager(db)
     Handler.db = db
     Handler.port = port
+    # 轻量叙事触发的节流状态（单线程初始化，避免请求线程竞态建锁）
+    Handler._narrative_lock = threading.Lock()
+    Handler._last_narrative_ts = 0.0
     return http.server.ThreadingHTTPServer(("0.0.0.0", port), Handler)
 
 
@@ -4643,6 +5061,13 @@ def main():
         print(f"[大眼X] Suggestion refresher started")
     except Exception as e:
         print(f"[大眼X] Suggestion refresher failed: {e}")
+    # 预热动态工具检索索引（后台线程，不阻塞启动；失败静默，首次请求会懒加载）
+    try:
+        from tools import tool_router
+        threading.Thread(target=tool_router.build_index, daemon=True).start()
+        print(f"[大眼X] Tool router index prewarm started")
+    except Exception as e:
+        print(f"[大眼X] Tool router prewarm failed: {e}")
     # Start rule engine worker — 默认关闭常驻轮询（避免后台写库刷屏 APP）
     # 改为事件触发：用户发消息瞬间在 _handle_chat 里实时检查，只注入 prompt 不落库。
     # 如需后台盯长时任务，可手动开启：RULE_WORKER=1 python server.py
@@ -4706,7 +5131,7 @@ def main():
         import platform
         return {
             "pid": os.getpid(),
-            "base_dir": BASE_DIR,
+            "base_dir": ROOT_DIR,
             "root_dir": ROOT_DIR,
             "cwd": os.getcwd(),
             "port": args.port,
@@ -4741,7 +5166,7 @@ def main():
             tid = db.get_active_topic_id()
             if not tid:
                 return {"error": "没有活跃任务，无法写草稿"}
-            drafts_dir = os.path.join(BASE_DIR, "data", "drafts")
+            drafts_dir = os.path.join(ROOT_DIR, "data", "drafts")
             os.makedirs(drafts_dir, exist_ok=True)
             draft_path = os.path.join(drafts_dir, f"{tid[:8]}.md")
             if mode == "overwrite" or not os.path.exists(draft_path):
@@ -4773,7 +5198,7 @@ def main():
             tid = db.get_active_topic_id()
             if not tid:
                 return {"error": "没有活跃任务"}
-            anchors_dir = os.path.join(BASE_DIR, "data", "anchors")
+            anchors_dir = os.path.join(ROOT_DIR, "data", "anchors")
             os.makedirs(anchors_dir, exist_ok=True)
             anchor_path = os.path.join(anchors_dir, f"{tid[:8]}.md")
             with open(anchor_path, "w", encoding="utf-8") as f:

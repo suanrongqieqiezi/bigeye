@@ -5,6 +5,7 @@ import sys
 from .registry import register_tool
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else BASE_DIR
 
 
 @register_tool(
@@ -200,9 +201,9 @@ def get_workspace():
 
 @register_tool(
     name="read_topic_messages",
-    description="翻阅任意任务的原始对话记录。这是溯源链的最后一环——从碎片→话题→原始消息。"
-               "⚠ 翻阅结果会占用当前上下文！看完后立即 organize_context 或记要点，别留着占地方。"
-               "默认从最新往前翻。设 order='asc' 则从最早往后翻（适合找第一条消息）。可选 search 关键词过滤。",
+    description="翻阅任意任务的原始对话记录（溯源链最后一环，从碎片→话题→原始消息）。"
+               "⚠ 翻阅结果占用上下文！看完立即 organize_context 或记要点，别留占地方。"
+               "默认从最新往前翻；order='asc' 从最早往后翻；search 关键词过滤。",
     parameters={
         "type": "object",
         "properties": {
@@ -448,7 +449,7 @@ def find_empty_tasks(include_no_workspace: bool = True):
                 ws_path = ws
             else:
                 # 默认工作区：data/missions/{tid}/workspace
-                default_ws = os.path.join(BASE_DIR, "data", "missions", tid, "workspace")
+                default_ws = os.path.join(ROOT_DIR, "data", "missions", tid, "workspace")
                 if os.path.isdir(default_ws):
                     ws_path = default_ws
 
@@ -546,8 +547,8 @@ def delete_task(topic_id: str, confirm: bool = False):
 
         # 收集要删的东西
         ws = db.get_topic_meta(tid, "workspace")
-        default_ws = os.path.join(BASE_DIR, "data", "missions", tid, "workspace")
-        mission_dir = os.path.join(BASE_DIR, "data", "missions", tid)
+        default_ws = os.path.join(ROOT_DIR, "data", "missions", tid, "workspace")
+        mission_dir = os.path.join(ROOT_DIR, "data", "missions", tid)
         ws_to_delete = ws if ws else default_ws
         msgs = db.message_count(tid)
 

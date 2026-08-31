@@ -91,6 +91,14 @@ CHANGELOG.jsonl
 mcp_servers.json
 reminders.json
 rules_result.json
+
+# Runtime state files（含对话/成本等隐私，勿提交）
+memory/guardian_state.json
+memory/guardian_output.log
+memory/progress.jsonl
+rules_engine/fired.json
+rules_engine/reminder_msgs_backup.json
+rules_engine/state_snapshot.json
 workspace/
 测试/
 时光机/

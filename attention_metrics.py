@@ -43,7 +43,7 @@ def invalidate_cache():
     _cache["ts"] = 0
     _cache["result"] = None
 
-BASE = os.path.dirname(os.path.abspath(__file__))  # 基于本文件位置推导，避免硬编码路径过时（旧值指向 bigeye5 测试副本导致 DB 打不开）
+BASE = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))  # 基于本文件位置推导，避免硬编码路径过时（旧值指向 bigeye5 测试副本导致 DB 打不开）
 CHAT_DB = os.path.join(BASE, 'data', 'chat.db')
 API_DB = os.path.join(BASE, 'data', 'api_logs.db')
 BOOK_PATH = os.path.join(BASE, 'data', 'domain_book.json')

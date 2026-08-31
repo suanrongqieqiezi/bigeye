@@ -1441,6 +1441,19 @@ class FragmentStore:
         finally:
             conn.close()
 
+    def count_unconsolidated_cores(self) -> int:
+        """待叙事整理的 core 碎片数（轻量触发用，只 COUNT 不取数据，2026-08-30）。"""
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM memory_fragments "
+                "WHERE layer='core' AND dirty=1 AND crystal_parent_id IS NULL "
+                "AND embedding IS NOT NULL AND embedding != '[]'"
+            ).fetchone()
+            return row[0] if row else 0
+        finally:
+            conn.close()
+
     def get_by_hash(self, content_hash: str) -> list:
         """按 summary_hash 查自传晶体（hash 寻址，P3）。"""
         conn = self._conn()

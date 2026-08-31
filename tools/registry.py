@@ -65,18 +65,17 @@ ALWAYS_ON_TOOLS = {
     # 代码
     "run_python",
     # 任务核心
-    "current_topic", "list_topics", "create_task", "get_task_dag",
-    "start_node", "complete_node", "finish_task",
+    "current_topic", "create_task", "get_task_dag",
     # 注意力等级（focus_tools 注册但此前未暴露，AI 无法调用）
     "set_focus_level",
     # 任务挂件（系统提示每轮引用，必须常驻，否则 AI 打转）
     "update_task_brief", "write_draft",
     # 记忆核心
-    "remember", "crystal_recall", "trace_memory", "remember_knowledge",
+    "remember", "crystal_recall",
     # 上下文管理（工具输出 hint 频繁引用，必须常驻）
     "organize_context", "expand_compressed",
     # 思维导图核心
-    "get_mindmap", "add_mindmap_node",
+    "get_mindmap",
     # 领域书核心（系统提示每轮引用 book_hint）
     "book_list_pages", "book_read_page", "book_turn_to",
     # 重要事项（系统提示每轮引用 matters_manage_hint）
@@ -84,6 +83,47 @@ ALWAYS_ON_TOOLS = {
     "important_matters_update", "important_matters_remove",
     # 历史翻阅（系统提示每轮引用）
     "read_topic_messages",
+}
+
+# ── 工具场景裁剪（v2：常驻工具也按场景动态化）──
+# 目标：减少每轮固定注入的 tools schema token（成本画像显示 42 工具 ≈ 10.9k tokens，占 70%+）
+# 分三档：
+#   CORE_TOOLS     —— 绝对高频核心，永不裁剪（文件/web/任务/记忆写入门）
+#   PROTECTED_TOOLS—— 系统提示每轮文字引用（hint）的工具，裁剪会破坏提示-工具对应，永不裁剪
+#   其余（场景工具）—— 从 ALWAYS_ON 移出，按话题场景动态注入 + 折叠组 discover 兜底可达
+CORE_TOOLS = {
+    # 系统/执行
+    "bash", "list_tools", "system_status",
+    # Web
+    "web_search", "web_fetch",
+    # 文件操作
+    "read_file", "write_file", "grep", "edit_file",
+    # 代码
+    "run_python",
+    # 任务核心
+    "current_topic", "create_task", "get_task_dag",
+    # 任务挂件（系统提示每轮引用）
+    "update_task_brief", "write_draft",
+    # 记忆核心（写入口，几乎每轮都可能用）
+    "remember",
+}
+
+PROTECTED_TOOLS = {
+    # 注意力系统自身组件（系统提示条件性引用，不裁）
+    "set_focus_level", "organize_context", "expand_compressed",
+    "crystal_recall", "get_mindmap", "read_topic_messages",
+    # 领域书（book_hint 引用）
+    "book_list_pages", "book_read_page", "book_turn_to",
+    # 重要事项（matters_manage_hint 引用）
+    "important_matters_list", "important_matters_add",
+    "important_matters_update", "important_matters_remove",
+}
+
+# 场景工具：不在常驻，由 _get_scene_tools(tid) 按话题状态动态注入
+# （有 DAG→任务工具；有 mindmap→导图工具；用过记忆→记忆扩展工具）
+SCENE_TOOLS = {
+    "list_topics", "start_node", "complete_node", "finish_task",
+    "trace_memory", "remember_knowledge", "add_mindmap_node",
 }
 
 # 折叠分组：group_name -> {description, tools: [tool_names]}
@@ -96,7 +136,7 @@ FOLDED_TOOL_GROUPS = {
             "read_history_before", "get_first_message",
             "get_workspace", "get_topic_tree", "continue_task",
             "find_empty_tasks", "delete_task", "insert_dag_node",
-            "spawn_agent",
+            "spawn_agent", "list_topics",
         ],
     },
     "task_dag_advanced": {
@@ -107,6 +147,7 @@ FOLDED_TOOL_GROUPS = {
             "save_task_template", "load_task_template", "run_task",
             "append_thought_step", "get_thought_chain",
             "get_execution_trace", "rework_subtree",
+            "start_node", "complete_node", "finish_task",
         ],
     },
     "memory_advanced": {
@@ -115,7 +156,7 @@ FOLDED_TOOL_GROUPS = {
             "edit_memory", "forget", "reinforce",
             "build_self_narrative", "reflection_loop",
             "list_skill_templates", "create_skill",
-            "reflect",
+            "reflect", "trace_memory", "remember_knowledge",
         ],
     },
     "memory_recall": {
@@ -136,6 +177,7 @@ FOLDED_TOOL_GROUPS = {
             "update_mindmap_node", "add_mindmap_edge", "remove_mindmap_node",
             "remove_mindmap_edge", "update_mindmap_edge",
             "link_mindmap_to_dag", "mindmap_history", "mindmap_undo", "mindmap_redo",
+            "add_mindmap_node",
         ],
     },
     "domain_book": {

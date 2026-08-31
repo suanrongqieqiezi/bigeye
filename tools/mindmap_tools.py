@@ -26,6 +26,8 @@ import uuid
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
+# 数据读写统一走 ROOT_DIR：frozen 时=exe 旁（可写），开发时=项目根
+ROOT_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else BASE_DIR
 from .registry import register_tool
 
 
@@ -265,7 +267,7 @@ def _get_active_topic_id():
 
 def _mm_path(topic_id):
     """思维导图文件路径。用完整 topic_id（与前端 API / DAG 存储一致）"""
-    return os.path.join(BASE_DIR, "data", "missions", topic_id, "mindmap.json")
+    return os.path.join(ROOT_DIR, "data", "missions", topic_id, "mindmap.json")
 
 
 def _load_mindmap(topic_id):

@@ -1,3 +1,9 @@
+---
+name: "scrapling-web-scraper"
+description: "web_fetch 已内置 Scrapling 反爬。不要手动调 Scrapling API。"
+triggers: ["网页抓取被403或503拦截", "想手写爬虫前先看这个"]
+---
+
 # scrapling-web-scraper
 > web_fetch 已内置 Scrapling 反爬。不要手动调 Scrapling API。
 

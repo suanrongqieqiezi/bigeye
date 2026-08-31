@@ -31,10 +31,7 @@ def _format_group_index():
         "按分组发现折叠工具的完整 schema。常驻工具(web_search/bash/read_file/edit_file/"
         "remember/current_topic等约40个)无需发现，直接调用。"
         "需要高级操作时先调用本工具获取该组工具的参数格式，再用 execute_advanced_tool 执行。"
-        "可用分组：task_management(任务管理)、task_dag_advanced(DAG高级)、"
-        "memory_advanced(记忆高级/技能管理)、mindmap_advanced(思维导图高级)、"
-        "domain_book(领域书页面CRUD)、misc(图片/模板/热重载)、"
-        "interaction(向用户提问并等待回答)、file_versioning(文件历史与回溯)。"
+        "可用分组见参数 enum。"
     ),
     parameters={
         "type": "object",

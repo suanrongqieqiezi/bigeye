@@ -2,10 +2,11 @@
 """File operations for AI — read, write, search files."""
 import os
 import re
+import sys
 import threading
 from .registry import register_tool
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ws = threading.local()
 
 

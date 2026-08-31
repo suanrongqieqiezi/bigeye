@@ -66,10 +66,10 @@ class FileCache:
 
     存成 JSON，结构:
     {
-        "root": "C:/",
+        "root": "/",
         "scanned_at": 1234567890.0,
         "files": [
-            {"path": "C:/a.txt", "size": 100, "modified": ...},
+            {"path": "/a.txt", "size": 100, "modified": ...},
             ...
         ]
     }

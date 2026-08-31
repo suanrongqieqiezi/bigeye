@@ -54,8 +54,12 @@ def _record_lineage(op: str, index: int, old_content=None, new_content=None):
             change_desc = f'新增重要事项#{index}："{new_content}"'
         elif op == "update":
             change_desc = f'重要事项#{index}由"{old_content}"改为"{new_content}"'
-        else:  # remove
+        elif op == "remove":
             change_desc = f'删除重要事项#{index}："{old_content}"'
+        elif op == "tone":
+            change_desc = f'互动基调更新："{new_content}"'
+        else:  # 兜底
+            change_desc = f'变更#{index}："{new_content}"'
 
         text = f"[血统] {ts} {change_desc}（操作：{op}）"
         # layer="story"：血统是情景记忆（何时+发生什么变更），必须每次独立留痕。
@@ -186,3 +190,62 @@ def important_matters_list():
     if not matters:
         return {"matters": [], "count": 0}
     return {"matters": matters, "count": len(matters)}
+
+
+# ── 互动基调（氛围记忆，表达调节用）────────────────
+
+def get_tone():
+    """读取互动基调。返回 dict 或 None。"""
+    try:
+        val = get_db().get_meta("interaction_tone")
+        if val:
+            data = json.loads(val)
+            if isinstance(data, dict):
+                return data
+        return None
+    except Exception:
+        return None
+
+
+def set_tone(data):
+    """保存互动基调。"""
+    try:
+        get_db().set_meta("interaction_tone", json.dumps(data, ensure_ascii=False))
+        return True
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+@register_tool(
+    name="interaction_tone_update",
+    description="更新「互动基调」：最近对话的氛围+对你的信任度。只在氛围明显变化时更新"
+                "（如庆祝成功/刚纠正过错/久别重逢/正在攻坚）。tone 用一句话描述当前氛围；"
+                "trust 填 high（可直说少客气）/mid（正常）/low（谨慎多解释少玩笑）。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "tone": {
+                "type": "string",
+                "description": "一句话氛围描述，如「刚完成大验证，用户心情不错」"
+            },
+            "trust": {
+                "type": "string",
+                "description": "high/mid/low"
+            }
+        },
+        "required": ["tone", "trust"]
+    }
+)
+def interaction_tone_update(tone: str, trust: str = "mid"):
+    tone = (tone or "").strip()[:100]
+    trust = trust if trust in ("high", "mid", "low") else "mid"
+    if not tone:
+        return {"error": "tone 不能为空"}
+    import time
+    data = {"tone": tone, "trust": trust, "updated": time.strftime("%Y-%m-%d %H:%M")}
+    if not set_tone(data):
+        return {"error": "写入 DB 失败，互动基调未保存。"}
+    _record_lineage("tone", 0, None, f"{tone} (trust={trust})")
+    return {"success": True, "tone": tone, "trust": trust, "updated": data["updated"]}

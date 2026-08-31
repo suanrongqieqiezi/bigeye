@@ -17,12 +17,9 @@ from .registry import register_tool
     name="set_focus_level",
     description=(
         "调整注意力等级（1-15）。等级越低看到的上下文越少，适合深入钻研时减少干扰。"
-        "15=全量（默认），10=专注模式（移除故事/记忆/工具书/草稿），"
-        "13=极限模式（只留身份+任务+锚点+DAG+工具）。"
-        "auto_rounds: N 轮后自动恢复到 15（可选，不设则需手动恢复）。"
-        "custom_blocks: 可选，AI 自己指定要保留的 block 标题列表（覆盖默认等级）。"
-        "【重要】关闭前必须写 memo：1)为什么关 2)什么时候开回来 3)当前进度。"
-        "解决难点后记得 set_focus_level(15) 恢复全量上下文。"
+        "15=全量默认，10=专注模式，13=极限模式。"
+        "auto_rounds: N 轮后自动恢复 15；custom_blocks: 自定义保留块。"
+        "关闭前必须写 memo（为什么关/何时开回来/当前进度），难点解决后恢复 15。"
     ),
     parameters={
         "type": "object",
@@ -63,6 +60,8 @@ def set_focus_level(level: int, auto_rounds: int = None, memo: str = "", custom_
     # 存到 DB
     db.set_topic_meta(tid, "focus_level", str(level))
     db.set_topic_meta(tid, "focus_memo", memo)
+    # 显式设置标记：自动调节（DAG复杂度/上下文压力）不覆盖 AI 手动选择
+    db.set_topic_meta(tid, "focus_explicit", "1")
 
     if custom_blocks:
         db.set_topic_meta(tid, "focus_custom_blocks", json.dumps(custom_blocks, ensure_ascii=False))

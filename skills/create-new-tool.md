@@ -1,3 +1,9 @@
+---
+name: "create-new-tool"
+description: "给自己创造新工具，扩展能力。"
+triggers: ["现有工具做不到需要的能力", "想给大眼添加自定义工具"]
+---
+
 # create-new-tool
 > 给自己创造新工具，扩展能力。
 

@@ -1475,13 +1475,11 @@ def create_skill(template: str = "generic", name: str = "", purpose: str = "",
     name="reflection_loop",
     description=(
         "跑一次反思回路——维护晶体记忆网络的健康。五项职责："
-        "(1)建弱关联：给孤立晶体找相似伙伴；"
-        "(2)涌现元晶：从相似晶体群提炼共通模式；"
-        "(3)反熵修剪：删低置信度边、合并重复边；"
-        "(4)自检缺口：发现高频实体但没有专门晶体的盲区；"
+        "(1)建弱关联：给孤立晶体找相似伙伴；(2)涌现元晶：从相似晶体群提炼共通模式；"
+        "(3)反熵修剪：删低置信度边、合并重复边；(4)自检缺口：发现高频实体但没有专门晶体的盲区；"
         "(5)提拔权威：多次验证没被推翻的晶体提为权威。"
-        "什么时候用：聊完一个复杂话题后、感觉记忆杂乱时、主动整理思绪时。"
-        "正常对话会自动空闲触发，不需要每次手动调。"
+        "聊完一个复杂话题后、感觉记忆杂乱时主动调用；正常对话会自动空闲触发，不必每次手动调。"
+        "only 参数可只跑某一项。"
     ),
     parameters={
         "type": "object",
@@ -1667,6 +1665,20 @@ def crystal_recall(query: str = "", tags: str = "", top_k: int = 10, **_):
                         filtered.append(h)
                 direct_hits = filtered
 
+        # 路径1e: 历史对话消息召回（带前后文的"念头"）
+        if query.strip():
+            try:
+                from memory.msg_vectors import recall_with_context
+                msgs = recall_with_context(query, top_k=4)
+                seen_msg_ids = {h.get("message_id") for h in direct_hits if h.get("message_id")}
+                for m in msgs:
+                    if m.get("message_id") in seen_msg_ids:
+                        continue
+                    m["_node_type"] = "message"
+                    direct_hits.append(m)
+            except Exception as e:
+                print(f"[crystal_recall] 消息召回失败: {e}")
+
         # 路径2: 关系网扩展（走因果/派生/支持边）
         if direct_hits:
             try:
@@ -1690,13 +1702,23 @@ def crystal_recall(query: str = "", tags: str = "", top_k: int = 10, **_):
         # ── 全景呈现 ──
         lines = [f"回想「{query or tags}」："]
 
-        # 直接命中
-        if direct_hits:
-            lines.append(f"\n【直接命中 {len(direct_hits)} 条】")
-            for i, h in enumerate(direct_hits[:top_k], 1):
+        # 消息命中单独成块（带上下文的"念头"，不占碎片名额）
+        msg_hits = [h for h in direct_hits if h.get("_node_type") == "message"]
+        other_hits = [h for h in direct_hits if h.get("_node_type") != "message"]
+
+        # 直接命中（碎片/文件晶体）
+        if other_hits:
+            lines.append(f"\n【直接命中 {len(other_hits)} 条】")
+            for i, h in enumerate(other_hits[:top_k], 1):
                 mark = _format_crystal_mark(h)
                 text = _format_crystal_text(h, 100)
                 lines.append(f"  {i}. {mark} {text}")
+
+        # 对话记忆（你说过的话 + 现场）
+        if msg_hits:
+            lines.append(f"\n【对话记忆 {len(msg_hits)} 条】（你说过的话，带上下文）")
+            for i, h in enumerate(msg_hits[:4], 1):
+                lines.append(_format_message_hit(i, h))
 
         # 关联扩展
         if network_hits:
@@ -1715,6 +1737,30 @@ def crystal_recall(query: str = "", tags: str = "", top_k: int = 10, **_):
         return "\n".join(lines)
     except Exception as e:
         return f"回想出错：{e}"
+
+
+def _format_message_hit(i: int, h: dict) -> str:
+    """格式化消息命中：你说过的话 + 前后文（"念头"带现场）。"""
+    import time as _t
+    text = (h.get("text") or "").replace("\n", " ").strip()
+    if len(text) > 90:
+        text = text[:90] + "…"
+    title = h.get("topic_title") or (h.get("topic_id") or "")[:8]
+    ts = h.get("ts") or 0
+    ts_str = _t.strftime("%m-%d %H:%M", _t.localtime(ts)) if ts else ""
+    score = h.get("score", 0)
+    lines = [f"  {i}. [对话][{ts_str}][{title}] 你说：{text} (score={score:.2f})"]
+    ctx = h.get("context") or []
+    for c in ctx[-3:]:
+        ctext = (c.get("text") or "").replace("\n", " ").strip()
+        if not ctext:
+            continue
+        if len(ctext) > 60:
+            ctext = ctext[:60] + "…"
+        role = "我说" if c.get("role") == "ai" else "你说"
+        lines.append(f"      ↳ {role}：{ctext}")
+    lines.append("      ↳ 翻阅完整对话: read_topic_messages")
+    return "\n".join(lines)
 
 
 def _format_crystal_mark(h: dict) -> str:

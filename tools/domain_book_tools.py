@@ -6,9 +6,11 @@ is injected into the system prompt every round.
 """
 import json
 import os
+import sys
 from .registry import register_tool
 
-BOOK_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "domain_book.json")
+_ROOT_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BOOK_PATH = os.path.join(_ROOT_DIR, "data", "domain_book.json")
 
 DEFAULT_BOOK = {
     "active_pages": [],

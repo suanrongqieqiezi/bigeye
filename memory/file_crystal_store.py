@@ -289,9 +289,11 @@ class FileCrystalStore:
                      "[]", authority, "world", 1.0, now, "active", now, now)
                 )
 
-                # 同步 vec_index
+                # 同步 vec_index（vec0 rowid 必须 INTEGER，用 file_crystals 隐式 rowid）
                 try:
-                    self.vec_index.insert(self._vec_table, crystal_id, emb)
+                    rw = conn.execute("SELECT rowid FROM file_crystals WHERE id=?", (crystal_id,)).fetchone()
+                    if rw:
+                        self.vec_index.insert(self._vec_table, rw["rowid"], emb)
                 except Exception as e:
                     print(f"[file_crystal] vec_index insert 警告: {e}")
 
@@ -400,11 +402,20 @@ class FileCrystalStore:
             conn.close()
 
         # ── 阶段 3：更新 vec_index（commit 之后，避免跨连接死锁）──
-        for item in to_insert:
-            try:
-                self.vec_index.insert(self._vec_table, item["crystal_id"], item["emb"])
-            except Exception as e:
-                print(f"[file_crystal] vec_index insert 警告: {e}")
+        conn2 = self._conn()
+        try:
+            for item in to_insert:
+                rw = conn2.execute(
+                    "SELECT rowid FROM file_crystals WHERE id=?", (item["crystal_id"],)
+                ).fetchone()
+                if not rw:
+                    continue
+                try:
+                    self.vec_index.insert(self._vec_table, rw["rowid"], item["emb"])
+                except Exception as e:
+                    print(f"[file_crystal] vec_index insert 警告: {e}")
+        finally:
+            conn2.close()
 
         return {
             "total_slices": len(slices),
@@ -666,16 +677,18 @@ class FileCrystalStore:
             candidates = []
             if self.vec_index.is_available():
                 try:
-                    knn_ids = self.vec_index.query(self._vec_table, q_emb, top_k * 4)
-                    if knn_ids:
-                        placeholders = ",".join("?" * len(knn_ids))
+                    knn = self.vec_index.query(self._vec_table, q_emb, top_k * 4)
+                    if knn:
+                        # query 返回 [{rowid, distance}]，rowid 是 file_crystals 隐式 rowid
+                        rowids = [r["rowid"] for r in knn]
+                        placeholders = ",".join("?" * len(rowids))
                         rows = conn.execute(
-                            f"SELECT * FROM file_crystals WHERE id IN ({placeholders})",
-                            knn_ids
+                            f"SELECT rowid, * FROM file_crystals WHERE rowid IN ({placeholders})",
+                            rowids
                         ).fetchall()
                         # 保持 KNN 顺序
-                        id_to_row = {r["id"]: r for r in rows}
-                        candidates = [id_to_row[i] for i in knn_ids if i in id_to_row]
+                        rowid_to_row = {r["rowid"]: r for r in rows}
+                        candidates = [rowid_to_row[i] for i in rowids if i in rowid_to_row]
                 except Exception as e:
                     print(f"[file_crystal] vec_index query 警告: {e}")
 
@@ -899,9 +912,11 @@ class FileCrystalStore:
                             (crystal_id, p["id"])
                         )
 
-                    # 同步 vec_index
+                    # 同步 vec_index（vec0 rowid 必须 INTEGER，用隐式 rowid）
                     try:
-                        self.vec_index.insert(self._vec_table, crystal_id, emb)
+                        rw = conn.execute("SELECT rowid FROM file_crystals WHERE id=?", (crystal_id,)).fetchone()
+                        if rw:
+                            self.vec_index.insert(self._vec_table, rw["rowid"], emb)
                     except Exception as e:
                         print(f"[file_crystal] vec_index insert 警告: {e}")
 

@@ -7,13 +7,14 @@ The AI must acknowledge risk before destructive commands execute.
 import subprocess
 import os
 import re
+import sys
 import time
 import threading
 import queue
 from collections import deque
 from .registry import register_tool
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ws = threading.local()
 _ctx = threading.local()   # runtime context: on_output callback, etc.
 
@@ -154,10 +155,9 @@ def _stream_consumer_thread(q, stop_event, on_output, tool_id, out_ringbuf, max_
 
 @register_tool(
     name="bash",
-    description="执行系统命令。危险操作（删文件/杀进程等）需 confirm=true。返回 stdout/stderr 和退出码。"
-                "注意：修改文件内容请优先用 edit_file/write_file（有修改历史可回溯），"
-                "bash 仅用于运行命令、安装依赖、编译等，不要用 bash 重定向/脚本来改文件。"
-                "多行 Python 代码禁止用 python -c 内联（cmd 会逐行拆散导致输出为空），先 write_file 写脚本再执行。",
+    description="执行系统命令，返回 stdout/stderr 和退出码。危险操作（删文件/杀进程等）需 confirm=true。"
+                "改文件优先 edit_file/write_file（有历史可回溯），bash 仅用于运行命令/装依赖/编译；"
+                "禁用 bash 重定向改文件、禁用 python -c 跑多行代码（cmd 拆行致空输出，先 write_file 再执行）。",
     parameters={
         "type": "object",
         "properties": {

@@ -12,7 +12,42 @@ Sediments:
   5. Clear work memory
 """
 import json
+
 import time
+
+import os
+
+import re
+
+import sys
+
+# 反思产物双路沉淀：高价值行为规则 → 重要事项；可复用方法 → 技能书
+_LESSONS_PROMPT = """你是大眼的反思助手。基于下面的任务记录，提炼两类可沉淀的产物。
+
+【判断标准】
+1. <<<重要事项>>>：只提炼"高频行为规则/判断修正"——下次遇到类似情况应该怎么做、
+   用户偏好的做事方式、容易踩的坑。必须是能反复约束后续行为的一句话规则。
+   任务本身的描述、普通项目进度、一次性结论不算。
+2. <<<技能>>>：只提炼"可复用的方法流程"——这次任务里摸索出的标准做法、调试套路、
+   操作流程，下次做同类任务可以直接照着做。零散的步骤说明不算。
+   倒推判断法：先想下次遇到什么场景会需要它；说不清触发场景的技能不值得沉淀。
+
+【输出格式】严格按下面格式，无则写 NONE，不要额外内容：
+<<<重要事项>>>
+（一句话规则，≤50字）
+
+<<<技能>>>
+技能名:（≤12字）
+目的:（一句话）
+触发场景:（1-3个"何时想起它"，分号分隔，如：打包后路径报错；exe找不到文件）
+内容:（3-8条要点，每条一行，具体可操作）
+
+任务记录：
+{task_brief}
+"""
+
+# 重要事项数量上限（每次对话全量注入，不能无限膨胀）
+_MAX_MATTERS = 15
 
 SEDIMENT_PROMPT = """写一段第一人称的任务回顾，基于以下任务记录。只记[我]做了什么事。
 
@@ -58,6 +93,15 @@ def reflect_and_sediment(task_executor, llm_prompt_fn=None, llm_config=None):
     dag = task_executor.dag
     wm = task_executor.wm
     store = task_executor.memory_store
+
+    # 默认 LLM：调用方没传 llm_prompt_fn 时，用 memory/reflection._llm_prompt 兜底，
+    # 否则三问压缩/叙事生成永远走回退模板（历史 bug：server 调此函数从未传过 fn）
+    if llm_prompt_fn is None:
+        try:
+            from memory.reflection import _llm_prompt
+            llm_prompt_fn = lambda s, u: _llm_prompt(s, u) or ""
+        except Exception:
+            pass
 
     if not store:
         wm.clear()
@@ -224,7 +268,16 @@ def reflect_and_sediment(task_executor, llm_prompt_fn=None, llm_config=None):
         except Exception:
             pass
 
-    # 6. Clear work memory
+    # 6. Behavior lessons → important matters + skills (双路沉淀)
+    try:
+        lessons = _sediment_behavior_lessons(task, dag, llm_prompt_fn)
+        results["matter"] = lessons.get("matter", "skipped")
+        results["skill"] = lessons.get("skill", "skipped")
+    except Exception:
+        results["matter"] = "error"
+        results["skill"] = "error"
+
+    # 7. Clear work memory
     wm.clear()
 
     return results
@@ -440,3 +493,209 @@ def _worth_remembering(entry):
     if not answer or not text:
         return False
     return len(answer) > 20 or len(text) > 30
+
+
+def _task_brief_for_lessons(task, dag):
+    """Build a compact task summary for lesson extraction."""
+    nodes = dag.get_nodes()
+    lines = [
+        f"用户请求: {task.get('user_request', '')[:200]}",
+        f"任务状态: {task.get('status', 'unknown')}",
+    ]
+    done_nodes = [n for n in nodes if n.get("status") == "done"]
+    for n in done_nodes[:6]:
+        r = n.get("result", "") or ""
+        lines.append(f"- {n['task'][:60]}: {r[:120]}")
+    return "\n".join(lines)[:2500]
+
+
+def _call_llm(prompt, user_text, llm_prompt_fn=None):
+    """Call LLM: prefer caller-provided fn, fallback to memory/reflection._llm_prompt."""
+    if llm_prompt_fn:
+        try:
+            return llm_prompt_fn(prompt, user_text) or ""
+        except Exception:
+            pass
+    try:
+        from memory.reflection import _llm_prompt
+        return _llm_prompt(prompt, user_text) or ""
+    except Exception:
+        return ""
+
+
+def _extract_section(text, tag):
+    """Extract content between <<<tag>>> and next <<< or EOF. Returns stripped or ''."""
+    start = text.find(f"<<<{tag}>>>")
+    if start < 0:
+        return ""
+    body = text[start + len(f"<<<{tag}>>>"):]
+    nxt = body.find("<<<")
+    if nxt >= 0:
+        body = body[:nxt]
+    return body.strip()
+
+
+def _sediment_matter(text):
+    """Add a behavior rule to important matters with dedup + cap. Returns action str."""
+    try:
+        _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if _root not in sys.path:
+            sys.path.insert(0, _root)
+        from tools.important_matters import get_matters, set_matters, _record_lineage
+
+        text = text.strip().strip('"').strip("'")
+        if not text or text.upper() == "NONE" or len(text) < 8:
+            return "skipped-empty"
+
+        matters = get_matters()
+        # 查重：已有语义相似条目（同关键词或长公共子串）则跳过
+        import difflib
+        for existing in matters:
+            existing = str(existing)
+            if existing == text:
+                return "skipped-duplicate"
+            ratio = difflib.SequenceMatcher(None, existing, text).ratio()
+            # 关键词包含也算重（短规则常见），长规则用相似度
+            if ratio > 0.75 or (len(text) > 12 and text[:12] in existing):
+                return "skipped-duplicate"
+
+        if len(matters) >= _MAX_MATTERS:
+            return "skipped-cap"
+        matters.append(text)
+        if not set_matters(matters):
+            return "error-save"
+        try:
+            _record_lineage("add", len(matters), new_content=text)
+        except Exception:
+            pass
+        return "added"
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return "error"
+
+
+def _sediment_skill(parsed_text, llm_prompt_fn=None):
+    """Create or update a skill file from parsed LLM output. Returns action str."""
+    try:
+        _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if _root not in sys.path:
+            sys.path.insert(0, _root)
+        from skills_scanner import SKILLS_DIR, scan_skills
+        import datetime
+
+        name = purpose = content = ""
+        name = purpose = ""
+        trigger_text = ""
+        # 解析：技能名/目的/触发场景/内容都在冒号后，内容行按行收集
+        lines = [l.strip() for l in parsed_text.split("\n") if l.strip()]
+        name = ""
+        purpose = ""
+        trigger_text = ""
+        content_lines = []
+        mode = None
+        for line in lines:
+            if line.startswith("技能名:"):
+                name = line[len("技能名:"):].strip().strip('"').strip("'")
+                mode = "name"
+            elif line.startswith("目的:"):
+                purpose = line[len("目的:"):].strip()
+                mode = "purpose"
+            elif line.startswith("触发场景:"):
+                trigger_text = line[len("触发场景:"):].strip()
+                mode = "trigger"
+            elif line.startswith("内容:"):
+                mode = "content"
+            elif mode == "content" and line and line.upper() != "NONE":
+                content_lines.append(line.lstrip("-• "))
+
+        if not name or not content_lines:
+            return "skipped-malformed"
+        if not purpose:
+            purpose = name
+
+        os.makedirs(SKILLS_DIR, exist_ok=True)
+        skill_path = os.path.join(SKILLS_DIR, f"{name}.md")
+        exists = os.path.isfile(skill_path)
+
+        today = datetime.date.today().isoformat()
+        content_block = "\n".join(f"- {c}" for c in content_lines)
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        if not exists:
+            # 新建：按规范格式写，扫描器能识别；新技能一律 trial（试用→实测→转正）
+            trig_items = [t.strip() for t in re.split(r"[；;]", trigger_text) if t.strip()] if trigger_text else []
+            trig_yaml = "[" + ", ".join(f'"{t}"' for t in trig_items) + "]"
+            body = (
+                f"---\n"
+                f'name: "{name}"\n'
+                f'description: "{name} — {purpose}"\n'
+                f'tags: [反思, 自动生成]\n'
+                f'triggers: {trig_yaml}\n'
+                f'status: trial\n'
+                f"---\n\n"
+                f"# {name}\n\n"
+                f"> {purpose}\n\n"
+                f"## 步骤\n\n{content_block}\n\n"
+                f"## 来源\n\n- 任务反思自动沉淀 {ts}（试用期：下次匹配场景实测验证后改 status: active）\n"
+            )
+            with open(skill_path, "w", encoding="utf-8") as f:
+                f.write(body)
+            return "created"
+        else:
+            # 已存在：追加「经验更新」节（不覆盖原内容，保留既有知识）
+            with open(skill_path, "r", encoding="utf-8") as f:
+                old = f.read()
+            update_marker = f"## 经验更新（{today}）"
+            if update_marker in old:
+                return "skipped-same-day"
+            addition = (
+                f"\n## 经验更新（{today}）\n\n"
+                f"任务反思自动沉淀，补充要点：\n\n{content_block}\n\n"
+            )
+            # 顺手补缺：存量技能缺 triggers 的补上（不覆盖已有值；status 不动，存量默认 active 不打回试用）
+            try:
+                if "\ntriggers:" not in old and "\ntriggers:" not in addition:
+                    trig_items = [t.strip() for t in re.split(r"[；;]", trigger_text) if t.strip()] if trigger_text else []
+                    trig_yaml = "[" + ", ".join(f'"{t}"' for t in trig_items) + "]"
+                    m = re.search(r"^description:.*$", old, re.M)
+                    if m:
+                        old = old[:m.end()] + f"\ntriggers: {trig_yaml}" + old[m.end():]
+            except Exception:
+                pass
+            with open(skill_path, "w", encoding="utf-8") as f:
+                f.write(old.rstrip() + "\n" + addition)
+            return "updated"
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return "error"
+
+
+def _sediment_behavior_lessons(task, dag, llm_prompt_fn=None):
+    """Task-end: extract behavior rules → important matters, methods → skills.
+
+    双路沉淀：LLM 从任务记录提炼，无新增价值则跳过，不阻塞任务完成。
+    Returns dict {"matter": action, "skill": action}.
+    """
+    result = {"matter": "skipped", "skill": "skipped"}
+    try:
+        brief = _task_brief_for_lessons(task, dag)
+        if not brief:
+            return result
+        raw = _call_llm(_LESSONS_PROMPT.format(task_brief=brief[:2500]), "", llm_prompt_fn)
+        if not raw:
+            return result
+
+        matter_text = _extract_section(raw, "重要事项")
+        if matter_text and matter_text.upper() != "NONE":
+            result["matter"] = _sediment_matter(matter_text)
+
+        skill_text = _extract_section(raw, "技能")
+        if skill_text and skill_text.upper() != "NONE":
+            result["skill"] = _sediment_skill(skill_text, llm_prompt_fn)
+        return result
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return result

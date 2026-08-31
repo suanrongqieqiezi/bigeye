@@ -564,45 +564,54 @@ class ReflectionLoop:
             format_narrative_prompt, format_merge_story_prompt
         )
 
-        # 1. 取未整理的 core 碎片（limit 开大：窗口太小会把新碎片挡在外面饿死，
-        #    8-02 首轮整理后前 200 条全是低相似残留，8-03 后新碎片永远轮不到 → story 断更）
-        cores = self.fragment_store.get_unconsolidated_cores(limit=5000)
+        # 1. 取未整理的 core 碎片（2026-08-30 增量化改造：
+        #    窗口 5000→800：积压大时 ASC 窗口被老碎片占满且 O(n²) 聚类慢；
+        #    改为 800 条 + 时间分桶聚类，积压靠「轻量触发」多次消化
+        #    8-02 曾因窗口太小饿死新碎片 → 现由触发机制保证窗口常清，不怕饿）
+        cores = self.fragment_store.get_unconsolidated_cores(limit=800)
         if len(cores) < STORY_MIN_GROUP:
             return 0
 
-        # 2. 贪心聚类：取第一条，找所有相似的成组，标记已分组，重复
+        # 2. 时间分桶 + 桶内贪心聚类（2026-08-30：原实现全局混窗口聚类，
+        #    积压时 8-14 老碎片会跟 8-30 新碎片配成横跨数天的杂烩故事；
+        #    分桶后同簇时间必然接近，event_time 语义正确，O(n²) 也在桶内进行）
+        BUCKET_SECONDS = 24 * 3600  # 按天分桶
+        buckets = {}
+        for _c in cores:
+            buckets.setdefault(int(_c.get("created_at", 0) // BUCKET_SECONDS), []).append(_c)
+
         grouped_ids = set()
         clusters = []
-        for i, seed in enumerate(cores):
-            if seed["id"] in grouped_ids:
-                continue
-            try:
-                seed_emb = json.loads(seed["embedding"])
-            except Exception:
-                continue
-            if not seed_emb:
-                continue
-
-            group = [seed]
-            for other in cores[i+1:]:
-                if other["id"] in grouped_ids:
+        for _bkey in sorted(buckets):
+            _items = buckets[_bkey]
+            for i, seed in enumerate(_items):
+                if seed["id"] in grouped_ids:
                     continue
                 try:
-                    other_emb = json.loads(other["embedding"])
+                    seed_emb = json.loads(seed["embedding"])
                 except Exception:
                     continue
-                if not other_emb:
+                if not seed_emb:
                     continue
-                sim = cosine_sim(seed_emb, other_emb)
-                if sim >= STORY_CONSOLIDATION_THRESHOLD:
-                    group.append(other)
 
-            if len(group) >= STORY_MIN_GROUP:
-                clusters.append(group)
-                for g in group:
-                    grouped_ids.add(g["id"])
-                if len(clusters) >= STORY_MAX_PER_RUN:
-                    break
+                group = [seed]
+                for other in _items[i+1:]:
+                    if other["id"] in grouped_ids:
+                        continue
+                    try:
+                        other_emb = json.loads(other["embedding"])
+                    except Exception:
+                        continue
+                    if other_emb and cosine_sim(seed_emb, other_emb) >= STORY_CONSOLIDATION_THRESHOLD:
+                        group.append(other)
+                if len(group) >= STORY_MIN_GROUP:
+                    clusters.append(group)
+                    for g in group:
+                        grouped_ids.add(g["id"])
+                    if len(clusters) >= STORY_MAX_PER_RUN:
+                        break
+            if len(clusters) >= STORY_MAX_PER_RUN:
+                break
 
         if not clusters:
             return 0

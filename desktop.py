@@ -14,7 +14,8 @@ import urllib.request
 from ctypes import wintypes
 
 PORT = 9890
-BASE = os.path.dirname(os.path.abspath(__file__))
+# frozen 时 BASE = exe 所在目录（onedir），_MEIPASS 是打包临时目录，数据须持久化到 exe 旁
+BASE = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
 ICON = os.path.join(BASE, "图标.ico")
 HEALTH = f"http://127.0.0.1:{PORT}/api/health"
 
@@ -284,6 +285,18 @@ def server_alive():
         return False
 
 
+def _server_cmd():
+    """返回拉起后端的命令。
+    frozen 后 sys.executable 是 desktop.exe 而非解释器，不能跑 server.py；
+    需改为启动同目录（onedir）的 server.exe。"""
+    if getattr(sys, 'frozen', False):
+        server_exe = os.path.join(BASE, 'server.exe')
+        if not os.path.isfile(server_exe):
+            raise FileNotFoundError(f"找不到 server.exe: {server_exe}")
+        return [server_exe, '--port', str(PORT)]
+    return [sys.executable, '-u', 'server.py', '--port', str(PORT)]
+
+
 def main():
     start_splash()  # 先起提示窗，再 import webview（导入本身也要几秒）
     import webview
@@ -298,7 +311,7 @@ def main():
         out = open(os.path.join(log_dir, f"server_stdout_{ts}.log"), "a", encoding="utf-8")
         err = open(os.path.join(log_dir, f"server_stderr_{ts}.log"), "a", encoding="utf-8")
         spawned = subprocess.Popen(
-            [sys.executable, "-u", "server.py", "--port", str(PORT)],
+            _server_cmd(),
             cwd=BASE,
             stdout=out,
             stderr=err,

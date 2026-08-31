@@ -1,3 +1,9 @@
+---
+name: "mcp-tools"
+description: "连接社区 MCP 工具服务器，扩展 AI 能力。不需要写代码。"
+triggers: ["需要接入MCP服务器扩展工具"]
+---
+
 # mcp-tools
 > 连接社区 MCP 工具服务器，扩展 AI 能力。不需要写代码。
 

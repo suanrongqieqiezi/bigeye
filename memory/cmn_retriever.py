@@ -77,6 +77,7 @@ class CMNRetriever:
 
     def retrieve(self, query: str, top_k: int = DEFAULT_TOP_K,
                  include_files: bool = True, include_self: bool = True,
+                 include_messages: bool = True,
                  walk_network: bool = True) -> dict:
         """双路检索：向量召回（hash 寻址兜底）+ 网络走边扩展。
 
@@ -85,6 +86,7 @@ class CMNRetriever:
             top_k: 返回数量
             include_files: 是否包含文件晶体
             include_self: 是否包含自传晶体
+            include_messages: 是否包含历史对话消息（带上下文的"念头"）
             walk_network: 是否走边扩展（关掉则纯向量召回）
 
         Returns:
@@ -113,6 +115,20 @@ class CMNRetriever:
                 direct_hits.extend([self._enrich_with_decay(f) for f in files])
             except Exception as e:
                 print(f"[cmn_retriever] 文件晶体召回失败: {e}")
+
+        # 路径1d：历史对话消息召回（带前后文，标记为 message 节点）
+        # 消息是用户原话（"念头"本体），插到最前，避免被 top_k 截断
+        if include_messages and query.strip():
+            try:
+                from memory.msg_vectors import recall_with_context
+                msgs = recall_with_context(query, top_k=min(top_k, 4))
+                for m in reversed(msgs):
+                    m["_node_type"] = "message"
+                    # 消息没有自传晶体的 id 字段，补上避免去重时被过滤
+                    m["id"] = m.get("message_id")
+                    direct_hits.insert(0, m)
+            except Exception as e:
+                print(f"[cmn_retriever] 消息召回失败: {e}")
 
         # 去重（按 id）
         seen_ids = set()

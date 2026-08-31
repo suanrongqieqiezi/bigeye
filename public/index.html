@@ -139,7 +139,11 @@ main{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 14px;display:flex;fle
 .att-chip .rm:hover{color:var(--danger)}
 .msg-att{display:inline-flex;align-items:center;gap:3px;background:rgba(125,130,138,.45);border-radius:9px;padding:4px 9px;font-size:11px;color:var(--accent);margin:2px 4px 2px 0;text-decoration:none;transition:background .15s}
 .msg-att:hover{background:rgba(125,130,138,.65)}
-.row.you .msg-att{background:#2a2a2a}
+ .row.you .msg-att{background:#2a2a2a}
+ .msg-att-img{display:block;max-width:min(260px,100%);max-height:220px;width:auto;height:auto;border-radius:10px;cursor:zoom-in;margin:2px 0}
+ .msg-att-media{display:block;max-width:min(280px,100%);border-radius:10px;margin:2px 0}
+ #imgLightbox{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;cursor:zoom-out}
+ #imgLightbox img{max-width:96vw;max-height:94vh;object-fit:contain;border-radius:6px}
 .row.you .msg-att:hover{background:#383838}
 .msg-att svg,.att-chip svg{width:11px;height:11px;flex-shrink:0;display:block}
 .think-toggle{font-size:10.5px;color:var(--tdim);cursor:pointer;margin-top:4px;display:inline-block;user-select:none;transition:color .15s,border-color .15s;border:1px dashed var(--border2);border-radius:5px;padding:2px 7px}
@@ -265,7 +269,8 @@ main::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
 .bubble li{margin:3px 0;line-height:1.6}
 .bubble blockquote{border-left:3px solid var(--accent);margin:7px 0;padding:5px 13px;color:var(--tdim);background:rgba(var(--accent-rgb),.07);border-radius:0 8px 8px 0}
 .bubble blockquote p{margin:2px 0}
-.bubble a{color:var(--accent);text-decoration:none;word-break:break-all}
+.bubble a{color:#a0a0a0;text-decoration:none;word-break:break-all}
+.row.you .bubble a{color:#4a4a4a}
 .bubble a:hover{text-decoration:underline}
 .bubble hr{border:none;border-top:1px solid var(--border);margin:12px 0}
 .bubble table{border-collapse:collapse;margin:7px 0;font-size:12px;width:100%;display:block;overflow-x:auto}
@@ -1058,7 +1063,8 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
   <div id="fbWorkspace" title="点击修改工作区（从当前位置开始浏览）">工作区: …</div>
 
   <div id="fbGrid" class="fb-grid"></div>
-  <div id="fbViewer" style="display:none">
+ <div id="imgLightbox" onclick="closeImgLightbox()"></div>
+ <div id="fbViewer" style="display:none">
     <div class="fv-head">
       <span id="fvName" class="fv-name"></span>
       <span class="fv-btns">
@@ -1825,8 +1831,19 @@ function render(){
       var attHTML='';
       if(m.attachments&&m.attachments.length){
         attHTML='<div style="margin-top:4px">';
+        var attBase='/api/mission-file?topic_id='+(currentTopic?currentTopic.id:'')+'&file=';
         for(var ai=0;ai<m.attachments.length;ai++){
-          attHTML+='<a class="msg-att" href="/api/mission-file?topic_id='+(currentTopic?currentTopic.id:'')+'&file='+encodeURIComponent(m.attachments[ai])+'" target="_blank">'+ATT_ICON+esc(m.attachments[ai])+'</a>';
+          var _an=m.attachments[ai], _au=attBase+encodeURIComponent(_an);
+          var _ext=(_an.split('.').pop()||'').toLowerCase();
+          if(['png','jpg','jpeg','gif','webp','bmp','svg','ico'].indexOf(_ext)>=0){
+            attHTML+='<img class="msg-att-img" loading="lazy" src="'+_au+'" alt="'+esc(_an)+'" onclick="openImgLightbox(\''+_au.replace(/'/g,'%27')+'\')">';
+          } else if(['mp4','webm','mov'].indexOf(_ext)>=0){
+            attHTML+='<video class="msg-att-media" controls preload="metadata" src="'+_au+'"></video>';
+          } else if(['mp3','wav','ogg','m4a','flac'].indexOf(_ext)>=0){
+            attHTML+='<audio class="msg-att-media" controls preload="metadata" src="'+_au+'"></audio>';
+          } else {
+            attHTML+='<a class="msg-att" href="'+_au+'" target="_blank">'+ATT_ICON+esc(_an)+'</a>';
+          }
         }
         attHTML+='</div>';
       }
@@ -2916,6 +2933,15 @@ async function _doSendInner(){
   try {
     var r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,topic_id:currentTopic?currentTopic.id:'',attachments:atts})});
     var data=await r.json();
+    // 插话：后端已把消息注入运行中的循环（不起第二个并行循环）。
+    // 移除本次发送新建的过程泡，原循环的过程泡继续实时刷新；用户气泡保留。
+    if(data && data.status==='injected'){
+      if(sendPoll){ clearInterval(sendPoll); sendPoll=null; }
+      for(var mi=messages.length-1;mi>=0;mi--){ if(messages[mi]===wMsg){ messages.splice(mi,1); break; } }
+      render(); saveCache();
+      setSt('thinking','已插话，AI 继续思考…');
+      return;
+    }
     if(!currentTopic||currentTopic.id!==sendTid){
       // 用户已切走：回复已由服务端持久化，切回该任务时自动加载，绝不写入当前界面
       wMsg.working=false;
@@ -3756,6 +3782,13 @@ function fvUrl(name){
   return '/api/mission-file?topic_id='+encodeURIComponent(currentTopic?currentTopic.id:'')+'&file='+encodeURIComponent(fp);
 }
 function fvFind(name){ for(var i=0;i<fbFilesData.length;i++){ if(!fbFilesData[i].is_dir&&fbFilesData[i].name===name) return fbFilesData[i]; } return null; }
+function openImgLightbox(src){
+  var lb=document.getElementById('imgLightbox');
+  if(!lb) return;
+  lb.innerHTML='<img src="'+src.replace(/"/g,'&quot;')+'" alt="">';
+  lb.style.display='flex';
+}
+function closeImgLightbox(){ var lb=document.getElementById('imgLightbox'); if(lb){ lb.style.display='none'; lb.innerHTML=''; } }
 function fvIsOpen(){ var v=document.getElementById('fbViewer'); return v&&v.style.display!=='none'; }
 function openViewerByIdx(i){
   var f=fbFilesData[i]; if(!f||f.is_dir) return;
@@ -4315,6 +4348,8 @@ function loadThemeSettings(){
   applyDevMode();
   // 启动时把本地开发者模式状态同步给后端，后端据此决定是否记录日志
   fetch('/api/settings/devmode', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({dev_mode: localStorage.getItem('dev_mode')==='1'})}).catch(function(){});
+  // 启动时把本地 LLM 缓存开关状态同步给后端
+  fetch('/api/settings/llm_cache', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({enabled: localStorage.getItem('llm_cache_enabled')==='1'})}).catch(function(){});
   // Phase 2: fetch from server
   try {
     var r=await fetch('/api/status');
@@ -6482,9 +6517,13 @@ function renderSettingsMenu() {
     '<div class="sp-divider"></div>',
     '<div class="sp-menu-group-label">实验室</div>',
     '<div class="sp-toggle-row" style="margin:1px 8px;border-radius:6px;border-bottom:1px solid var(--border)"><span style="display:flex;align-items:center;gap:12px"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>开发者模式</span><label class="sp-toggle"><input type="checkbox"'+(localStorage.getItem('dev_mode')==='1'?' checked':'')+' onchange="toggleDevMode(this.checked)"><span class="slider"></span></label></div>',
+    '<div class="sp-toggle-row" style="margin:1px 8px;border-radius:6px;border-bottom:1px solid var(--border)"><span style="display:flex;align-items:center;gap:12px"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9"/><path d="M21 3v9h-9"/></svg></span>LLM 响应缓存</span><label class="sp-toggle"><input type="checkbox"'+(localStorage.getItem('llm_cache_enabled')==='1'?' checked':'')+' onchange="toggleLlmCache(this.checked)"><span class="slider"></span></label></div>',
+    '<div id="llmCacheStatsRow" style="margin:1px 8px;padding:8px 12px;border-radius:6px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted);display:'+(localStorage.getItem('llm_cache_enabled')==='1'?'block':'none')+'"><div style="margin-bottom:4px">缓存后台分析任务（消息整理/记忆反思）：相同输入重跑时秒回、不重复计费。对话回复因逻辑变化复杂不进入缓存，对话命中由服务商前缀缓存自动处理。</div><div id="llmCacheStats">载入中…</div><div style="margin-top:6px"><button onclick="clearLlmCache()" style="font-size:12px;padding:4px 10px;border:1px solid var(--border);background:transparent;color:var(--text);border-radius:4px;cursor:pointer">清空缓存</button></div></div>',
     '<div class="sp-menu-item" onclick="pushSettingsView(\'versions\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span><span class="sp-menu-label">时间机器</span><span class="arrow">›</span></div>',
     (typeof Native !== 'undefined' && Native.showSettings ? '<div class="sp-menu-item" onclick="Native.showSettings()"><span class="sp-menu-icon"></span><span class="sp-menu-label">连接设置</span><span class="arrow">›</span></div>' : '')
   ].join('');
+  // 缓存开启时刷新统计
+  if(localStorage.getItem('llm_cache_enabled')==='1') refreshLlmCacheStats();
 }
 // 开发者模式：开启后显示调试入口等开发功能
 function toggleDevMode(on){
@@ -6499,6 +6538,26 @@ function applyDevMode(){
   if(dbg) dbg.style.display = on?'':'none';
   var tok = document.getElementById('tokenDisplay');
   if(tok) tok.style.display = on?'':'none';
+}
+// LLM 响应本地缓存：开启后全链路命中即秒回
+function toggleLlmCache(on){
+  localStorage.setItem('llm_cache_enabled', on?'1':'0');
+  var row = document.getElementById('llmCacheStatsRow');
+  if(row) row.style.display = on?'block':'none';
+  fetch('/api/settings/llm_cache', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({enabled:!!on})}).then(function(){refreshLlmCacheStats();}).catch(function(){});
+}
+function refreshLlmCacheStats(){
+  var el = document.getElementById('llmCacheStats');
+  if(!el) return;
+  fetch('/api/settings/llm_cache').then(function(r){return r.json();}).then(function(d){
+    var s = d.stats||{};
+    var kb = Math.round((s.size_bytes||0)/1024);
+    el.textContent = '条目 '+(s.entries||0)+' / '+(s.max_entries||1000)+' · 累计命中 '+(s.total_hits||0)+' · 占用 '+kb+' KB';
+  }).catch(function(){ el.textContent = '统计加载失败'; });
+}
+function clearLlmCache(){
+  if(!confirm('确定清空所有 LLM 响应缓存？已命中的记录将全部删除。')) return;
+  fetch('/api/settings/llm_cache', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({clear:true})}).then(function(){refreshLlmCacheStats();}).catch(function(){});
 }
 var modelListCache = [];
 var _keyEditOpen = null;
@@ -7107,6 +7166,8 @@ document.addEventListener('keydown',function(e){
       e.preventDefault(); fbSelectAll(); return;
     }
   }
+  var _lb=document.getElementById('imgLightbox');
+  if(_lb&&_lb.style.display!=='none'&&e.key==='Escape'){ closeImgLightbox(); return; }
   if(typeof fvIsOpen==='function'&&fvIsOpen()){
     if(e.key==='Escape'){ closeViewer(); return; }
     if(e.key==='ArrowLeft'){ fvPrev(); return; }
@@ -7950,7 +8011,7 @@ setInterval(function(){
 
 
 </script>
-<script src="/mindmap.js?v=20260816b"></script>
+<script src="/mindmap.js?v=20260821a"></script>
 
 </body>
 </html>

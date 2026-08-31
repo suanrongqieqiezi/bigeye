@@ -152,6 +152,10 @@ class VecIndex:
     def query(self, table_name: str, query_emb: list[float],
               top_k: int = 10) -> list[dict]:
         """Run KNN cosine search. Returns [{rowid, distance}, ...] or empty list."""
+        if self._vec_loaded is None:
+            # 首次调用：先探测扩展可用性，再决定是否走索引
+            conn = self._get_conn()
+            conn.close()
         if not self._vec_loaded:
             return []
         emb_json = json.dumps(query_emb)

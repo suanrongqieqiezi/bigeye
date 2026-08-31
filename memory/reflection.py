@@ -72,38 +72,23 @@ def _save_checkpoint(data):
 
 
 def _llm_prompt(system_prompt, user_prompt, config=None):
-    """Call LLM directly (non-streaming) and return the response text."""
+    """Call LLM directly (non-streaming) and return the response text.
+
+    走 llm.chat_once_cached 全链路缓存层：开启本地缓存后命中即秒回。
+    """
     if config is None:
         from llm import LLMConfig
-        config = LLMConfig.from_config(
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "model_config.json")
-        )
+        _cfg_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(__file__))
+        config = LLMConfig.from_config(os.path.join(_cfg_dir, "model_config.json"))
 
-    url = f"{config.base_url}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {config.api_key}",
-    }
-    body = {
-        "model": config.model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "stream": False,
-        "max_tokens": config.max_tokens,
-    }
-
-    req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"),
-                                 headers=headers, method="POST")
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
     try:
-        resp = urllib.request.urlopen(req, timeout=120)
-        data = json.loads(resp.read())
-        return data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    except urllib.error.HTTPError as e:
-        err = e.read().decode("utf-8", errors="replace")
-        print(f"[memory] LLM error: HTTP {e.code} {err[:200]}")
-        return ""
+        from llm import chat_once_cached
+        result = chat_once_cached(config, messages)
+        return result.get("text", "")
     except Exception as e:
         print(f"[memory] LLM error: {e}")
         return ""

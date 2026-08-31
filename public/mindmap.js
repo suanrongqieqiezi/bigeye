@@ -2745,7 +2745,16 @@ function mmAddSubmenuItem(menu, it) {
     }
     sub.appendChild(el);
   });
-  wrap.onmouseenter = function () { wrap.style.background = 'var(--hover)'; sub.style.display = 'block'; };
+  wrap.onmouseenter = function () {
+    wrap.style.background = 'var(--hover)';
+    sub.style.display = 'block';
+    // 先复位为默认右侧展开，再按视口边界纠正，避免贴边时子菜单溢出不可见
+    sub.style.left = '100%'; sub.style.right = 'auto';
+    sub.style.top = '0'; sub.style.bottom = 'auto';
+    var r = sub.getBoundingClientRect();
+    if (r.right > window.innerWidth - 4) { sub.style.left = 'auto'; sub.style.right = '100%'; }
+    if (r.bottom > window.innerHeight - 4) { sub.style.top = 'auto'; sub.style.bottom = '0'; }
+  };
   wrap.onmouseleave = function () { wrap.style.background = ''; sub.style.display = 'none'; };
   wrap.appendChild(sub);
   menu.appendChild(wrap);

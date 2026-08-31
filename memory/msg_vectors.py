@@ -179,6 +179,59 @@ def recall_related_dialogs(query, exclude_topic_id=None, top_k=5, threshold=0.30
         return []
 
 
+def recall_with_context(query, exclude_topic_id=None, top_k=4,
+                        ctx_before=3, ctx_after=2, threshold=0.30):
+    """向量召回相关历史用户消息，每条附所在话题的前后文（"念头"模式）。
+
+    在 recall_related_dialogs 基础上，对每条命中消息从 messages 表
+    取它所在话题的上下文（按 id 序，命中前 ctx_before 条 + 后 ctx_after 条），
+    让召回结果能"看到"对话现场，而不是只有孤立一句。
+
+    返回 list[dict]:
+        {message_id, topic_id, topic_title, text, ts, score,
+         context: [{role, text, ts}, ...]}  # 命中消息前后文（不含命中本身）
+    """
+    hits = recall_related_dialogs(query, exclude_topic_id, top_k, threshold)
+    if not hits:
+        return []
+    conn = _conn()
+    try:
+        for h in hits:
+            mid = h["message_id"]
+            tid = h.get("topic_id") or ""
+            if not tid:
+                h["context"] = []
+                continue
+            # 命中前 ctx_before 条（含命中自己，再剔除）
+            before = conn.execute(
+                "SELECT id, role, text, ts FROM messages "
+                "WHERE topic_id=? AND role IN ('user','ai') AND id <= ? "
+                "ORDER BY id DESC LIMIT ?",
+                (tid, mid, ctx_before + 1),
+            ).fetchall()
+            before = list(reversed(before))
+            # 命中后 ctx_after 条
+            after = conn.execute(
+                "SELECT id, role, text, ts FROM messages "
+                "WHERE topic_id=? AND role IN ('user','ai') AND id > ? "
+                "ORDER BY id ASC LIMIT ?",
+                (tid, mid, ctx_after),
+            ).fetchall()
+            ctx = []
+            for rid, rrole, rtext, rts in before + after:
+                if rid == mid:
+                    continue
+                ctx.append({
+                    "role": rrole,
+                    "text": (rtext or "")[:300],
+                    "ts": rts,
+                })
+            h["context"] = ctx
+        return hits
+    finally:
+        conn.close()
+
+
 def stats():
     try:
         conn = _conn()

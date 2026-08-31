@@ -1,3 +1,9 @@
+---
+name: "DAG 流程图操作规范"
+description: "来源：create_task / get_task_dag / insert_dag_node / remove_dag_node / update_node_deps / dynamic_split / complete_node / start_node"
+triggers: ["用户下达多步任务要建DAG", "需要操作DAG节点或依赖"]
+---
+
 # DAG 流程图操作规范
 
 > 来源：create_task / get_task_dag / insert_dag_node / remove_dag_node / update_node_deps / dynamic_split / complete_node / start_node

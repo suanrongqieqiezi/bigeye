@@ -82,14 +82,10 @@ def _extract_path_from_args(action: str, args: dict) -> str:
 @register_tool(
     name="spawn_agent",
     description=(
-        "派子代理按步骤执行任务。主 AI 负责规划步骤（1234），子代理按顺序执行。"
-        "执行过程记录在当前任务的工具调用历史里，不创建新任务。"
-        "安全模型：默认只读 + 工作区隔离。"
-        "steps: 步骤列表（必填），每项 {action: '工具名', args: {...}, desc: '这步做什么'}。"
-        "background: 可选，背景信息。"
-        "workspace: 可选，子代理唯一可写目录（不传=纯只读侦察）。"
-        "allow_write: 可选，默认 False（只读）。True 时允许在 workspace 内写文件。"
-        "max_turns: 可选，最大步数（默认 10）。"
+        "派子代理按步骤执行任务。主 AI 负责规划步骤，子代理按顺序执行，记录在当前任务内。"
+        "安全模型：默认只读 + 工作区隔离（workspace=子代理唯一可写目录，不传=纯只读）。"
+        "steps 必填：每项 {action:工具名, args:{...}, desc:'这步做什么'}。"
+        "allow_write 默认 False，True 才允许写文件；max_turns 默认 10。"
     ),
     parameters={
         "type": "object",
@@ -128,7 +124,8 @@ def spawn_agent(steps: list, background: str = "", workspace: str = "", allow_wr
     if not workspace and allow_write:
         ws_rel = db.get_topic_meta(parent_tid, "workspace") or ""
         if ws_rel:
-            ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            import sys as _sys
+            ROOT_DIR = os.path.dirname(_sys.executable) if getattr(_sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             workspace = os.path.join(ROOT_DIR, ws_rel.replace("/", os.sep))
 
     results = []

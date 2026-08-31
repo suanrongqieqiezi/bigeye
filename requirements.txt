@@ -1,10 +1,26 @@
-# 大眼X - 全能超级个体
-# 核心依赖 (纯 Python 标准库即可运行)
-# 
-# 可选: 记忆系统需要 sentence-transformers (本地embedding)
+# 大眼X - 依赖清单
+# ================================
+# 已内置 (vendor/ 目录已包含，无需 pip install):
+#   numpy, onnxruntime, flatbuffers, packaging
+# ================================
+
+# ── 核心依赖 ─────────────────────────────
+# tokenizers: ONNX embedding 的分词器 (memory/embedder.py)
+tokenizers
+# Pillow: 图像生成 (image_gen.py)
+Pillow
+# cryptography: 加密工具 (crypto_utils.py)
+cryptography
+
+# ── 可选依赖 ─────────────────────────────
+# sentence-transformers: 高质量本地 embedding (memory/embedder.py Backend 1)
 # pip install sentence-transformers
 #
-# 可选: web_search 使用 DuckDuckGo (无需 API key, 标准库即可)
+# requests: web_fetch 备用 HTTP 客户端 (tools/web_fetch.py)
+# pip install requests
 #
-# 运行方式:
-#   python server.py --port 9890
+# httpx: web_fetch 备用 HTTP 客户端 (tools/web_fetch.py)
+# pip install httpx
+#
+# flask: sync_server 云端同步服务 (sync/sync_server.py)
+# pip install flask
