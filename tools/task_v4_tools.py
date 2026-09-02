@@ -123,6 +123,12 @@ def create_task(request: str):
         if topic_id:
             dag.set_topic_id(topic_id)
             dag.save_to_file(topic_id)  # persist to mission folder
+            # 任务开启写缓冲：本任务对全局重要事项的写操作进暂存区，收尾合并
+            try:
+                from tools.mission_overlay import set_suspended
+                set_suspended(topic_id, True)
+            except Exception:
+                pass
         nodes = dag.get_nodes()
         status_counts = {}
         for n in nodes:
@@ -380,6 +386,15 @@ def finish_task(task_id: str, status: str = "done", reason: str = ""):
 
         # Reflect and sediment
         sedi = reflect_and_sediment(executor)
+        # 任务收尾：合并本任务的挂起写缓冲（改/删已审过，此处按规则落地）
+        overlay_report = None
+        try:
+            topic_id = dag.get_task().get("topic_id") if dag.get_task() else None
+            if topic_id:
+                from tools.mission_overlay import merge_pending_on_finish
+                overlay_report = merge_pending_on_finish(topic_id)
+        except Exception:
+            pass
         # Persist DAG to mission folder
         try:
             topic_id = dag.get_task().get("topic_id") if dag.get_task() else None
@@ -389,9 +404,15 @@ def finish_task(task_id: str, status: str = "done", reason: str = ""):
             pass
         task = dag.get_task()
         info = f"任务已{'完成' if status == 'done' else '失败'}。沉淀了 {sedi.get('narrative', 0)} 条叙事 + {sedi.get('solutions', 0)} 条解决方案到长时记忆。"
+        if overlay_report:
+            if overlay_report.get("merged"):
+                info += f" 写缓冲已合并 {overlay_report['merged']} 条：" + "；".join(overlay_report.get("detail", []))
+            if overlay_report.get("orphaned"):
+                info += f" 注意：{len(overlay_report['orphaned'])} 条缓冲目标已丢失，未合并（记为孤儿）。"
         return {
             "task": task,
             "sediment": sedi,
+            "overlay": overlay_report,
             "info": info,
         }
     except Exception as e:

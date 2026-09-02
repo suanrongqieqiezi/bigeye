@@ -53,11 +53,64 @@ def _save_book(book):
         json.dump(book, f, ensure_ascii=False, indent=2)
 
 
+# ── 任务级开页集（book_pages_overlay）────────────────
+# domain_book.json 的 active_pages 是全局默认；每个任务可在 topic_meta
+# 存一份覆盖集（整体替换语义，首次写入时以全局默认为基线副本）。
+# 组装时：有覆盖集用覆盖集，否则用全局默认。
+
+OVERLAY_KEY = "book_pages_overlay"
+
+
+def _active_tid():
+    try:
+        from db import get_db
+        return get_db().get_active_topic_id()
+    except Exception:
+        return None
+
+
+def _get_overlay(tid):
+    """读取任务覆盖集。无覆盖集返回 None（区别于空集 []）。"""
+    if not tid:
+        return None
+    try:
+        from db import get_db
+        val = get_db().get_topic_meta(tid, OVERLAY_KEY)
+        if val is None:
+            return None
+        data = json.loads(val)
+        return data if isinstance(data, list) else None
+    except Exception:
+        return None
+
+
+def _set_overlay(tid, pages):
+    try:
+        from db import get_db
+        get_db().set_topic_meta(tid, OVERLAY_KEY, json.dumps(pages, ensure_ascii=False))
+        return True
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def resolve_active_pages(book):
+    """生效开页集 = 任务覆盖集（过滤已删页） || 全局默认。
+    返回 (pages: list[str], source: "task" | "global")。"""
+    tid = _active_tid()
+    if tid:
+        ov = _get_overlay(tid)
+        if ov is not None:
+            return [p for p in ov if p in book.get("pages", {})], "task"
+    return list(book.get("active_pages", [])), "global"
+
+
 def get_active_pages_info():
-    """Get info for all currently active pages.
+    """当前生效开页集的页面信息（任务覆盖集优先，回退全局默认）。
     Returns list of (title, page_id, content) tuples, or empty list."""
     book = _load_book()
-    active = book.get("active_pages", [])
+    active, _src = resolve_active_pages(book)
     result = []
     for pid in active:
         if pid in book["pages"]:
@@ -76,15 +129,16 @@ def get_active_pages_info():
 def book_list_pages():
     book = _load_book()
     pages = book.get("pages", {})
-    active = book.get("active_pages", [])
+    active, src = resolve_active_pages(book)
     if not pages:
         return "说明书是空的。用 book_create_page 创建一页。"
+    src_label = "任务覆盖集，只影响当前任务" if src == "task" else "全局默认"
     lines = []
     for pid, pg in pages.items():
         status = "✅ 已开" if pid in active else "⏹ 关闭"
         tags = ", ".join(pg.get("tags", [])) if pg.get("tags") else "无标签"
         lines.append(f"  [{pid}] {pg['title']}（{tags}）{status}")
-    return f"共 {len(pages)} 页，已开 {len(active)} 页：\n" + "\n".join(lines)
+    return f"共 {len(pages)} 页，当前生效开页 {len(active)} 页（{src_label}）：\n" + "\n".join(lines)
 
 
 @register_tool(
@@ -150,18 +204,32 @@ def book_turn_to(page_id: str):
     book = _load_book()
     if page_id not in book["pages"]:
         return f"没有找到页面「{page_id}」。用 book_list_pages 查看所有可用页面，或用 book_create_page 创建新页面。"
-    active = book.get("active_pages", [])
+    tid = _active_tid()
+    if tid:
+        # 任务段：从生效集（首次=全局默认副本）开始开关，写任务覆盖集，不碰全局
+        active, _src = resolve_active_pages(book)
+        scope_note = "任务覆盖集，只影响当前任务"
+    else:
+        active = list(book.get("active_pages", []))
+        scope_note = "全局默认（当前无活跃任务）"
     if page_id in active:
         active.remove(page_id)
-        book["active_pages"] = active
-        _save_book(book)
-        return f"已关闭「{book['pages'][page_id]['title']}」。该页规则将不再生效。"
+        if tid:
+            if not _set_overlay(tid, active):
+                return "写入任务覆盖集失败，开页状态未保存。请重试。"
+        else:
+            book["active_pages"] = active
+            _save_book(book)
+        return f"已关闭「{book['pages'][page_id]['title']}」。该页规则将不再生效（{scope_note}）。"
+    active.append(page_id)
+    pg = book["pages"][page_id]
+    if tid:
+        if not _set_overlay(tid, active):
+            return "写入任务覆盖集失败，开页状态未保存。请重试。"
     else:
-        active.append(page_id)
         book["active_pages"] = active
         _save_book(book)
-        pg = book["pages"][page_id]
-        return f"已打开「{pg['title']}」。从现在起该页规则将生效。\n\n{pg.get('content', '')}"
+    return f"已打开「{pg['title']}」（{scope_note}）。从现在起该页规则将生效。\n\n{pg.get('content', '')}"
 
 
 @register_tool(
@@ -228,12 +296,20 @@ def book_create_page(page_id: str, title: str, content: str, tags: str = ""):
         "content": content,
         "version": 1
     }
+    tid = _active_tid()
+    if tid:
+        active, _src = resolve_active_pages(book)
+        if page_id not in active:
+            active.append(page_id)
+        _set_overlay(tid, active)
+        _save_book(book)
+        return f"已创建「{title}」（{page_id}）并自动打开（任务覆盖集，不影响全局默认，任务结束后该页回到关闭态）。该页规则从现在起生效。"
     active = book.get("active_pages", [])
     if page_id not in active:
         active.append(page_id)
         book["active_pages"] = active
     _save_book(book)
-    return f"已创建「{title}」（{page_id}）并自动打开。该页规则从现在起生效。"
+    return f"已创建「{title}」（{page_id}）并自动打开（全局默认）。该页规则从现在起生效。"
 
 
 @register_tool(
@@ -305,12 +381,18 @@ def book_delete_page(page_id: str, confirm: bool = False):
             f"确认删除请再次调用，传 confirm=true。删除后不可恢复。"
         )
 
-    # 真删：从 pages 移除 + 从 active_pages 移除
+    # 真删：从 pages 移除 + 从全局默认和当前任务覆盖集移除
     del book["pages"][page_id]
     active = book.get("active_pages", [])
     if page_id in active:
         active.remove(page_id)
         book["active_pages"] = active
+    tid = _active_tid()
+    if tid:
+        ov = _get_overlay(tid)
+        if ov and page_id in ov:
+            ov.remove(page_id)
+            _set_overlay(tid, ov)
     _save_book(book)
     return f"已删除「{title}」（{page_id}）。如果误删，需要用 book_create_page 重建。"
 

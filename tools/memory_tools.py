@@ -1311,8 +1311,13 @@ def _generate_compress_summary(texts_combined: str, purpose: str) -> str:
             f"结论：<这段对话最终达成的结论或决策>\n"
             f"产出：<产生的代码、文件、数据、方案等>\n"
             f"遗留：<未解决的问题或需跟进的事项>\n"
+            f"丢弃：<本次省略的非重要内容，仅记类别和数量，无则写无>\n"
             f"---\n"
-            f"严格控制200字以内，只输出上述三行，不要前缀不要多余文字。\n"
+            f"取舍纪律：\n"
+            f"必须保留：结论与决策及理由、最终方案/代码/文件路径等具体产出、未解决的问题、错误教训及原因、用户表达的偏好和要求。\n"
+            f"可以丢弃：重复尝试的中间过程（须保留最终结果与结论）、寒暄、客套、对已知内容的复述。\n"
+            f"拿不准是否重要的一律按必须保留处理，不许丢弃。\n"
+            f"总长控制在260字以内，只输出上述四行，不要前缀不要多余文字；丢弃行只记类别和数量，不展开具体内容。\n"
         )
 
         url = f"{llm_config.base_url}/chat/completions"
@@ -1327,7 +1332,7 @@ def _generate_compress_summary(texts_combined: str, purpose: str) -> str:
                 {"role": "user", "content": texts_combined[:24000]},
             ],
             "stream": False,
-            "max_tokens": 300,
+            "max_tokens": 2000,
             "temperature": 0.3,
         }).encode("utf-8")
 
@@ -1352,7 +1357,7 @@ def _generate_compress_summary(texts_combined: str, purpose: str) -> str:
         max_attempts = 3
         for attempt in range(max_attempts):
             try:
-                with urllib.request.urlopen(req, timeout=20, context=ssl_ctx) as resp:
+                with urllib.request.urlopen(req, timeout=90, context=ssl_ctx) as resp:
                     data = json.loads(resp.read())
                 break
             except Exception as e:

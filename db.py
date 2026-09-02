@@ -307,6 +307,14 @@ class Database:
         self._execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
         self._commit()
 
+    def list_meta_keys(self, prefix=""):
+        """列出 meta 键（可按前缀过滤），孤儿暂存扫描用。"""
+        if prefix:
+            rows = self._fetchall("SELECT key FROM meta WHERE key LIKE ?", (prefix + "%",))
+        else:
+            rows = self._fetchall("SELECT key FROM meta", ())
+        return [r["key"] for r in rows]
+
     def set_topic_meta(self, tid, key, value):
         """Set a per-topic meta value."""
         self._execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (f"{key}_{tid}", value))

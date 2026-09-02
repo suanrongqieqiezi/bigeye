@@ -72,7 +72,25 @@ import tools.rules_engine_tools  # 规则引擎管理工具（rule_list/rule_add
 
 def _get_matters():
     from tools.important_matters import get_matters
-    return get_matters()
+    from db import get_db
+    # 按当前活跃任务取叠加视图：全局段+任务段+本任务挂起缓冲预览
+    try:
+        tid = get_db().get_active_topic_id()
+    except Exception:
+        tid = None
+    return get_matters(tid)
+
+
+def _get_matter_items():
+    """完整条目视图（带缓冲标记），前端区分已生效/缓冲中。"""
+    from db import get_db
+    try:
+        from tools.mission_overlay import combined_entries
+        tid = get_db().get_active_topic_id()
+        return [{"content": e["content"], "pending": bool(e.get("_pending"))}
+                for e in combined_entries(tid)]
+    except Exception:
+        return [{"content": c, "pending": False} for c in _get_matters()]
 
 
 def _set_matters(entries):
@@ -183,7 +201,7 @@ def _resolve_workspace(ws_rel, topic_id=None):
             if os.path.isdir(fallback):
                 return fallback
         # 也尝试在 ROOT_DIR 下按原始相对结构找
-        # 例如旧路径 E:\B\bigeyeinfo\bigeye\data\missions\{id}\workspace
+        # 例如旧路径 <项目>\data\missions\{id}\workspace
         # 提取 data\missions\{id}\workspace 部分
         norm = os.path.normpath(ws_rel)
         parts = norm.split(os.sep)
@@ -2472,7 +2490,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # ── Important matters ──
         elif path == "/api/important-matters":
-            self._json(200, {"matters": _get_matters()})
+            self._json(200, {"matters": _get_matter_items()})
+
+        # ── 互动基调 ──
+        elif path == "/api/tone":
+            try:
+                from tools.important_matters import get_tone
+                self._json(200, {"tone": get_tone()})
+            except Exception as e:
+                self._json(500, {"error": str(e)})
 
         # ── 空态活标语：AI 建议池随机 > 时段模板 > 静态兜底 ──
         elif path == "/api/slogan":
@@ -2727,11 +2753,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             ".apk": "application/vnd.android.package-archive",
         }.get(ext, "application/octet-stream")
         try:
+            # ETag 协商缓存：指纹 = 大小-mtime；If-None-Match 匹配 -> 304，
+            # APK 冷启动不再重拉 427KB 壳页面，守门员透明转发不影响
+            st = os.stat(filepath)
+            etag = '"%d-%d"' % (st.st_size, int(st.st_mtime))
+            inm = self.headers.get("If-None-Match", "")
+            if inm and etag in inm:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                return
             with open(filepath, "rb") as f:
                 data = f.read()
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Cache-Control", "no-cache")
+            self.send_header("ETag", etag)
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -3786,6 +3824,53 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     # ── Chat handler (core) ────────────────────────
+    def _recent_same_text_gap(self, tid, message):
+        """最近一条用户消息与本条同文本时返回 (间隔秒数, 该消息ts)，否则 (None, None)。"""
+        try:
+            row = self.db._fetchall(
+                "SELECT text, ts FROM messages WHERE topic_id=? AND role='user' "
+                "ORDER BY ts DESC, id DESC LIMIT 1", (tid,))
+            last_user = row[0] if row else None
+        except Exception:
+            return (None, None)
+        if last_user is None:
+            return (None, None)
+        if ((last_user["text"] or "")).strip() != (message or "").strip():
+            return (None, None)
+        ts = last_user["ts"] or 0
+        ts_s = ts / 1000.0 if ts > 1e14 else ts
+        gap_s = time.time() - ts_s
+        return (gap_s if gap_s >= 0 else None, ts)
+
+    def _dup_check(self, tid, message):
+        """幽灵重复守卫：消息文本与库内最近一条用户消息相同且在时间窗内——
+        ≤10秒：判双击/重复提交，直接拦截；
+        ≤600秒且其后已有最终 AI 回复：判断线幽灵重发，拦截并返回已持久化的回复
+        （首次请求其实已到服务端入库，只是响应没走回来，直接返还省一轮 AI 运行）。
+        无最终回复时不在此拦：agent 运行中由注入分支按同文本拦截（防二次入库），
+        agent 已死则放行保留补救路。
+        返回 None 放行；返回 dict 则拦截（作为 200 JSON 响应）。"""
+        gap_s, last_ts = self._recent_same_text_gap(tid, message)
+        if gap_s is None or gap_s > 600:
+            return None  # 超10分钟：视为真实新消息（用户有意重复提问）
+        has_reply, reply_text = False, ""
+        try:
+            r = self.db._fetchall(
+                "SELECT text FROM messages WHERE topic_id=? AND role='ai' AND ts>? "
+                "AND (args IS NULL OR args NOT LIKE '%\"process\"%') "
+                "ORDER BY ts DESC, id DESC LIMIT 1", (tid, last_ts))
+            if r:
+                has_reply = True
+                reply_text = r[0]["text"] or ""
+        except Exception:
+            has_reply = False
+        if gap_s <= 10 or has_reply:
+            tag = "重复提交" if gap_s <= 10 else "幽灵重发"
+            print(f"[chat] {tag}已拦截 (间隔{int(gap_s)}s, topic {tid[:8]})")
+            return {"status": "duplicate", "response": reply_text,
+                    "usage": {"total_tokens": 1}, "topic_id": tid}
+        return None  # 尚无最终回复：agent 可能在跑（注入分支会拦同文本）或已死（放行补救）
+
     def _handle_chat(self, data):
         """Chat: LLM → tool loop → track cost → JSON response."""
         global _round_peak_tokens
@@ -3830,11 +3915,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.db.set_topic_meta(tid, "workspace", os.path.abspath(ws_dir))
         # 附件清单存进 args，前端刷新后能恢复 chip
         _msg_args = {"attachments": attachments} if attachments else None
+        # ―― 幽灵重复守卫：窗口内同文本重复提交直接拦截，防二次入库 ――
+        _dup = self._dup_check(tid, message)
+        if _dup is not None:
+            self._json(200, _dup)
+            return
         # ── 插话：该话题已有运行中的 agent 循环时，不起第二个并行循环。
         # 消息落库后进入注入队列，运行中的循环会在轮次边界取出、插入上下文继续思考。
         with _cancel_lock:
             _loop_active = _cancel_events.get(tid) is not None
         if _loop_active:
+            # agent 运行中收到的同文本必是幽灵重发/重复提交（差异文本才是真插话）：
+            # 不二次入库、不注入，返回空回复让前端转入恢复轮询等最终结果。
+            _inj_gap, _inj_ts = self._recent_same_text_gap(tid, message)
+            if _inj_gap is not None and _inj_gap <= 600:
+                print(f"[chat] agent运行中同文本重发已拦截 (间隔{int(_inj_gap)}s, topic {tid[:8]})")
+                self._json(200, {"status": "duplicate", "response": "", "topic_id": tid})
+                return
             self.db.add_message(tid, "user", message, args=_msg_args, ts=time.time())
             self.db.update_topic(tid, updated_at=time.time())
             with _inject_lock:
@@ -3898,11 +3995,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # Block 1.5: 领域书（开关控制入口）
         try:
-            from tools.domain_book_tools import get_active_pages_info, _load_book
+            from tools.domain_book_tools import get_active_pages_info, _load_book, resolve_active_pages
+
             active_pages = get_active_pages_info()
+
             book = _load_book()
+
             all_pages = book.get("pages", {})
-            active_ids = book.get("active_pages", [])
+
+            active_ids, _book_src = resolve_active_pages(book)
             if active_pages or all_pages:
                 page_lines = []
                 # 列出所有页面，标记激活状态（入口透明）
@@ -5055,6 +5156,16 @@ def main():
         print(f"[大眼X] Reminder worker started")
     except Exception as e:
         print(f"[大眼X] Reminder worker failed: {e}")
+    # 任务写缓冲自愈：上一次运行残留的未合并暂存（崩溃/被掐断）按规则合并
+    try:
+        from tools.mission_overlay import merge_orphans_on_startup
+        rep = merge_orphans_on_startup()
+        if rep.get("scanned"):
+            print(f"[大眼X] 任务写缓冲自愈：扫到 {rep['scanned']} 份残留，合并 {rep['merged']} 条，孤儿 {len(rep['orphaned'])} 条")
+            for d in rep.get("details", []):
+                print(f"  [overlay] {d}")
+    except Exception as e:
+        print(f"[大眼X] 写缓冲自愈失败: {e}")
     # Start suggestion refresher — 空态 AI 建议池按频率静默刷新
     try:
         threading.Thread(target=_suggestion_refresh_loop, daemon=True).start()
