@@ -19,6 +19,8 @@
 - 规则引擎文档：新增 rules_engine/README.md 与状态探针（state_probe.py）。
 - 示例配置：新增 model_config.example.json（脱敏模板），便于新使用者按模板填入自己的 API Key。
 - 技能合集（skills/）：随源码同步一批技能文档（嘉立创EDA、多模态接入、记忆加载链路诊断、策略清单整理、OTA 等）。
+- 对话窗口支持图片显示
+- 支持多模态模型
 
 ### 修复
 
