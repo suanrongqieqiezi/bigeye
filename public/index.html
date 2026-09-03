@@ -8081,17 +8081,24 @@ setInterval(function(){
 /* ── 配对面板逻辑 ── */
 var _pairLocalKey=''; var _pairLocalTok='';
 function _pairTok(){ try{ var st=localStorage.getItem('dg_token'); if(st) return st; }catch(e){} return _pairLocalTok||''; }
-function _pairAddrCandidates(){
-  var list=[], cur=location.origin||('http://'+location.host);
-  if(cur&&cur.indexOf('http')===0) list.push(cur);
-  /* 如需固定公网地址，可在下方替换为你的真实服务器IP，示例：http://YOUR_SERVER_IP:16000 */
-  list.push('http://127.0.0.1');
+/* 收集候选服务器地址：优先从后端动态探测本机局域网地址（不写死IP），
+   再以当前访问地址兜底。真正的服务器地址由运行环境决定，不在源码中硬编码。 */
+function _pairAddrCandidates(cb){
+  var list=[];
+  try{ var cur=location.origin||('http://'+location.host); if(cur&&cur.indexOf('http')===0) list.push(cur); }catch(e){}
+  if(typeof Native!=='undefined'&&Native.getServerUrl){ try{ var u=Native.getServerUrl(); if(u){ u=u.replace(/\/+$/,''); if(list.indexOf(u)<0) list.unshift(u); } }catch(e){} }
+  var done=function(urls){
+    if(urls&&urls.length){ for(var i=0;i<urls.length;i++){ if(urls[i]&&list.indexOf(urls[i])<0) list.push(urls[i]); } }
+    if(!list.length) list.push('http://127.0.0.1');
+    cb(list);
+  };
   try{
-    if(typeof Native!=='undefined'&&Native.getServerUrl){
-      var u=Native.getServerUrl(); if(u) u=u.replace(/\/+$/,''); if(u&&list.indexOf(u)<0) list.unshift(u);
-    }
-  }catch(e){}
-  return list;
+    var x=new XMLHttpRequest();
+    x.open('GET','/api/status',true); x.timeout=1500;
+    x.onreadystatechange=function(){ if(x.readyState===4){ var urls=[]; try{ var d=JSON.parse(x.responseText); if(d&&d.urls) urls=d.urls; }catch(e){} done(urls); } };
+    x.onerror=function(){ done([]); };
+    x.send();
+  }catch(e){ done([]); }
 }
 function _pairKey(){
 
@@ -8130,22 +8137,24 @@ function _pairHint(){
 }
 function renderMobilePairing(){
   var b=document.getElementById('settingsBody'); if(!b) return;
-  var cands=_pairAddrCandidates(), key=_pairKey();
-  var cur=location.origin||''; var def=cands[0];
-  if(cur.indexOf('localhost')>-1||cur.indexOf('127.0.0.1')>-1){ if(cands.length>1) def=cands[1]; }
-  var opts=cands.map(function(u){ return '<option value="'+u+'"'+(u===def?' selected':'')+'>'+u+'</option>'; }).join('');
-  b.innerHTML=
-   '<div style="padding:14px 16px 24px">'
-   +'<div class="pair-tip" style="margin-top:0">手机扫一扫即可连接大眼：安卓「大眼」APP 扫码自动完成地址+密钥配置；其他手机用相机扫码直接打开网页版。</div>'
-   +'<select id="pairAddrSel" class="pair-sel" onchange="_pairRefresh()">'+opts+'</select>'
-   +'<div id="pairQrBox"></div>'
-   +'<div class="pair-tip" id="pairKeyHint"></div>'
-   +'<div class="pair-row"><button class="sf-btn" style="flex:1;justify-content:center;padding:9px" onclick="_pairCopy(this)">复制连接串</button>'
-   +'<button class="sf-btn" style="flex:1;justify-content:center;padding:9px" onclick="_pairRefresh()">刷新二维码</button></div>'
-   +'</div>';
-  _pairHint();
-  _pairDraw();
-if(!key || !_pairTok()){ _pairFetchLocalKey(function(k){ if(k&&typeof k==='object'&&k.enc_key){ if(!key) _pairLocalKey=k.enc_key; if(!_pairTok()) _pairLocalTok=k.token||''; _pairHint(); _pairDraw(); } }); }
+  _pairAddrCandidates(function(cands){
+    var key=_pairKey();
+    var cur=location.origin||''; var def=cands[0];
+    if(cur.indexOf('localhost')>-1||cur.indexOf('127.0.0.1')>-1){ if(cands.length>1) def=cands[1]; }
+    var opts=cands.map(function(u){ return '<option value="'+u+'"'+(u===def?' selected':'')+'>'+u+'</option>'; }).join('');
+    b.innerHTML=
+     '<div style="padding:14px 16px 24px">'
+     +'<div class="pair-tip" style="margin-top:0">手机扫一扫即可连接大眼：安卓「大眼」APP 扫码自动完成地址+密钥配置；其他手机用相机扫码直接打开网页版。</div>'
+     +'<select id="pairAddrSel" class="pair-sel" onchange="_pairRefresh()">'+opts+'</select>'
+     +'<div id="pairQrBox"></div>'
+     +'<div class="pair-tip" id="pairKeyHint"></div>'
+     +'<div class="pair-row"><button class="sf-btn" style="flex:1;justify-content:center;padding:9px" onclick="_pairCopy(this)">复制连接串</button>'
+     +'<button class="sf-btn" style="flex:1;justify-content:center;padding:9px" onclick="_pairRefresh()">刷新二维码</button></div>'
+     +'</div>';
+    _pairHint();
+    _pairDraw();
+    if(!key||!_pairTok()){ _pairFetchLocalKey(function(k){ if(k&&typeof k==='object'&&k.enc_key){ if(!key) _pairLocalKey=k.enc_key; if(!_pairTok()) _pairLocalTok=k.token||''; _pairHint(); _pairDraw(); } }); }
+  });
 }
 function _pairDraw(){
   var box=document.getElementById('pairQrBox'); if(!box) return;
