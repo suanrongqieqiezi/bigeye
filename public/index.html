@@ -6821,7 +6821,7 @@ async function loadWebConfig() {
     html += '</div>';
     html += '<div class="sp-section"><h4>网络设置</h4>';
     html += '<label class="cfg-label">服务器 IP (局域网地址)</label>';
-    html += '<input id="cfgServerIp" type="text" value="' + esc(resp.server_ip||'192.168.1.7') + '" placeholder="192.168.1.7" class="cfg-input" style="margin-bottom:6px">';
+    html += '<input id="cfgServerIp" type="text" value="' + esc(resp.server_ip||'') + '" placeholder="192.168.x.x" class="cfg-input" style="margin-bottom:6px">';
     html += '<div class="cfg-hint">手机 APP 通过此 IP 连接服务器</div>';
     html += '</div>';
     html += '<div class="sp-section"><h4>加密设置</h4>';
@@ -8084,7 +8084,8 @@ function _pairTok(){ try{ var st=localStorage.getItem('dg_token'); if(st) return
 function _pairAddrCandidates(){
   var list=[], cur=location.origin||('http://'+location.host);
   if(cur&&cur.indexOf('http')===0) list.push(cur);
-  list.push('http://8.138.6.164:16000');
+  /* 如需固定公网地址，可在下方替换为你的真实服务器IP，示例：http://YOUR_SERVER_IP:16000 */
+  list.push('http://127.0.0.1');
   try{
     if(typeof Native!=='undefined'&&Native.getServerUrl){
       var u=Native.getServerUrl(); if(u) u=u.replace(/\/+$/,''); if(u&&list.indexOf(u)<0) list.unshift(u);
