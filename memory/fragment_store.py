@@ -42,6 +42,8 @@ MMR_LAMBDA = 0.7
 IMPORTANCE_PIN_THRESHOLD = 7.0
 ACTIVE_RECENCY_DAYS = 30
 ENTITY_BONUS = 1.5
+TOPIC_BONUS_SAME = 1.2   # 碎片归属当前任务：轻度提升
+TOPIC_BONUS_OTHER = 0.85 # 碎片归属其他任务：降权，防跨任务碎片涌入（2026-09-04 串台修复）
 RECALL_ARCHIVE_TOP_K = 5
 RECALL_ARCHIVE_THRESHOLD = 0.4
 CAUSAL_PROPAGATION_MIN_CONFIDENCE = 0.8
@@ -435,7 +437,7 @@ class FragmentStore:
             conn.close()
 
     def recall(self, context_text, top_k=RECALL_TOP_K, threshold=RECALL_THRESHOLD,
-               query_entities=None, layer="core", topic_id=None):
+               query_entities=None, layer="core", topic_id=None, current_topic=None):
         """v4.0: 5-factor recall with entity match bonus.
 
         Factors: recency × relevance × importance × weight × entity_match.
@@ -469,7 +471,8 @@ class FragmentStore:
 
                 # 5-factor scoring
                 score = self._five_factor_score(
-                    row, relevance, now, query_entities=query_entities
+                    row, relevance, now, query_entities=query_entities,
+                    current_topic=current_topic
                 )
                 if score >= threshold:
                     frag = dict(row)
@@ -564,8 +567,9 @@ class FragmentStore:
         finally:
             conn.close()
 
-    def _five_factor_score(self, row, relevance, now, query_entities=None):
-        """recency × relevance × importance × weight × entity_bonus."""
+    def _five_factor_score(self, row, relevance, now, query_entities=None,
+                           current_topic=None):
+        """recency × relevance × importance × weight × entity_bonus × topic_bonus."""
         # 1. Recency
         created_at = row["created_at"]
         age_days = (now - created_at) / 86400.0
@@ -586,7 +590,21 @@ class FragmentStore:
             if frag_entities and any(eid in frag_entities for eid in query_entities):
                 entity_bonus = ENTITY_BONUS
 
-        return recency * relevance * importance * weight * entity_bonus
+        # 6. Topic match（任务感知，2026-09-04 串台修复）
+        # 归属当前任务 ×1.2；无归属（老数据）×1.0 不动；其他任务 ×0.85 降权
+        # 1.5×0.85=1.275>1.0：实体强证据的跨任务碎片仍高于无实体命中者，不误伤真相关
+        if current_topic:
+            frag_topic = row["topic_id"] or ""
+            if frag_topic == current_topic:
+                topic_bonus = TOPIC_BONUS_SAME
+            elif frag_topic:
+                topic_bonus = TOPIC_BONUS_OTHER
+            else:
+                topic_bonus = 1.0
+        else:
+            topic_bonus = 1.0
+
+        return recency * relevance * importance * weight * entity_bonus * topic_bonus
 
     def _mmr_select(self, scored, top_k, conn=None, now=None):
         """MMR (Maximal Marginal Relevance) selection.

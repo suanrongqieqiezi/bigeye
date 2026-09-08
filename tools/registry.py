@@ -189,11 +189,12 @@ FOLDED_TOOL_GROUPS = {
         ],
     },
     "misc": {
-        "description": "其他工具：图片生成、模板引擎、编辑预览、热重载、文件搜索",
+        "description": "其他工具：图片生成、模板引擎、编辑预览、热重载、文件搜索、坑指纹核查",
         "tools": [
             "generate_image",
             "list_templates", "create_from_template", "preview_template",
             "edit_preview", "hot_reload", "file_search",
+            "om_observe", "om_compare", "om_stats", "audit_check",
         ],
     },
     "file_versioning": {

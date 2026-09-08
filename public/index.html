@@ -97,7 +97,13 @@ header h1{font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;te
 #sText{font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap}
 #uInfo{display:none}
 /* Working dot — 已去掉黄点显示 */
-#workingDot{display:none!important}
+/* Task run states (per-topic, synced via /api/topics) */
+.topic-item .run-dot{position:absolute;top:9px;right:9px;width:7px;height:7px;border-radius:50%;background:var(--accent,#22e6ff);box-shadow:0 0 8px rgba(34,230,255,.55);animation:runPulse 1.4s ease-in-out infinite}
+.topic-item .run-dot.done{animation:none;background:var(--success,#2ecc71);box-shadow:none;opacity:.8}
+.topic-item .run-dot.failed{animation:none;background:var(--danger,#ff6a5f);box-shadow:none;opacity:.9}
+@keyframes runPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.72)}}
+.topic-item{position:relative}
+
 /* Chat area */
 main{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 14px;display:flex;flex-direction:column;gap:12px;min-width:0;-webkit-overflow-scrolling:touch;overflow-anchor:none}
 .empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--tdim);font-size:13px;text-align:center;line-height:1.8}
@@ -1329,7 +1335,8 @@ var _memCache=new Map(); // tid -> {messages, msgOffset, allLoaded, ts}
 function saveMemCache(tid){ if(!tid) return; _memCache.set(tid,{messages:messages.slice(),msgOffset:msgOffset,allLoaded:allLoaded,scrollTop:chatBox.scrollTop,ts:Date.now()}); }
 function loadMemCache(tid){ return _memCache.get(tid)||null; }
 // topics 列表只存一份(旧版每个任务缓存里都冗余一份,加速撑爆 5MB 配额)
-function saveCache(tid){ try { var id=tid||(currentTopic?currentTopic.id:null); if(!id) return; localStorage.setItem(LS_KEY+'_'+id,JSON.stringify({topicId:id,messages:(typeof dedupeMsgs==='function'?dedupeMsgs(messages):messages),ts:Date.now(),msgOffset:msgOffset,allLoaded:allLoaded,scrollTop:chatBox.scrollTop})); localStorage.setItem(LS_KEY+'_topics',JSON.stringify(topics)); localStorage.setItem(LS_KEY+'_active',id); saveMemCache(id); } catch(e){} }
+function saveCache(tid){ try { var id=tid||(currentTopic?currentTopic.id:null); if(!id) return; var payload=JSON.stringify({topicId:id,messages:(typeof dedupeMsgs==='function'?dedupeMsgs(messages):messages),ts:Date.now(),msgOffset:msgOffset,allLoaded:allLoaded,scrollTop:chatBox.scrollTop}); try { localStorage.setItem(LS_KEY+'_'+id,payload); } catch(e1){ try { // 配额满:清掉其他话题的持久缓存(内存缓存不受影响),保住当前话题,否则切任务永远全量重拉
+  for(var qi=localStorage.length-1;qi>=0;qi--){ var qk=localStorage.key(qi); if(qk&&qk.indexOf(LS_KEY)===0&&qk!==LS_KEY+'_'+id) localStorage.removeItem(qk); } localStorage.setItem(LS_KEY+'_'+id,payload); } catch(e2){} } localStorage.setItem(LS_KEY+'_topics',JSON.stringify(topics)); localStorage.setItem(LS_KEY+'_active',id); saveMemCache(id); } catch(e){} }
 // ── 输入框草稿自动保存（独立前缀，避开 pruneCache 按 LS_KEY 清理）──
 var DRAFT_KEY_PREFIX='omp_draft_';
 var draftTimer=null;
@@ -1591,6 +1598,23 @@ function toggleSidebar(){ setSidebarOpen(!sidebarOpen(), true); }
 
 var topicSwipeOpen=null;
 
+// 侧栏运行点：拉一次全任务 working 状态，写进 topics 元数据后交给 renderTopics 渲染
+async function syncWorkingDots(){
+  try {
+    var r=await fetch('/api/topics');
+    var d=await r.json();
+    var map={};
+    (d.topics||[]).forEach(function(t){ if(t.working_status) map[t.id]=t.working_status; });
+    for(var i=0;i<topics.length;i++){
+      var tid=topics[i].id;
+      if(map[tid]){ topics[i].working_status=map[tid]; }
+      else if(topics[i].working_status && !_sendingTopics[tid]){
+        delete topics[i].working_status;  // 后端已无运行态：清本地残留（本任务自己的运行态由 _sendingTopics 保护）
+      }
+    }
+  } catch(e){}
+}
+
 function renderTopics(){
   topicList.innerHTML='';
   for(var i=0; i<topics.length; i++){
@@ -1613,7 +1637,10 @@ function renderTopics(){
       var tokStr = tt>=1000000 ? (tt/1000000).toFixed(1)+'M' : tt>=1000 ? (tt/1000).toFixed(1)+'k' : String(tt);
       costHtml=' <span class="t-cost">'+(tt>0?tokStr+' tok / ':'')+'¥'+cny+'</span>';
     }
-    item.innerHTML='<div class="t-title">'+esc(t.title||'新任务')+'</div><div class="t-preview">'+esc(t.last_message||'')+'</div><div class="t-time"><span class="t-time-txt">'+tsTopic(t.updated_at||t.created_at)+'</span>'+costHtml+'</div>';
+    // 任务运行状态点：运行中=呼吸蓝点，done=绿点，failed=红点（数据来自 /api/topics working_status）
+    var runCls=t.working_status==='done'?' done':(t.working_status==='failed'?' failed':'');
+    var runDot=t.working_status?'<span class="run-dot'+runCls+'"></span>':'';
+    item.innerHTML='<div class="t-title">'+esc(t.title||'新任务')+runDot+'</div><div class="t-preview">'+esc(t.last_message||'')+'</div><div class="t-time"><span class="t-time-txt">'+tsTopic(t.updated_at||t.created_at)+'</span>'+costHtml+'</div>';
     content.appendChild(item);
 
     var actions=document.createElement('div');
@@ -1940,6 +1967,7 @@ async function loadTopics(){
         }
       }
     }
+    await syncWorkingDots();
     renderTopics();
     return true;
   } catch(e){ return false; }
@@ -1993,6 +2021,9 @@ async function switchTopic(tid){
   // Stop working poll for old topic
   if(workingPoll){ clearInterval(workingPoll); workingPoll=null; }
   workingDot.classList.remove('pulse');
+  // 状态跟随任务：切换后按钮必须反映“本任务”是否在跑
+  if(_sendingTopics[tid]){ _setBtnStopping(); }
+  else { _setBtnSending(); }
   // Optimistic: update UI from local topic list
   var localTopic=null;
   for(var n=0;n<topics.length;n++){
@@ -2001,8 +2032,9 @@ async function switchTopic(tid){
   currentTopic=localTopic||{id:tid,title:'任务'};
   restoreDraft(tid,true); // 恢复新话题草稿
   topicTitle.textContent=currentTopic.title||'任务';
-  // Cache-first：先显示缓存；过一遍去重，历史上被污染的缓存自动痊愈
-  var cached=loadCache(tid);
+  // Cache-first：优先内存缓存(本会话切走时刚存的)，localStorage 兜底；
+  // localStorage 可能因 WebView 配额满而写入失败(静默catch)，不能只依赖它
+  var cached=_memC||loadCache(tid);
   messages=cleanupLiveMsgs(groupProcess(dedupeMsgs(cached&&cached.messages?cached.messages:[])));
   for(var ci2=0;ci2<messages.length;ci2++) messages[ci2]._seen=true;
   render(); chatStick=chatNearBottom(); // 缓存渲染完:用户没动=滚底,动了=保留
@@ -2020,11 +2052,18 @@ async function switchTopic(tid){
         var swRes=await loadMessages(tid, msgLimit, 0);
         if(_seq!==switchSeq) return;
         if(swRes){
+          // 静默刷新:内容没变(条数+末条时间戳/文本一致)就不重渲,
+          // 否则每次切回哪怕无新消息也整页重建,看起来像"重新加载了一遍"
+          var _unchanged=false;
+          if(swRes.messages&&swRes.messages.length&&swRes.messages.length===messages.length){
+            var _la=messages[messages.length-1], _lb=swRes.messages[swRes.messages.length-1];
+            if(_la&&_lb&&_la.ts===_lb.ts&&String(_la.text||'').length===String(_lb.text||'').length) _unchanged=true;
+          }
           messages=swRes.messages||[];
           msgOffset=swRes.rawCount||messages.length;
           allLoaded=(msgOffset<msgLimit);
+          if(!_unchanged){ render(); chatStick=chatNearBottom(); }
         }
-        render(); chatStick=chatNearBottom();
         // 服务端数据可能比缓存多，恢复位置前先保存一次新数据，再恢复
         saveCache();
         restoreScroll(tid);
@@ -2036,24 +2075,6 @@ async function switchTopic(tid){
   } catch(e){}
   if(_seq!==switchSeq) return;
   checkTopicWorking();
-  // 链式预取:仅在用户未滚动/未交互时静默拉取,避免抢焦点
-  var _pfTid=tid;
-  var _userActive=false, _userActiveTimer=null;
-  function _markUserActive(){ _userActive=true; clearTimeout(_userActiveTimer); _userActiveTimer=setTimeout(function(){ _userActive=false; }, 3000); }
-  chatBox.addEventListener('scroll',_markUserActive,{passive:true});
-  chatBox.addEventListener('touchstart',_markUserActive,{passive:true});
-  chatBox.addEventListener('wheel',_markUserActive,{passive:true});
-  (async function chainPrefetch(){
-    await new Promise(r=>setTimeout(r,700));
-    while(_seq===switchSeq&&currentTopic&&currentTopic.id===_pfTid&&!allLoaded){
-      if(_userActive){ await new Promise(r=>setTimeout(r,500)); continue; } // 用户在操作:暂停预取
-      if(_loadingMore){ await new Promise(r=>setTimeout(r,200)); continue; }
-      await loadMoreMessages();
-      if(!allLoaded) await new Promise(r=>setTimeout(r,200)); // 间隔从100ms提高到200ms
-    }
-    // 预取完成后存一份内存缓存,切回时无需重新加载
-    if(_seq===switchSeq&&currentTopic&&currentTopic.id===_pfTid) saveMemCache(_pfTid);
-  })();
   // 文件浏览器开着时，同步切到新任务的工作区
   if(fbOpen){
     if(typeof closeViewer==='function') closeViewer();
@@ -2079,9 +2100,20 @@ function dedupeMsgs(list){
     var m=list[i];
     if(m.working||(m.type==='proc'&&m.live)){ out.push(m); continue; } // 实时泡不参与去重
     var sig=m.text||m.name||(m.steps?('p'+m.steps.length+'|'+((m.steps[0]&&(m.steps[0].name||m.steps[0].kind))||'')):'');
-    var key=(m.type||m.role||'')+'|'+(m.ts||0)+'|'+String(sig).slice(0,64);
-    if(seen[key]) continue;
-    seen[key]=1; out.push(m);
+    // 时间桶去重：用户气泡在"本地推送(手机时钟 ts)"与"服务端落库(服务器时钟 ts)"两侧
+    // 时间戳有亚秒~秒级偏差，精确相等永远匹配不上→去重失效→同一消息渲染两次(看似"重发")。
+    // 桶宽 2s，登记 [floor, floor+1] 两键：|Δts|<2s 必有一键相交(无相位缝隙，数学可证)；
+    // 同文本 3s 内重复本就被服务端守卫拦截，过宽无误伤。工具条目只来自服务端(时间戳同源)，
+    // 保持精确 ts 键，避免同名并行工具调用被误并。
+    var _t=m.ts||0, _sig=String(sig).slice(0,64), key, key2;
+    if(m.type==='tool'){ key=m.type+'|'+_t+'|'+_sig; key2=key; }
+    else{
+      var _k=Math.floor(_t/2);
+      key=(m.role||'')+'|'+_sig+'|k'+_k;
+      key2=(m.role||'')+'|'+_sig+'|k'+(_k+1);
+    }
+    if(seen[key]||seen[key2]) continue;
+    seen[key]=1; seen[key2]=1; out.push(m);
   }
   return out;
 }
@@ -2174,8 +2206,7 @@ async function loadMoreMessages(){
   _loadingMore=true;
   try {
   var tid=currentTopic.id;
-  // 前插历史消息会让现有内容往下移,记录旧 scrollTop/高度,重建后偏移修正
-  var _prevScroll=chatBox.scrollTop;
+  // 前插历史消息会让现有内容往下移,记录高度,重建后偏移修正
   var prevHeight=chatBox.scrollHeight;
   var result=await loadMessages(tid, msgLimit, msgOffset);
   if(!currentTopic||currentTopic.id!==tid) return;
@@ -2185,16 +2216,15 @@ async function loadMoreMessages(){
   messages=groupProcess(dedupeMsgs(fresh.concat(messages)));
   for(var si2=0;si2<messages.length;si2++) messages[si2]._seen=true;
   msgOffset+=result.rawCount||fresh.length;
-  // 记录用户在加载期间是否自己滚动了(await 期间可能)
-  var _userScrolled=Math.abs(chatBox.scrollTop-_prevScroll)>3;
+  // render 前读取用户实际位置(await 期间可能自己滚过),统一按"当前位置+新增高度"补偿:
+  // 旧逻辑用户滚动过就不补偿 → innerHTML 重建后 scrollTop=0 → 整页跳顶,还会级联触发顶部加载
+  var _curScroll=chatBox.scrollTop;
   window._skipRenderScroll=true;
   render();
   window._skipRenderScroll=false;
-  // render 内 chatBox.innerHTML='' 重置了 scrollTop 为 0,
-  // 不能用 reset 后的 scrollTop 判断用户滚动,改用 await 前后的差值 _userScrolled
   var addedHeight=chatBox.scrollHeight-prevHeight;
   if(chatStick) chatBox.scrollTop=chatBox.scrollHeight;
-  else if(!_userScrolled) chatBox.scrollTop=_prevScroll+addedHeight;
+  else chatBox.scrollTop=_curScroll+addedHeight;
   } finally { _loadingMore=false; }
 }
 
@@ -2458,7 +2488,13 @@ function _unbindProcScroll(uid){
 // 增量更新过程泡 DOM — live 态增量 append + follow-tail 滚动
 function updateProcDom(w){
   var el=chatBox.querySelector('.row.proc[data-uid="'+w.uid+'"]');
-  if(!el){ if(w.working||w.live) render(); return; }
+  if(!el){
+    // 孤儿引用守卫: w 已不在 messages(如切任务时列表被整体替换)时绝不触发整页重渲。
+    // 否则 doSend 的 sendPoll 闭包每 500ms 对孤儿 wMsg 调一次 render():整页重建把思考泡
+    // body 重置回顶部,紧接着 workingPoll 增量追加又平滑滚底 → 内容上下反复拉扯直到生成结束
+    if((w.working||w.live) && messages.indexOf(w)>=0) render();
+    return;
+  }
   var sum=el.querySelector('.proc-sum');
   if(sum) sum.innerHTML=procSummary(w);
   var box=el.querySelector('.proc-box');
@@ -3121,7 +3157,7 @@ async function _doSendInner(){
   try { var bc=new BroadcastChannel('dayan'); bc.postMessage({type:'msg',tid:sendTid}); bc.close(); } catch(e){}
 }
 // [4] 发送并发防护:in-flight 时忽略重复触发,按钮切换到"停止"态
-var _sending=false;
+var _sendingTopics={}; // 任务ID→true：真正在跑的任务集合（状态跟随任务，支持多任务并行发送）
 // 按钮切到停止态:图标变方块,加 stopping class,onclick 走 stopThinking
 function _setBtnStopping(){
   if(!btnSend) return;
@@ -3138,14 +3174,15 @@ function _setBtnSending(){
 }
 // toggleSend:发送态点击=发送,停止态点击=停止
 async function toggleSend(){
-  if(_sending){ await stopThinking(); return; }
+  // 按钮属于当前任务：本任务在跑→停止；否则→发送（别的任务在跑不影响本任务）
+  var _tid=currentTopic?currentTopic.id:null;
+  if(_tid && _sendingTopics[_tid]){ await stopThinking(); return; }
   await doSend();
 }
 // stopThinking:调 /api/stop-thinking 中断 agent loop
 // 中断后 agent 会保存已生成的 full_response 并返回,_doSendInner 的 finally 会自动恢复按钮
 async function stopThinking(){
-  if(!_sending) return;
-  if(!currentTopic){ return; }
+  if(!currentTopic||!_sendingTopics[currentTopic.id]) return;
   // 临时禁用按钮防重复点击,等 agent 返回后再恢复
   if(btnSend){ btnSend.disabled=true; btnSend.title='停止中…'; }
   try {
@@ -3157,13 +3194,18 @@ async function stopThinking(){
   }
 }
 async function doSend(){
-  if(_sending) return;
+  var myTid=currentTopic?currentTopic.id:null;
+  if(myTid && _sendingTopics[myTid]) return; // 只拤本任务重复发送
   var _t=msgInput.value.trim();
   if(!_t && !pendingAttachments.length) return;
-  _sending=true;
+  if(myTid) _sendingTopics[myTid]=true; // 记录真正在跑的任务
   _setBtnStopping();  // 按钮切到停止态
   try { await _doSendInner(); }
-  finally { _sending=false; _setBtnSending(); }
+  finally {
+    if(myTid) delete _sendingTopics[myTid];
+    // 只有当前看着的任务也不在跑时才恢复发送态（避免误清别的任务的停止态）
+    if(!currentTopic || !_sendingTopics[currentTopic.id]) _setBtnSending();
+  }
 }
 window.toggleSidebar = toggleSidebar;
 window.newTopic = newTopic;
@@ -4453,16 +4495,6 @@ function loadThemeSettings(){
       restoreScroll(loadTid);
     }
     topicTitle.textContent=currentTopic?currentTopic.title:'任务';
-    // 链式预取:用户未交互时静默拉完,避免抢焦点
-    (async function initPrefetch(){
-      await new Promise(r=>setTimeout(r,700));
-      while(currentTopic&&currentTopic.id===loadTid&&!allLoaded){
-        if(_loadingMore){ await new Promise(r=>setTimeout(r,200)); continue; }
-        await loadMoreMessages();
-        if(!allLoaded) await new Promise(r=>setTimeout(r,200));
-      }
-      if(currentTopic&&currentTopic.id===loadTid){ saveCache(); saveMemCache(loadTid); }
-    })();
   }
   render();
   setupScrollLoad();
@@ -4546,6 +4578,7 @@ function checkTopicWorking(){
       if(!wd||wd.status==='idle'){
         workingDot.classList.remove('pulse');
         clearInterval(workingPoll); workingPoll=null;
+        if(currentTopic&&currentTopic.id===tid){ delete _sendingTopics[tid]; _setBtnSending(); } // 轮询收尾校正（含发送方未及清理的兑底）
         // 思维导图：idle 前最后那次改图也要捕获（AI 改图后立即变 idle 的情况）
         if(typeof _mmViewActive!=='undefined' && _mmViewActive && wd.mindmap_updated_at!=null){
           if(typeof _mmLastMmUpdated==='undefined') window._mmLastMmUpdated=0;
@@ -6368,6 +6401,17 @@ async function loadCompressConfig() {
     html += '</label>';
     html += '<div class="cfg-hint">默认开启。仅当遇到 <code>SSL: CERTIFICATE_VERIFY_FAILED</code> 错误时才关闭——通常由企业 VPN、抓包软件（Fiddler/Charles）或杀软注入自签名证书引起。关闭后 API 调用不再校验证书，仅本地部署可接受。</div>';
     html += '</div>';
+    html += '<div class="sp-section"><h4>记忆整理</h4>';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;">';
+    html += '<input id="cfgNarrativeTrigger" type="checkbox" ' + (resp.narrative_light_trigger !== false ? 'checked' : '') + ' style="width:16px;height:16px;">';
+    html += '<span style="font-size:13px;">自动整理故事（碎片积压≥30条且距上次≥2小时时自动触发）</span>';
+    html += '</label>';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:8px;">';
+    html += '<input id="cfgFpAdvantage" type="checkbox" ' + (resp.fingerprint_advantage !== false ? 'checked' : '') + ' style="width:16px;height:16px;">';
+    html += '<span style="font-size:13px;">坑指纹优势标注（预留，暂无实现）</span>';
+    html += '</label>';
+    html += '<div class="cfg-hint">关闭自动整理后，故事整理仍可手动触发（reflect）。开关即点即生效，无需重启。</div>';
+    html += '</div>';
 
     // ── 工具启用区块 ──
     var toolsData = null;
@@ -6450,6 +6494,8 @@ async function saveCompressConfig() {
   var msgCountWall = parseInt(document.getElementById('cfgMsgCountWall').value);
   if (isNaN(msgCountWall)) msgCountWall = 0;
   var verifySsl = document.getElementById('cfgVerifySsl').checked;
+  var narrativeTrigger = document.getElementById('cfgNarrativeTrigger') ? document.getElementById('cfgNarrativeTrigger').checked : true;
+  var fpAdvantage = document.getElementById('cfgFpAdvantage') ? document.getElementById('cfgFpAdvantage').checked : true;
   try {
     // 1) 保存整理设置
     var resp = await fetch('/api/settings/compress', {
@@ -6462,7 +6508,9 @@ async function saveCompressConfig() {
         turn_budget: turnBudget,
         msg_count_warn: msgCountWarn,
         msg_count_wall: msgCountWall,
-        verify_ssl: verifySsl
+        verify_ssl: verifySsl,
+        narrative_light_trigger: narrativeTrigger,
+        fingerprint_advantage: fpAdvantage
       })
     }).then(function(r){ return r.json(); });
     if (!resp.success) { alert('策略设置保存失败: ' + (resp.error || '未知')); return; }

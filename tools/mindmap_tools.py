@@ -315,9 +315,9 @@ def _node_summary(n):
     """节点摘要（用于返回）"""
     return {
         "id": n.get("id"),
-        "text": n.get("text", "")[:40],
+        "text": n.get("text", ""),
         "type": n.get("type", "idea"),
-        "note": (n.get("note") or "")[:60],
+        "note": n.get("note") or "",
     }
 
 
@@ -489,8 +489,8 @@ def add_mindmap_node(text: str, type: str = "idea", note: str = "",
             )
         node = {
             "id": new_id,
-            "text": text.strip()[:40],
-            "note": note.strip()[:500],
+            "text": text.strip(),
+            "note": note.strip(),
             "type": type,
             "x": x, "y": y,
             "color": None,
@@ -505,7 +505,7 @@ def add_mindmap_node(text: str, type: str = "idea", note: str = "",
                 "id": _new_id("e"),
                 "source": parent_id,
                 "target": new_id,
-                "label": edge_label.strip()[:20],
+                "label": edge_label.strip(),
                 "style": "solid",
                 "router": None,
                 "color": None,
@@ -565,11 +565,11 @@ def update_mindmap_node(node_id: str, text: str = "", type: str = "",
         if not node:
             return {"error": f"节点 {node_id} 不存在"}
         if text:
-            node["text"] = text.strip()[:40]
+            node["text"] = text.strip()
         if type and type in ("idea", "decision", "question"):
             node["type"] = type
         if note:
-            node["note"] = note.strip()[:500]
+            node["note"] = note.strip()
         _save_mindmap(topic_id, mm, action="update_node", source="ai")
         return {"ok": True, "node": _node_summary(node)}
     except Exception as e:
@@ -626,7 +626,7 @@ def add_mindmap_edge(source: str, target: str, label: str = "", topic_id: str = 
             "id": _new_id("e"),
             "source": source,
             "target": target,
-            "label": label.strip()[:20],
+            "label": label.strip(),
             "style": "solid",
             "router": None,
             "color": None,
@@ -797,7 +797,7 @@ def update_mindmap_edge(edge_id: str = "", source: str = "", target: str = "",
         # 更新字段（只改传了的）
         changed = []
         if label is not None:
-            edge["label"] = label.strip()[:20]
+            edge["label"] = label.strip()
             changed.append("label")
         if color is not None:
             edge["color"] = color.strip() or None

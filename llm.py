@@ -625,9 +625,11 @@ def chat_stream_cached(config, messages, tools=None, cancel_event=None, verify_s
             collected_usage = event.get("usage", {}) or {}
         yield event
 
-    # ── 落库条件：正常结束 + 无 tool_calls + 无错误 + 有内容 ──
+    # ── 落库条件：正常结束 + 无 tool_calls + 无错误 + 有正文 ──
+    # 2026-09-08 修复：text 为空的纯思考截断响应不入缓存——
+    # 否则同样的消息重发会命中缓存，永远重放空正文（"AI 无回复"循环）。
     if (done_emitted and not had_tool_calls and not had_error
-            and (collected_text or collected_thinking)):
+            and collected_text.strip()):
         try:
             cache.put(key, config.model, collected_text, collected_thinking,
                       collected_usage, has_tool_calls=0)

@@ -54,3 +54,11 @@ V4_ROUNDTRIP_PARALLEL = _env("V4_ROUNDTRIP_PARALLEL", "true").lower() == "true"
 V4_SLIDING_CACHE_ENABLED = _env("V4_SLIDING_CACHE_ENABLED", "true").lower() == "true"
 V4_SEDIMENT_ON_TASK_END = _env("V4_SEDIMENT_ON_TASK_END", "true").lower() == "true"
 V4_STICKY_SIBLINGS = _env("V4_STICKY_SIBLINGS", "true").lower() == "true"
+
+# ── Narrative / RL Switches (2026-09-04) ───────────
+
+# 轻量叙事触发总开关：true=每次对话后检查积压自动整理故事（8-30 起）；
+# false=关闭自动触发，回落手动 reflect（8-17~8-30 的状态），不影响任何基础能力
+NARRATIVE_LIGHT_TRIGGER_ENABLED = _env("NARRATIVE_LIGHT_TRIGGER_ENABLED", "true").lower() == "true"
+# 坑指纹优势标注（JitRL 借鉴）：指纹命中输出附带"该做法相对优劣"，为后续按优势检索留钩子
+FINGERPRINT_ADVANTAGE_ENABLED = _env("FINGERPRINT_ADVANTAGE_ENABLED", "true").lower() == "true"

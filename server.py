@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 大眼X Server — 全能超级个体。
 直接 LLM API 调用 + 工具系统 + 记忆系统。
@@ -66,8 +66,10 @@ import tools.mindmap_tools  # 思维导图工具（与 DAG 对齐的写通道）
 import tools.meta_tools  # 元工具：discover_tools + execute_advanced_tool（工具折叠）
 import tools.ask_user  # 阻塞式提问工具（ask_user，折叠分组 interaction）
 import tools.focus_tools  # 注意力等级工具（set_focus_level）
-import tools.spawn_agent  # 子代理工具（spawn_agent）
+import tools.spawn_agent
+import tools.order_memory_tools  # OM秩序记忆（秩学习规则，Phase1）  # 子代理工具（spawn_agent）
 import tools.rules_engine_tools  # 规则引擎管理工具（rule_list/rule_add/rule_update/rule_delete）
+import tools.audit_guard  # 坑指纹核查工具（audit_check：动作前比对事件账本历史坑）
 
 
 def _get_matters():
@@ -152,6 +154,30 @@ def _init_all_memory_stores():
 
 def _get_memory_store():
     return _init_all_memory_stores()
+
+
+def _select_stories(rows, tid):
+    """故事链三档分组（2026-09-04 串台修复）：
+    ① 本任务故事优先（最多3条，不加标）② 其余按时间补位到5条
+    ③ 跨任务/无归属条目加 [别的任务] 标注（无归属按跨任务处理：误标无害，漏标有害）
+    边界：跨任务故事不足时用剩余本任务故事补足到5条（避免本任务故事多反而显示变少）
+    rows 需按时间线倒序；返回 [(row, other_tag_bool), ...]
+    """
+    _own_all = [r for r in rows if (r["topic_id"] or "") == tid]
+    _own = _own_all[:3]
+    _own_ids = {r["id"] for r in _own}
+    _selected = list(_own)
+    for r in rows:
+        if r["id"] not in _own_ids and len(_selected) < 5:
+            _selected.append(r)
+    if len(_selected) < 5:
+        for r in _own_all[3:]:
+            if len(_selected) >= 5:
+                break
+            _selected.append(r)
+    return [(r, (r["topic_id"] or "") != tid) for r in _selected]
+
+
 
 
 PER_MESSAGE_COMPRESS_CHARS = 500    # 单条消息超过此字数自动整理
@@ -255,6 +281,20 @@ _recent_input_tokens = deque(maxlen=10)  # 最近10次 LLM 请求真实 input_to
 _last_request_body: dict[str, str] = {}  # topic_id → JSON of last request msgs
 
 _compress_config_loaded = False
+
+
+def _runtime_switch(db, meta_key, cfg_name, default=True):
+    """运行时开关统一读取：前端设置(db.meta '1'/'0') > 环境变量(config.py) > 代码默认。
+    meta 未存过（None/''）时用 config 值；每次现读，改 meta 即热生效。"""
+    try:
+        import config
+        cfg_val = getattr(config, cfg_name, default)
+    except Exception:
+        cfg_val = default
+    raw = db.get_meta(meta_key)
+    if raw is None or raw == "":
+        return bool(cfg_val)
+    return raw == "1"
 
 
 def _load_compress_config(db=None):
@@ -1554,6 +1594,14 @@ def _build_model_list(cfg) -> list[dict]:
             "current": True,
         })
 
+    # llama.cpp local server (Qwen3.8-27B IQ4_XS @ 127.0.0.1:8901)
+    result.append({
+        "provider": "llamacpp",
+        "id": "qwen3.8-27b-iq4xs", "name": "Qwen3.8 27B (Local GPU)", "desc": "本地GPU推理~23tok/s,无需联网",
+        "available": True,
+        "current": cfg.provider == "llamacpp" and cfg.model == "qwen3.8-27b-iq4xs",
+    })
+
     # Zhipu: hardcoded
     zhipu_key = _get_provider_key(cfg, "zhipu")
     for mid, name, desc in [
@@ -1579,6 +1627,20 @@ def _build_model_list(cfg) -> list[dict]:
     return result
 def get_ips(port):
     ips = []
+    # 公网地址从本地 server_config.json 的 public_ip 字段读取，不写死在代码里。
+    # 值可以是纯 IP/域名（自动拼端口）或完整 URL（含 http:// 前缀，用于端口映射场景）
+    pub = ""
+    try:
+        with open(os.path.join(ROOT_DIR, "server_config.json"), encoding="utf-8") as f:
+            pub = (json.load(f) or {}).get("public_ip") or ""
+    except Exception:
+        pass
+    pub = pub.strip()
+    if pub:
+        if "://" in pub:
+            ips.append(pub)
+        else:
+            ips.append(f"http://{pub}:{port}")
     try:
         hostname = socket.gethostname()
         for info in socket.getaddrinfo(hostname, port):
@@ -1631,6 +1693,10 @@ def set_working(tid, status, thinking="", intermediate="", response="", tool_cal
             "remaining": remaining,
         }
 
+
+def get_working_all():
+    with _working_lock:
+        return dict(_current_working)
 
 def get_working(tid):
     with _working_lock:
@@ -1938,6 +2004,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 for t in (topics or []):
                     t["spent_cny"] = round(t.get("total_cost") or 0, 6)
                 active = self.db.get_active_topic_id()
+                # 任务运行状态同步：把所有运行中的任务状态注入 topics（侧栏运行点用）
+                try:
+                    _run_map = get_working_all()
+                    if _run_map:
+                        for t in (topics or []):
+                            _ws = _run_map.get(t.get("id"))
+                            if isinstance(_ws, dict) and _ws.get("status") and _ws.get("status") != "idle":
+                                t["working_status"] = _ws.get("status")
+                except Exception:
+                    pass
                 self._json(200, {"topics": topics or [], "active": active})
             except Exception as e:
                 self._json(500, {"error": str(e)})
@@ -2120,6 +2196,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "msg_count_warn": int(db.get_meta("compress_msg_count_warn") or MSG_COUNT_WARN),
                 "msg_count_wall": int(db.get_meta("compress_msg_count_wall") or MSG_COUNT_WALL),
                 "verify_ssl": db.get_meta("verify_ssl") != "0",
+                "narrative_light_trigger": _runtime_switch(db, "narrative_light_trigger", "NARRATIVE_LIGHT_TRIGGER_ENABLED"),
+                "fingerprint_advantage": _runtime_switch(db, "fingerprint_advantage", "FINGERPRINT_ADVANTAGE_ENABLED"),
                 "context_window": _model_context_window(get_model_config().model),
                 "model_name": get_model_config().model,
                 "hard_tokens": _last_hard_tokens,
@@ -2970,6 +3048,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "zhipu": "https://open.bigmodel.cn/api/paas/v4",
                     "openrouter": "https://openrouter.ai/api/v1",
                     "ollama": "http://localhost:11434/v1",
+                    "llamacpp": "http://127.0.0.1:8901/v1",
                 }
                 base_url = provider_urls.get(provider, "")
                 with _config_lock:
@@ -3162,6 +3241,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 db.set_meta("compress_msg_count_wall", str(data["msg_count_wall"]))
             if "verify_ssl" in data:
                 db.set_meta("verify_ssl", "1" if data["verify_ssl"] else "0")
+            if "narrative_light_trigger" in data:
+                db.set_meta("narrative_light_trigger", "1" if data["narrative_light_trigger"] else "0")
+            if "fingerprint_advantage" in data:
+                db.set_meta("fingerprint_advantage", "1" if data["fingerprint_advantage"] else "0")
             _refresh_compress_config()
             self._json(200, {"success": True})
 
@@ -3825,34 +3908,49 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # ── Chat handler (core) ────────────────────────
     def _recent_same_text_gap(self, tid, message):
-        """最近一条用户消息与本条同文本时返回 (间隔秒数, 该消息ts)，否则 (None, None)。"""
+        """在最近用户消息（回看20条/30分钟）中找同文本，命中返回 (间隔秒数, 该消息ts)，否则 (None, None)。
+        2026-09-03 补强：原实现只比对最后一条用户消息，幽灵重发前若插过一句别的话即漏网。"""
         try:
-            row = self.db._fetchall(
+            rows = self.db._fetchall(
                 "SELECT text, ts FROM messages WHERE topic_id=? AND role='user' "
-                "ORDER BY ts DESC, id DESC LIMIT 1", (tid,))
-            last_user = row[0] if row else None
+                "ORDER BY ts DESC, id DESC LIMIT 20", (tid,))
         except Exception:
             return (None, None)
-        if last_user is None:
+        msg_norm = (message or "").strip()
+        if not msg_norm:
             return (None, None)
-        if ((last_user["text"] or "")).strip() != (message or "").strip():
-            return (None, None)
-        ts = last_user["ts"] or 0
-        ts_s = ts / 1000.0 if ts > 1e14 else ts
-        gap_s = time.time() - ts_s
-        return (gap_s if gap_s >= 0 else None, ts)
+        now = time.time()
+        for row in rows:
+            if ((row["text"] or "").strip()) != msg_norm:
+                continue
+            ts = row["ts"] or 0
+            ts_s = ts / 1000.0 if ts > 1e14 else ts
+            gap_s = now - ts_s
+            if 0 <= gap_s <= 1800:
+                return (gap_s, ts)
+            break  # 同文本但已超回看窗（30分钟）：视为有意重发，不再往更老找
+        return (None, None)
+
+    def _log_guard(self, msg):
+        """守卫拦截日志落盘：pythonw 下 print 全部丢失，文件留证便于排查重复消息。"""
+        try:
+            with open(os.path.join(ROOT_DIR, "data", "guard.log"), "a", encoding="utf-8") as f:
+                f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n")
+        except Exception:
+            pass
 
     def _dup_check(self, tid, message):
         """幽灵重复守卫：消息文本与库内最近一条用户消息相同且在时间窗内——
         ≤10秒：判双击/重复提交，直接拦截；
-        ≤600秒且其后已有最终 AI 回复：判断线幽灵重发，拦截并返回已持久化的回复
+        2026-09-07 实证：幽灵重发不止发生在运行中(897s)，也出现在回答完整结束后(725s≈12分钟)。
+        ≤1800秒(30分钟，与回看窗/运行中拦截窗统一)且其后已有最终 AI 回复：判定幽灵重发，拦截并返回已持久化的回复
         （首次请求其实已到服务端入库，只是响应没走回来，直接返还省一轮 AI 运行）。
         无最终回复时不在此拦：agent 运行中由注入分支按同文本拦截（防二次入库），
         agent 已死则放行保留补救路。
         返回 None 放行；返回 dict 则拦截（作为 200 JSON 响应）。"""
         gap_s, last_ts = self._recent_same_text_gap(tid, message)
-        if gap_s is None or gap_s > 600:
-            return None  # 超10分钟：视为真实新消息（用户有意重复提问）
+        if gap_s is None or gap_s > 1800:  # 2026-09-07: 600s窗实测漏网(725s/897s幽灵重发)，统一为30分钟
+            return None  # 超30分钟：视为真实新消息（用户有意重复提问）
         has_reply, reply_text = False, ""
         try:
             r = self.db._fetchall(
@@ -3866,7 +3964,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             has_reply = False
         if gap_s <= 10 or has_reply:
             tag = "重复提交" if gap_s <= 10 else "幽灵重发"
-            print(f"[chat] {tag}已拦截 (间隔{int(gap_s)}s, topic {tid[:8]})")
+            self._log_guard(f"[chat] {tag}已拦截 (间隔{int(gap_s)}s, topic {tid[:8]}, 首句{message[:30]!r})")
             return {"status": "duplicate", "response": reply_text,
                     "usage": {"total_tokens": 1}, "topic_id": tid}
         return None  # 尚无最终回复：agent 可能在跑（注入分支会拦同文本）或已死（放行补救）
@@ -3927,9 +4025,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if _loop_active:
             # agent 运行中收到的同文本必是幽灵重发/重复提交（差异文本才是真插话）：
             # 不二次入库、不注入，返回空回复让前端转入恢复轮询等最终结果。
+            # 2026-09-03 实证：22:51 消息运行15分钟，23:06 幽灵重发(间隔897s)曾越过 ≤600s 窗被当真插话，
+            # 二次入库+二次作答白烧一轮 token——回看窗已扩到30分钟：agent 没跑完时收到的同文本
+            # (≤30分钟)必是幽灵重发，一律拦；超30分钟视为有意重问，放行插话。
             _inj_gap, _inj_ts = self._recent_same_text_gap(tid, message)
-            if _inj_gap is not None and _inj_gap <= 600:
-                print(f"[chat] agent运行中同文本重发已拦截 (间隔{int(_inj_gap)}s, topic {tid[:8]})")
+            if _inj_gap is not None:
+                self._log_guard(f"[chat] 运行中同文本重发已拦截 (间隔{int(_inj_gap)}s, topic {tid[:8]}, 首句{message[:30]!r})")
                 self._json(200, {"status": "duplicate", "response": "", "topic_id": tid})
                 return
             self.db.add_message(tid, "user", message, args=_msg_args, ts=time.time())
@@ -4179,38 +4280,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 _conn = _sqlite3.connect(_db_path, timeout=5)
                 _conn.row_factory = _sqlite3.Row
                 _conn.execute("PRAGMA busy_timeout=5000")
-                # 取最近的故事：按时间线倒序，最近 5 条常驻显示
-                # 不按当前 topic 过滤——故事不分任务主题（CMN P6 设计），
-                # 任务关联只挂在思维链上做溯源；story 走 event_time 时间线
+                # 取最近 8 条（留余量给分组），Python 端三档分组：
+                # ① 本任务故事优先（最多3条，不加标） ②其余按时间补位到5条
+                # ③ 跨任务/无归属条目行尾加 [别的任务] 标注（2026-09-04 串台修复）
+                # 无归属按跨任务处理：误标无害，漏标有害
                 _rows = _conn.execute(
                     "SELECT id, text, tags, topic_id, event_time, importance, authority_level, "
                     "created_at FROM memory_fragments "
                     "WHERE layer='story' AND dirty=1 "
-                    "ORDER BY (event_time IS NULL), substr(event_time,1,10) DESC, created_at DESC LIMIT 5"
+                    "ORDER BY (event_time IS NULL), substr(event_time,1,10) DESC, created_at DESC LIMIT 8"
                 ).fetchall()
                 _conn.close()
 
                 if _rows:
-                    # 直接取最近 5 条（SQL 已按时间线倒序）
-                    _selected = _rows
-
-
                     # 按 event_time 排序（最近在前）；无 event_time 的排最后，用 created_at 兜底
                     def _story_et_key(r):
                         et = r["event_time"] or ""
                         return et[:10]  # '2026-07-11 ~ 2026-07-15' 取起始日
-                    _selected.sort(key=lambda r: (_story_et_key(r) or "0000-00-00"), reverse=True)
+                    _rows.sort(key=lambda r: (_story_et_key(r) or "0000-00-00"), reverse=True)
+
+                    _selected = _select_stories(_rows, tid)  # [(row, other_tag), ...]
 
                     story_lines = []
-                    for r in _selected:
+                    for r, _is_other in _selected:
                         auth = " ★" if r["authority_level"] >= 1 else ""
+                        # 跨任务/无归属标注（防串台误联想）
+                        _other = " [别的任务]" if _is_other else ""
                         text = r["text"] or ""
                         # 紧凑时间线：取第一句做摘要，限 60 字
                         _first_sent = re.split(r"[。！？!?]", text)[0].strip() if text else ""
                         _sum = _first_sent[:60] + "…" if len(_first_sent) > 60 else _first_sent
                         _et = r["event_time"] or ""
                         _et_disp = _et.replace(" ~ ", "~") if _et else ""
-                        story_lines.append(f"📖 {_et_disp} {_sum}{auth}")
+                        story_lines.append(f"📖 {_et_disp} {_sum}{auth}{_other}")
                     if story_lines:
                         story_lines.append("")
                         story_lines.append(_vocab("story_tool_hint"))
@@ -4230,7 +4332,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if not _skip:
                     import time as _time
                     recall_ctx = message[:300]
-                    all_fragments = store.recall(recall_ctx, top_k=15, threshold=0.35)
+                    all_fragments = store.recall(recall_ctx, top_k=15, threshold=0.35,
+                                                 current_topic=tid)
                     # 记忆 Block 只显示 core + knowledge，story 已在 Block 5a 常驻
                     non_stories = [f for f in all_fragments if (f.get("layer") or "core") != "story"]
 
@@ -4240,7 +4343,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             # 综合权重：weight × 时效衰减 × importance × 同话题加权 × 权威加成
                             weight = f.get("weight", 1.0)
                             importance = f.get("importance", 5.0)
-                            same_topic = 1.3 if (f.get("topic_id") or "") == tid else 1.0
+                            # 同话题加权：与 store 层 TOPIC_BONUS_SAME 对齐（双通道一致）
+                            same_topic = 1.2 if (f.get("topic_id") or "") == tid else 1.0
                             # 时效衰减：30天半衰期
                             ts_str = f.get("ts", "")
                             if ts_str and len(ts_str) >= 8:
@@ -4801,15 +4905,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not has_tool_calls:
                 # 最终轮（无 tool_call）：turn_text 就是最终答案
                 # ── 防悬空检测：预告但没调用工具 / 生成被截断 → 强制续跑 ──
+                # 2026-09-08 修复：思考阶段截断（GLM 深度思考烧满 max_tokens，
+                # 正文为空、finish=length）原本被 turn_text.strip() 条件排除，
+                # 导致循环直接 break、full_response 为空 → 前端"AI 无回复"、
+                # thinking 不落库。现对"纯思考被截断"也强制续跑。
+                _thinking_truncated = (
+                    turn_finish_reason == "length"
+                    and not turn_text.strip()
+                    and full_thinking.strip()
+                )
                 _dangling = (
                     turn_finish_reason == "length"
                     or _is_hanging_announcement(turn_text)
                 )
-                if _dangling and _dangling_retries < 2 and turn_text.strip():
+                if _dangling and _dangling_retries < 2 and (turn_text.strip() or _thinking_truncated):
                     _dangling_retries += 1
                     print(f"[agent] dangling announcement (finish={turn_finish_reason}, retry {_dangling_retries}/2), forcing continuation")
-                    msgs.append({"role": "assistant", "content": turn_text})
-                    msgs.append({"role": "user", "content": "[系统强制] 你上一轮以预告结尾但没有调用任何工具。请立即执行你预告的动作（直接调用工具），不要重复说明、不要重新确认现状。直接做。"})
+                    if turn_text.strip():
+                        msgs.append({"role": "assistant", "content": turn_text})
+                        msgs.append({"role": "user", "content": "[系统强制] 你上一轮以预告结尾但没有调用任何工具。请立即执行你预告的动作（直接调用工具），不要重复说明、不要重新确认现状。直接做。"})
+                    else:
+                        msgs.append({"role": "user", "content": "[系统提示] 你上一轮的思考输出被截断（token 预算耗尽），尚未产生任何正文。请跳过冗长推理，直接给出简洁的最终回答，不要再展开长思考。"})
                     continue
                 if turn_text.strip():
                     full_response = turn_text  # 最终答案（覆盖式，只此一轮）
@@ -5100,6 +5216,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         #    该函数输入本身是增量的（只取未整理碎片），单次成本≈1-3次小 LLM 调用）──
         def _lightweight_narrative():
             try:
+                # 2026-09-04 开关门控：false=关闭自动触发，回落手动 reflect，不影响基础能力
+                # 2026-09-05 运行时开关：前端策略页可切换，优先级 前端设置(meta) > 环境变量(config) > 默认 true
+                from db import get_db
+                if not _runtime_switch(get_db(), "narrative_light_trigger", "NARRATIVE_LIGHT_TRIGGER_ENABLED"):
+                    return
                 if not hasattr(Handler, "_narrative_lock"):
                     return  # 未初始化（create_server 应已初始化）
                 now_ts = time.time()
