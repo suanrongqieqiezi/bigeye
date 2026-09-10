@@ -29,13 +29,13 @@
 
 ```bash
 # 实时采集 + 匹配（指定话题）
-D:/HughPlay/anaconda/python.exe run_rules.py --probe --topic <topic_id>
+python run_rules.py --probe --topic <topic_id>
 
 # 读已有快照匹配
-D:/HughPlay/anaconda/python.exe run_rules.py --topic <topic_id>
+python run_rules.py --topic <topic_id>
 
 # 只看状态摘要
-D:/HughPlay/anaconda/python.exe state_probe.py --topic <topic_id>
+python state_probe.py --topic <topic_id>
 ```
 
 ## 数据源（http://127.0.0.1:9890）
@@ -85,5 +85,5 @@ active_pages / active_pages_count / extra_pages_open / extra_pages / task_status
 
 ## 环境坑
 
-- cmd 下 curl 异常（exit 255），用 anaconda python: D:/HughPlay/anaconda/python.exe
+- cmd 下 curl 异常（exit 255），用 anaconda python: python
 - bash 工具直接调 python 输出偶发为空，用 run_python 工具或写文件再读
