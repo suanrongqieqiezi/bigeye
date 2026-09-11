@@ -85,5 +85,5 @@ active_pages / active_pages_count / extra_pages_open / extra_pages / task_status
 
 ## 环境坑
 
-- cmd 下 curl 异常（exit 255），用 anaconda python: python
+- cmd 下 curl 异常（exit 255），改用 anaconda 自带的 python 环境执行
 - bash 工具直接调 python 输出偶发为空，用 run_python 工具或写文件再读

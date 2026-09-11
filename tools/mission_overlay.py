@@ -24,6 +24,7 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from db import get_db
+from tools import matters_event_store as evstore
 
 _matters_lock = threading.RLock()
 
@@ -47,28 +48,16 @@ def _new_id(scope):
 # ── 原始存取（读写都返回/接收 dict 列表）───────────────
 
 def read_matters_raw():
-    """全局段原始读取。旧字符串条目转新结构（id=序号），仅内存转换不回写。"""
+    """全局段读取：从事件流重放投影。旧兼容格式不再从 meta 读。"""
     try:
-        val = get_db().get_meta("important_matters")
-        if not val:
-            return []
-        entries = json.loads(val)
-        if not isinstance(entries, list):
-            return []
+        proj = evstore.project()
         out = []
-        for i, e in enumerate(entries, 1):
-            if isinstance(e, dict):
-                d = {
-                    "id": str(e.get("id") or i),
-                    "content": _norm_content(e.get("content")),
-                    "scope": "global",
-                    "created_by_tid": e.get("created_by_tid"),
-                    "created_at": e.get("created_at") or 0,
-                }
-            else:
-                d = {"id": str(i), "content": str(e), "scope": "global",
-                     "created_by_tid": None, "created_at": 0}
-            out.append(d)
+        for e in proj["global"]:
+            out.append({
+                "id": e["entry_id"], "content": _norm_content(e.get("content")),
+                "scope": "global", "created_by_tid": e.get("tid"),
+                "created_at": e.get("ts") or 0, "_seq": e["seq"],
+            })
         return out
     except Exception:
         import traceback
@@ -76,9 +65,33 @@ def read_matters_raw():
         return []
 
 
-def write_matters_raw(entries):
+def _reconcile(scope, tid, entries):
+    """对账式写入：对比当前投影，把差异追加为事件（add/update/remove），
+    不覆盖历史。同集合不同顺序 = 零事件。返回 True/False。"""
     try:
-        get_db().set_meta("important_matters", json.dumps(entries, ensure_ascii=False))
+        proj = evstore.project()
+        if scope == "global":
+            current = {e["entry_id"]: e for e in proj["global"]}
+        else:
+            current = {e["entry_id"]: e for e in proj["tasks"].get(tid, [])}
+        want = {}
+        for e in entries:
+            want[str(e["id"])] = e
+        for eid, e in want.items():
+            prev = current.get(eid)
+            content = _norm_content(e.get("content"))
+            if prev is None:
+                evstore.append_event("add", eid, scope, tid, content,
+                                     reason="[对账] 写入含新增", parent_seq=None)
+            elif _norm_content(prev.get("content")) != content:
+                evstore.append_event("update", eid, scope, tid, content,
+                                     reason="[对账] 内容变更", parent_seq=prev["seq"])
+        for eid in current:
+            if eid not in want:
+                prev = current[eid]
+                evstore.append_event("remove", eid, scope, tid,
+                                     _norm_content(prev.get("content")),
+                                     reason="[对账] 写入不含此条", parent_seq=prev["seq"])
         return True
     except Exception:
         import traceback
@@ -86,30 +99,23 @@ def write_matters_raw(entries):
         return False
 
 
+def write_matters_raw(entries):
+    """兼容签名：原为整表覆盖，现实现为对账式事件追加。"""
+    return _reconcile("global", None, entries)
+
+
 def read_task_raw(tid):
     if not tid:
         return []
     try:
-        val = get_db().get_meta(TASK_KEY + tid)
-        if not val:
-            return []
-        entries = json.loads(val)
-        if not isinstance(entries, list):
-            return []
+        proj = evstore.project()
         out = []
-        for e in entries:
-            if isinstance(e, dict):
-                d = {
-                    "id": str(e.get("id") or _new_id("t")),
-                    "content": _norm_content(e.get("content")),
-                    "scope": "task",
-                    "created_by_tid": e.get("created_by_tid") or tid,
-                    "created_at": e.get("created_at") or 0,
-                }
-            else:
-                d = {"id": _new_id("t"), "content": str(e), "scope": "task",
-                     "created_by_tid": tid, "created_at": 0}
-            out.append(d)
+        for e in proj["tasks"].get(tid, []):
+            out.append({
+                "id": e["entry_id"], "content": _norm_content(e.get("content")),
+                "scope": "task", "created_by_tid": e.get("tid") or tid,
+                "created_at": e.get("ts") or 0, "_seq": e["seq"],
+            })
         return out
     except Exception:
         import traceback
@@ -118,13 +124,8 @@ def read_task_raw(tid):
 
 
 def write_task_raw(tid, entries):
-    try:
-        get_db().set_meta(TASK_KEY + tid, json.dumps(entries, ensure_ascii=False))
-        return True
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        return False
+    """兼容签名：原为整表覆盖，现实现为对账式事件追加。"""
+    return _reconcile("task", tid, entries)
 
 
 def get_active_tid():

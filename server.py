@@ -4371,6 +4371,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             selected.append(f)
                             if len(selected) >= 5:
                                 break
+                        # 权威知识保底：行为准则类 knowledge 不赌语义召回（间接表达召回不了），
+                        # 按 weight*importance 取前2补进注入，已在 selected 的跳过
+                        try:
+                            _guar = store.recall_guaranteed(
+                                exclude_ids={f.get("id") for f in selected}, cap=2)
+                            if _guar:
+                                selected.extend(_guar)
+                        except Exception as _ge:
+                            print(f"[memory] guaranteed recall failed: {_ge}")
                         mem_lines = []
                         for f in selected:
                             ts = f.get("ts", "")

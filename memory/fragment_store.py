@@ -505,6 +505,45 @@ class FragmentStore:
         finally:
             conn.close()
 
+    def recall_guaranteed(self, exclude_ids=None, cap=2):
+        """权威知识保底召回：layer=knowledge 且 authority_level>=1 的行为准则类记忆。
+        这类"永远该在场"的教训（如回复风格、验证纪律）不能赌语义召回——
+        用户间接表达时（如'你明白了吗'暗示啰嗦）向量相似度过不了硬门槛。
+        按 weight*importance 排序，候选间用 embedding 余弦去重（同一教训的
+        多个变体只取分最高的一条），避免保底名额被同主题重复占用。"""
+        if exclude_ids is None:
+            exclude_ids = set()
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM memory_fragments "
+                "WHERE layer='knowledge' AND authority_level>=1 "
+                "ORDER BY (weight * importance) DESC LIMIT 20"
+            ).fetchall()
+            out, out_embs = [], []
+            for row in rows:
+                d = dict(row)
+                emb = None
+                try:
+                    emb = json.loads(d.get("embedding") or "[]")
+                except Exception:
+                    pass
+                d.pop("embedding", None)
+                if d.get("id") in exclude_ids:
+                    continue
+                # 与已选条目近似去重（cos>0.70 视为同一教训家族：
+                # 实测验证家族内部 0.72-0.87，跨主题 0.60-0.65）
+                if emb and any(cosine_sim(emb, e) > 0.70 for e in out_embs):
+                    continue
+                out.append(d)
+                if emb:
+                    out_embs.append(emb)
+                if len(out) >= cap:
+                    break
+            return out
+        finally:
+            conn.close()
+
     def _fetch_candidates(self, conn, ctx_emb, top_k, layer, topic_id):
         """用 vec_index KNN 预筛候选碎片；不可用时回退全表扫描。
 

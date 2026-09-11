@@ -320,8 +320,8 @@ main::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
 #sidebarContent{flex:1;display:flex;overflow:hidden;position:relative;min-height:0}
 #sidebarTopics{flex:0 0 100%;display:flex;flex-direction:column;transition:transform .25s cubic-bezier(.4,0,.2,1);min-width:0}
 #sidebarTopics.pushed{transform:translateX(-100%)}
-#sidebarSettings{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);background:var(--surface2)}
-#sidebarSettings.active{transform:translateX(0)}
+#sidebarSettings{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;transform:translateX(100%);visibility:hidden;pointer-events:none;transition:transform .25s cubic-bezier(.4,0,.2,1),visibility 0s linear .25s;background:var(--surface2)}
+#sidebarSettings.active{transform:translateX(0);visibility:visible;pointer-events:auto;transition:transform .25s cubic-bezier(.4,0,.2,1),visibility 0s linear 0s}
 #sidebarSettings .sp-header{display:flex;align-items:center;gap:8px;padding:15px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface)}
 #sidebarSettings .sp-header h3{font-size:15px;font-weight:700;flex:1}
 #sidebarSettings .sp-back{background:none;border:none;color:var(--tdim);font-size:18px;cursor:pointer;padding:6px 10px;border-radius:var(--radius-sm);transition:all .15s;display:flex;align-items:center;justify-content:center}
@@ -463,7 +463,7 @@ main::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
 .fb-header button svg{width:14px;height:14px;display:block;flex-shrink:0}
 .fb-header button:hover{background:rgba(var(--accent-rgb),.1);border-color:rgba(var(--accent-rgb),.45);color:var(--accent)}
 .fb-header button:active{filter:brightness(.92)}
-#fbWorkspace{padding:9px 15px;font-size:11px;color:var(--tdim);border-bottom:1px solid var(--border);word-break:break-all;flex-shrink:0;background:rgba(0,0,0,.14);line-height:1.55}
+#fbWorkspace{padding:9px 15px;font-size:11px;color:var(--tdim);border-bottom:1px solid var(--border);word-break:break-all;flex-shrink:0;background:var(--surface2);line-height:1.55}
 #fbWorkspace b{color:var(--accent);font-weight:600}
 #fbGrid{flex:1;overflow-y:auto;padding:12px;-webkit-overflow-scrolling:touch}
 .fb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:10px}
@@ -472,6 +472,11 @@ main::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
 .fb-item:active{transform:scale(.96)}
 .fb-icon{font-size:32px;line-height:1;display:flex;align-items:center;justify-content:center}
 .fb-icon svg{width:32px;height:32px;display:block}
+.fb-thumb{width:34px;height:34px;object-fit:cover;border-radius:5px;display:block;background:rgba(0,0,0,.05)}
+.fb-thumb.fb-thumb-err{display:none}
+/* 有缩略图时整块变成预览卡：宽图铺满、高度拉高（用类名而非 :has()，兼容旧 WebView） */
+.fb-item.has-thumb .fb-icon{width:100%;height:auto}
+.fb-item.has-thumb .fb-thumb{width:100%;height:82px;border-radius:6px;background:rgba(0,0,0,.04);box-shadow:0 1px 3px rgba(16,24,40,.10)}
 .fb-name{font-size:11px;color:var(--text);width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
 .fb-sel{position:absolute;top:5px;right:5px;width:22px;height:22px;border-radius:50%;background:var(--surface);border:2px solid var(--border2);color:transparent;font-size:12px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;transition:all .15s;z-index:1}
 .fb-item.selected .fb-sel{background:var(--accent);border-color:var(--accent);color:#04241f;font-weight:bold}
@@ -481,7 +486,7 @@ main::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
 .fb-action-bar button.danger{background:rgba(var(--danger-rgb),.15);border-color:rgba(var(--danger-rgb),.32);color:var(--danger)}
 .fb-action-bar button.danger:hover{background:var(--danger);color:#fff;border-color:var(--danger)}
 .fb-empty{grid-column:1/-1;text-align:center;color:var(--tdim);font-size:12px;padding:44px 0;line-height:1.7}
-#fbBreadcrumb{display:none;align-items:center;gap:4px;padding:7px 15px;font-size:12px;color:var(--tdim);border-bottom:1px solid var(--border);flex-shrink:0;background:rgba(0,0,0,.1)}
+#fbBreadcrumb{display:none;align-items:center;gap:4px;padding:7px 15px;font-size:12px;color:var(--tdim);border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface2)}
 #fbBreadcrumb.show{display:flex}
 #fbBreadcrumb button{background:none;border:none;color:var(--accent);font-size:16px;cursor:pointer;padding:2px 6px;line-height:1}
 #fbBreadcrumb .fb-crumb{color:var(--tdim)}
@@ -624,7 +629,7 @@ main::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
 #fbHeader{flex-wrap:wrap;row-gap:6px}
 
 /* 工作区路径：面包屑分段可点击跳转 */
-#fbWorkspace{cursor:default;padding:9px 15px;font-size:11px;color:var(--tdim);border-bottom:1px solid var(--border);flex-shrink:0;background:rgba(0,0,0,.14);line-height:1.55;display:flex;align-items:center;gap:2px;flex-wrap:wrap}
+#fbWorkspace{cursor:default;padding:9px 15px;font-size:11px;color:var(--tdim);border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface2);line-height:1.55;display:flex;align-items:center;gap:2px;flex-wrap:wrap}
 #fbWorkspace .fb-ws-label{color:var(--tdim);flex-shrink:0;margin-right:2px}
 #fbWorkspace .fb-ws-crumb{color:var(--accent);cursor:pointer;padding:1px 3px;border-radius:3px;transition:background .12s;font-size:11px}
 #fbWorkspace .fb-ws-crumb:hover{background:rgba(var(--accent-rgb),.15);text-decoration:underline}
@@ -3616,8 +3621,18 @@ function renderFileBrowser(data){
   if(!files.length&&!subdir){ grid.innerHTML='<div class="fb-empty">暂无文件，点击下方上传</div>'; return; }
   for(var i=0;i<files.length;i++){
     var f=files[i];
-    var icon=f.is_dir?_fbSvg('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>','#f2b84b'):fileTypeIcon(f.name);
-    var cls=f.is_dir?'fb-item':'fb-item';
+    var icon;
+    var thumb = false;
+    if(f.is_dir){
+      icon=_fbSvg('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>','#f2b84b');
+    }else if(fvKind(f.name)==='img' && !/\.(svg|ico|avif)$/i.test(f.name)){
+      // 能直接读的图片文件 → 直接出缩略图（后端 /api/mission-file 已按字节返回）
+      thumb = true;
+      icon='<img class="fb-thumb" src="'+esc(fvUrl(f.name))+'" alt="" loading="lazy" decoding="async" onerror="this.classList.add(\'fb-thumb-err\')">';
+    }else{
+      icon=fileTypeIcon(f.name);
+    }
+    var cls=f.is_dir?'fb-item':(thumb?'fb-item has-thumb':'fb-item');
     var dirPath=subdir?subdir+'/'+f.name:f.name;
     html+='<div class="'+cls+'" data-idx="'+i+'" data-dir="'+esc(dirPath)+'" data-isdir="'+(f.is_dir?'1':'0')+'"><div class="fb-icon">'+icon+'</div><div class="fb-name">'+esc(f.name)+'</div><div class="fb-sel"></div></div>';
   }
@@ -4364,19 +4379,52 @@ function getTheme(){ return localStorage.getItem(THEME_LS_KEY)||'black'; }
 function setTheme(t){
   localStorage.setItem(THEME_LS_KEY,t);
   var r=document.documentElement.style;
-  if(t==='gray'){
+  var m=document.querySelector('meta[name="theme-color"]');
+  if(!m){ m=document.createElement('meta'); m.name='theme-color'; document.head.appendChild(m); }
+  if(t==='white'){
+    r.setProperty('--bg','#f5f6f8');
+    r.setProperty('--surface','#ffffff');
+    r.setProperty('--surface2','#f0f1f4');
+    r.setProperty('--surface3','#eceef2');
+    r.setProperty('--ab','#f6f7f9');
+    r.setProperty('--border','rgba(0,0,0,.10)');
+    r.setProperty('--border2','rgba(0,0,0,.16)');
+    r.setProperty('--hover','rgba(0,0,0,.05)');
+    r.setProperty('--text','#1d2330');
+    r.setProperty('--tdim','#5c6474');
+    r.setProperty('--accent','#0f9d8f');
+    r.setProperty('--accent2','#0b7d73');
+    r.setProperty('--accent-rgb','15,157,143');
+r.setProperty('--ub','linear-gradient(135deg,#4fb3a7 0%,#0f9d8f 100%)');
+    r.setProperty('--success','#1e9e55');
+    r.setProperty('--success-rgb','30,158,85');
+    r.setProperty('--warn','#c47f14');
+    r.setProperty('--warn-rgb','196,127,20');
+    r.setProperty('--danger','#d93025');
+    r.setProperty('--danger-rgb','217,48,37');
+    r.setProperty('--tool','#b25f0e');
+    r.setProperty('--tool-rgb','178,95,14');
+    r.setProperty('--shadow-sm','0 1px 2px rgba(16,24,40,.08),0 1px 1px rgba(16,24,40,.04)');
+    r.setProperty('--shadow-md','0 8px 22px rgba(16,24,40,.10),0 2px 6px rgba(16,24,40,.05)');
+    r.setProperty('--shadow-lg','0 12px 32px rgba(16,24,40,.12),0 2px 8px rgba(16,24,40,.05)');
+    m.setAttribute('content','#f5f6f8');
+  }else if(t==='gray'){
     r.setProperty('--bg','#171717');
     r.setProperty('--surface','#171717');
     r.setProperty('--surface2','#202020');
     r.setProperty('--surface3','#171717');
     r.setProperty('--ab','#202020');
+    m.setAttribute('content','#171717');
   }else{
     r.setProperty('--bg','#0a0a0a');
     r.setProperty('--surface','#0a0a0a');
     r.setProperty('--surface2','#161616');
     r.setProperty('--surface3','#202020');
     r.setProperty('--ab','#161616');
+    m.setAttribute('content','#0a0a0a');
   }
+  document.documentElement.setAttribute('data-theme',t);
+  try{ if(window.mermaid&&typeof mermaid.initialize==='function') mermaid.initialize(_mmThemeVars()); }catch(e){}
 }
 function loadThemeSettings(){
   var bodyEl=document.getElementById('settingsBody');
@@ -4394,6 +4442,11 @@ function loadThemeSettings(){
     '<div style="width:100%;height:60px;border-radius:6px;background:#161616;margin-bottom:8px;border:1px solid rgba(255,255,255,.06)"></div>',
     '<div style="font-size:13px;font-weight:600;color:var(--text)">灰</div>',
     '<div style="font-size:10px;color:var(--tdim);margin-top:2px">质感深灰</div>',
+    '</div>',
+    '<div onclick="setTheme(\'white\');loadThemeSettings()" style="flex:1;cursor:pointer;border:2px solid '+(cur==='white'?'var(--accent)':'var(--border)')+';border-radius:10px;padding:14px;text-align:center;background:#f5f6f8;transition:border-color .15s">',
+    '<div style="width:100%;height:60px;border-radius:6px;background:linear-gradient(180deg,#ffffff,#eef0f3);margin-bottom:8px;border:1px solid rgba(0,0,0,.12)"></div>',
+    '<div style="font-size:13px;font-weight:600;color:var(--text)">白</div>',
+    '<div style="font-size:10px;color:var(--tdim);margin-top:2px">清爽浅色</div>',
     '</div>',
     '</div>',
     '</div>'
@@ -4797,11 +4850,15 @@ async function openSysMemory(){
 function closeSysMemory(e){ if(e.target===document.getElementById('sysMemoryModal')) document.getElementById('sysMemoryModal').classList.remove('show'); }
 
 // ── Task Flow Chart (DAG visualization) ──
-mermaid.initialize({ startOnLoad:false, theme:'dark', securityLevel:'loose',
+function _mmThemeVars(){
+  var white=(getTheme()==='white');
+  return { startOnLoad:false, theme:white?'neutral':'dark', securityLevel:'loose',
   flowchart:{ nodeSpacing:50, rankSpacing:55, padding:18, useMaxWidth:false },
-  themeVariables:{ primaryColor:'transparent', primaryBorderColor:'#c8d0e0', primaryTextColor:'#c8d0e0',
-    lineColor:'rgba(255,255,255,.5)', secondaryColor:'transparent', tertiaryColor:'transparent',
-    fontSize:'14px' } });
+  themeVariables:{ primaryColor:'transparent', primaryBorderColor:white?'#3b4656':'#c8d0e0', primaryTextColor:white?'#3b4656':'#c8d0e0',
+  lineColor:white?'rgba(31,41,55,.5)':'rgba(255,255,255,.5)', secondaryColor:'transparent', tertiaryColor:'transparent',
+  fontSize:'14px' } };
+}
+mermaid.initialize(_mmThemeVars());
 
 function _renderTextTree(tree, nodes, stats){
   var lines=[], icons={pending:'○',running:'▶',done:'✓',blocked:'⏸',failed:'✗',split:'↳'};
@@ -4969,7 +5026,7 @@ function fcShowNodeEditor(cell, currentText, origId){
   var rect=modal.getBoundingClientRect();
   var div=document.createElement('div');
   div.id='fcNodeEditor';
-  div.style.cssText='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--panel);border:1px solid var(--border2);border-radius:8px;padding:16px 20px;z-index:10000;min-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.4)';
+  div.style.cssText='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--panel);border:1px solid var(--border2);border-radius:8px;padding:16px 20px;z-index:10000;min-width:360px;box-shadow:var(--shadow-md)';
   div.innerHTML=
     '<div style="font-size:13px;color:var(--fg);margin-bottom:8px">✏️ 编辑节点</div>'+
     '<textarea id="fcNodeEditorText" rows="3" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box">'+currentText.replace(/</g,'&lt;')+'</textarea>'+
@@ -5025,7 +5082,7 @@ function fcShowContextMenu(e, cell, origId){
   var x=e.clientX, y=e.clientY;
   var menu=document.createElement('div');
   menu.id='fcContextMenu';
-  menu.style.cssText='position:fixed;left:'+x+'px;top:'+y+'px;background:var(--panel);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:160px;box-shadow:0 4px 16px rgba(0,0,0,.4);font-size:12px';
+  menu.style.cssText='position:fixed;left:'+x+'px;top:'+y+'px;background:var(--panel);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:160px;box-shadow:var(--shadow-md);font-size:12px';
   var items=[
     {label:'✏️ 重命名', action:function(){ var attrs=cell.getAttrs(); var t=(attrs&&attrs.label&&attrs.label.text)?attrs.label.text.replace(/\n/g,' '):''; fcShowNodeEditor(cell, t, origId); }},
     {label:'📋 复制 ID', action:function(){ try{ navigator.clipboard.writeText(origId); }catch(_){} fcHideContextMenu(); }},
@@ -5058,7 +5115,7 @@ function fcShowBlankMenu(e, x, y){
   var cx=e.clientX, cy=e.clientY;
   var menu=document.createElement('div');
   menu.id='fcContextMenu';
-  menu.style.cssText='position:fixed;left:'+cx+'px;top:'+cy+'px;background:var(--panel);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:160px;box-shadow:0 4px 16px rgba(0,0,0,.4);font-size:12px';
+  menu.style.cssText='position:fixed;left:'+cx+'px;top:'+cy+'px;background:var(--panel);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:160px;box-shadow:var(--shadow-md);font-size:12px';
   var el=document.createElement('div');
   el.textContent='➕ 添加节点';
   el.style.cssText='padding:6px 14px;cursor:pointer;color:var(--fg)';
@@ -5095,7 +5152,7 @@ function fcShowEdgeMenu(e, cell){
   var x=e.clientX, y=e.clientY;
   var menu=document.createElement('div');
   menu.id='fcContextMenu';
-  menu.style.cssText='position:fixed;left:'+x+'px;top:'+y+'px;background:var(--panel);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:160px;box-shadow:0 4px 16px rgba(0,0,0,.4);font-size:12px';
+  menu.style.cssText='position:fixed;left:'+x+'px;top:'+y+'px;background:var(--panel);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:160px;box-shadow:var(--shadow-md);font-size:12px';
   var d=cell.getData&&cell.getData();
   var et=(d&&d.edgeType)||'flow';
   var items=[
@@ -5222,7 +5279,7 @@ var FC_ROUTERS = {
 };
 
 // 当前主题/布局/连线（从 localStorage 恢复，默认暗色+树形+正交圆角）
-var _fcThemeKey  = localStorage.getItem('fc_theme')  || 'dark';
+var _fcThemeKey  = localStorage.getItem('fc_theme')  || (getTheme()==='white'?'light':'dark');
 var _fcLayoutKey = localStorage.getItem('fc_layout') || 'dagre-tb';
 var _fcRouterKey = localStorage.getItem('fc_router') || 'manhattan';
 var _fcEditable  = localStorage.getItem('fc_editable') === '1';
@@ -5809,7 +5866,7 @@ function buildFlowChartSVG(tree){
       path+=' L'+(x2-Math.sign(x2-x1)*r)+' '+midY;
       path+=' Q'+x2+' '+midY+' '+x2+' '+(midY+r);
       path+=' L'+x2+' '+y2;
-      p.push('<path d="'+path+'" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1.5" marker-end="url(#arrSolid)"/>');
+      p.push('<path d="'+path+'" fill="none" stroke="'+(getTheme()==='white'?'rgba(31,41,55,.5)':'rgba(255,255,255,.55)')+'" stroke-width="1.5" marker-end="url(#arrSolid)"/>');
     });
   });
 
@@ -5820,7 +5877,7 @@ function buildFlowChartSVG(tree){
       if(dep && !(n.parent&&d===n.parent.id)){
         var x1=dep.x+dep.w/2, y1=dep.y+dep.h, x2=n.x+n.w/2, y2=n.y;
         var cx=(x1+x2)/2, cy=(y1+y2)/2-30;
-        p.push('<path d="M'+x1+' '+y1+' Q'+cx+' '+cy+' '+x2+' '+y2+'" fill="none" stroke="rgba(255,255,255,.28)" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrDash)"/>');
+        p.push('<path d="M'+x1+' '+y1+' Q'+cx+' '+cy+' '+x2+' '+y2+'" fill="none" stroke="'+(getTheme()==='white'?'rgba(31,41,55,.3)':'rgba(255,255,255,.28)')+'" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrDash)"/>');
       }
     });
   });
@@ -7444,7 +7501,7 @@ setInterval(function(){
 	    for(var i=0;i<springs.length;i++){
 	      var sp=springs[i];
 	      ctx.beginPath(); ctx.moveTo(sp.s.x,sp.s.y); ctx.lineTo(sp.t.x,sp.t.y);
-	      ctx.strokeStyle=sp.e.link_type==='cause'?'rgba(255,120,80,0.5)':'rgba(255,255,255,0.08)';
+ctx.strokeStyle=sp.e.link_type==='cause'?'rgba(255,120,80,0.5)':(getTheme()==='white'?'rgba(31,41,55,0.14)':'rgba(255,255,255,0.08)');
 	      ctx.lineWidth=sp.e.link_type==='cause'?2:0.5;
 	      ctx.stroke();
 	    }
@@ -8124,6 +8181,101 @@ setInterval(function(){
 .pair-tip{font-size:12px;color:var(--tdim);line-height:1.7;margin:8px 2px}
 .pair-row{display:flex;gap:8px;margin-top:10px}
 .pair-sel{width:100%;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px}
+
+/* ══════════ 白色主题覆盖（data-theme="white" 时生效） ══════════ */
+html[data-theme="white"]{
+  color-scheme: light;
+}
+/* —— 白底容器上的白色文字转深色 —— */
+html[data-theme="white"] #btnDebug{color:var(--text)}
+html[data-theme="white"] .sidebar-header h2 > span[style*="color:#fff"]{color:var(--text) !important}
+html[data-theme="white"] .bubble strong{color:var(--text)}
+/* 用户气泡：浅绿淡染 + 深绿字（替代黑主题遗留的墨绿大色块） */
+html[data-theme="white"] .row.you .bubble{background:#e3f3ef;color:#0b5f56;border:1px solid rgba(15,157,143,.16);box-shadow:0 1px 3px rgba(15,60,54,.08)}
+html[data-theme="white"] .row.you .bubble strong{color:#084c45}
+html[data-theme="white"] .row.you .av{background:linear-gradient(135deg,#4fb3a7,#0f9d8f)}
+html[data-theme="white"] .row.you .meta{color:#7ca39c}
+
+/* —— 交互反馈：白色半透明 → 黑色半透明 —— */
+html[data-theme="white"] [style*="background:rgba(255,255,255,.05)"]{background:rgba(0,0,0,.05) !important}
+html[data-theme="white"] [style*="background:rgba(255,255,255,.08)"]{background:rgba(0,0,0,.06) !important}
+html[data-theme="white"] [style*="border-color:rgba(255,255,255,.1)"]{border-color:rgba(0,0,0,.14) !important}
+html[data-theme="white"] [style*="border:1px solid rgba(255,255,255,.06)"]{border-color:rgba(0,0,0,.10) !important}
+html[data-theme="white"] [style*="border:1px solid rgba(255,255,255,.1)"]{border-color:rgba(0,0,0,.14) !important}
+/* —— 滚动条 —— */
+html[data-theme="white"] *::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18)}
+html[data-theme="white"] *::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.30)}
+html[data-theme="white"] .think-body::-webkit-scrollbar-thumb,html[data-theme="white"] .row.log .bubble::-webkit-scrollbar-thumb,html[data-theme="white"] .proc-box::-webkit-scrollbar-thumb,html[data-theme="white"] .proc-body::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18)}
+html[data-theme="white"] main::-webkit-scrollbar-thumb{background:var(--border2)}
+/* —— 气泡/工具类（暗色主题下定义的白色半透明背景） —— */
+html[data-theme="white"] .think-body{background:rgba(0,0,0,.03)}
+html[data-theme="white"] .row.working .bubble{background:rgba(0,0,0,.02)}
+html[data-theme="white"] .row.log .bubble{background:rgba(0,0,0,.02)}
+html[data-theme="white"] .bubble code,html[data-theme="white"] .proc-box code{background:rgba(0,0,0,.055)}
+html[data-theme="white"] .debug-entry:hover,html[data-theme="white"] .debug-tab:hover{background:rgba(0,0,0,.03)}
+html[data-theme="white"] .row.proc-live .proc-box{border-color:rgba(0,0,0,.16)}
+html[data-theme="white"] circle[stroke="rgba(255,255,255,.12)"]{stroke:rgba(0,0,0,.10)}
+
+html[data-theme="white"] .win-ctrls button:hover{background:rgba(0,0,0,.07)}
+html[data-theme="white"] #btnMenu:hover{background:rgba(0,0,0,.06)}
+html[data-theme="white"] .msg-copy:hover{background:rgba(0,0,0,.06)}
+html[data-theme="white"] .tool-group-header:hover{background:rgba(0,0,0,.03)}
+html[data-theme="white"] .tool-group-body .tool-item code{background:rgba(0,0,0,.05)}
+/* —— 头像/工具图标：深色渐变 → 浅灰渐变 —— */
+html[data-theme="white"] .row.ai .av{background:linear-gradient(135deg,#eef0f4,#dde1e8)}
+html[data-theme="white"] .tool-icon{background:linear-gradient(135deg,#eef0f4,#dde1e8)}
+/* 侧栏层次：纯白卡片浮在浅灰侧栏上 */
+html[data-theme="white"] #sidebar{background:#f2f3f6}
+/* 卡片底色必须画在外层 .topic-swipe —— 内层 .topic-item 被
+   `.topic-swipe .topic-item{background:transparent!important}` 锁死，
+   且真正的可见底色来自 .topic-swipe-content(var(--surface2)=#f0f1f4，
+   与侧栏 #f2f3f6 几乎同色 → 之前白卡没浮起来、只剩空描边) */
+html[data-theme="white"] .topic-swipe{background:#fff;border:1px solid rgba(0,0,0,.06);box-shadow:0 1px 2px rgba(16,24,40,.05);margin-bottom:6px}
+html[data-theme="white"] .topic-swipe-content{background:transparent}
+html[data-theme="white"] .topic-swipe:hover{border-color:rgba(0,0,0,.13);box-shadow:0 3px 8px rgba(16,24,40,.10)}
+html[data-theme="white"] .topic-swipe:active{box-shadow:0 1px 2px rgba(16,24,40,.06)}
+/* 选中项：淡绿底 + 细绿条，安静但明确（用更高优先级穿透 transparent!important） */
+html[data-theme="white"] .topic-swipe .topic-item.active{background:#eef8f6 !important;border-color:rgba(15,157,143,.35)}
+html[data-theme="white"] .topic-item.active::before{left:-1px;width:3px}
+/* 绿色只留给可点元素：数字信息全部回归灰色 */
+html[data-theme="white"] .sf-tokens{color:var(--tdim)}
+html[data-theme="white"] .topic-item.active .t-title{color:#0c6f65}
+/* —— 打赏二维码/配对码：白底容器加深边框防止和背景融为一体 —— */
+html[data-theme="white"] .qr-img{border:1px solid rgba(0,0,0,.12)}
+html[data-theme="white"] #pairQrBox{border:1px solid rgba(0,0,0,.12)}
+/* —— 流程图容兜底（X6 画布内文字颜色由 JS 主题控制） —— */
+html[data-theme="white"] .fc-toolbar{background:rgba(255,255,255,.85)}
+/* —— 输入面：去掉暗色主题的下凹重阴影（rgba(0,0,0,.35) 在白底上像脏印） —— */
+html[data-theme="white"] textarea{box-shadow:inset 0 1px 4px rgba(16,24,40,.10)}
+html[data-theme="white"] textarea:focus{background:#fff}
+html[data-theme="white"] #fcNodeEditorOk,html[data-theme="white"] #fcSaveBtn{color:#fff !important}
+html[data-theme="white"] .send.stopping{color:#fff}
+html[data-theme="white"] #balanceBanner.warn-crit .bal-btn{color:#fff}
+/* —— 输入框光标 —— */
+html[data-theme="white"] #input{caret-color:var(--accent)}
+/* ══════ 投影降级：白底上深色大投影会糊成"一大坨灰雾" ══════ */
+/* 侧栏已经有 1px 描边做分界，不再叠投影（根因：--shadow-lg 在白主题仍偏重） */
+html[data-theme="white"] #sidebar{box-shadow:none}
+html[data-theme="white"] #sidebarSettings{box-shadow:-8px 0 24px rgba(16,24,40,.10)}
+html[data-theme="white"] #fileBrowser{box-shadow:-8px 0 24px rgba(16,24,40,.10)}
+html[data-theme="white"] body.fb-over #fileBrowser{box-shadow:-12px 0 30px rgba(16,24,40,.13)}
+html[data-theme="white"] #fbXferPanel{box-shadow:0 10px 28px rgba(16,24,40,.12)}
+html[data-theme="white"] .av{box-shadow:0 1px 3px rgba(16,24,40,.10)}
+html[data-theme="white"] .topic-actions button{box-shadow:0 1px 2px rgba(16,24,40,.06)}
+html[data-theme="white"] #btnJump{box-shadow:0 3px 10px rgba(16,24,40,.12)}
+/* ══════ 主按钮：亮一档的青绿 + 白色图标，避开"深绿膏药"感 ══════ */
+html[data-theme="white"] #btnNew,
+html[data-theme="white"] button.send,
+html[data-theme="white"] .key-form .key-submit,
+html[data-theme="white"] .fb-upload-bar button,
+html[data-theme="white"] .pp-footer .pp-set,
+html[data-theme="white"] .sp-btn.primary{background:linear-gradient(135deg,#3fc7b6,#12a294);color:#fff;box-shadow:0 3px 10px rgba(15,157,143,.22)}
+html[data-theme="white"] #btnNew:hover,
+html[data-theme="white"] button.send:hover{box-shadow:0 5px 16px rgba(15,157,143,.30)}
+html[data-theme="white"] .act-rename{background:linear-gradient(135deg,#3fc7b6,#12a294);color:#fff}
+html[data-theme="white"] .sp-toggle input:checked+.slider{background:linear-gradient(135deg,#3fc7b6,#12a294)}
+/* ══════ 移动端抽屉遮罩：白主题下 55% 黑太重，整片深灰看着像“一大坨阴影” ══════ */
+html[data-theme="white"] #overlay{background:rgba(15,23,42,.28)}
 </style>
 <script>
 /* ── 配对面板逻辑 ── */

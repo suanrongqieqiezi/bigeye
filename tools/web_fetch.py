@@ -59,7 +59,8 @@ def _try_scrapling(url: str, timeout: int = TIMEOUT) -> str | None:
     """Try fetching via Scrapling (bypasses Cloudflare etc)."""
     try:
         from scrapling.fetchers import Fetcher
-        page = Fetcher.get(url, timeout=timeout)
+        # impersonate=chrome: curl_cffi 模拟 Chrome TLS/JA3 指纹，过 B站等指纹拦截站（2026-09-10 根因修复）
+        page = Fetcher.get(url, timeout=timeout, impersonate="chrome")
         if page and page.status == 200:
             # .text is a property returning visible text
             if hasattr(page, 'text') and page.text and len(page.text.strip()) > 50:

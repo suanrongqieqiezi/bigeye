@@ -6,6 +6,7 @@ is injected into the system prompt every round.
 """
 import json
 import os
+import time
 import sys
 from .registry import register_tool
 
@@ -46,8 +47,35 @@ def _load_book():
         return dict(DEFAULT_BOOK)
 
 
+BOOK_VERSION_DIR = os.path.join(_ROOT_DIR, "data", "domain_book_versions")
+BOOK_VERSION_KEEP = 10  # copy-on-write 滚动窗口：保留最近 N 版
+
+
 def _save_book(book):
-    """Save the domain book to disk."""
+    """Save the domain book to disk. 写前自动快照旧版（copy-on-write），滚动保留 N 版。"""
+    try:
+        if os.path.exists(BOOK_PATH):
+            os.makedirs(BOOK_VERSION_DIR, exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            snap = os.path.join(BOOK_VERSION_DIR, f"domain_book_{ts}.json")
+            n = 1
+            while os.path.exists(snap):  # 同秒多次写：加后缀去重，保序可排序
+                snap = os.path.join(BOOK_VERSION_DIR, f"domain_book_{ts}_{n}.json")
+                n += 1
+            # 原子改名再拷回，避免读写竞态截断
+            os.replace(BOOK_PATH, snap)
+            with open(snap, "rb") as src, open(BOOK_PATH, "wb") as dst:
+                dst.write(src.read())
+            # 滚动窗口：只留最近 N 版
+            vers = sorted(f for f in os.listdir(BOOK_VERSION_DIR) if f.startswith("domain_book_"))
+            for old in vers[:-BOOK_VERSION_KEEP]:
+                try:
+                    os.remove(os.path.join(BOOK_VERSION_DIR, old))
+                except OSError:
+                    pass
+    except Exception:
+        import traceback
+        traceback.print_exc()  # 快照失败不阻塞主写入
     os.makedirs(os.path.dirname(BOOK_PATH), exist_ok=True)
     with open(BOOK_PATH, "w", encoding="utf-8") as f:
         json.dump(book, f, ensure_ascii=False, indent=2)
