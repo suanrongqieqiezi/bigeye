@@ -32,11 +32,10 @@ def _get_memory_store():
         return None
 
 def _get_active_topic_id():
-    """Get the active chat topic ID from the database."""
+    """Get the current chat topic ID（优先本线程任务上下文，回落全局活跃话题）。"""
     try:
-        from db import get_db
-        db = get_db()
-        return db.get_active_topic_id()
+        from .task_context import get_current_topic
+        return get_current_topic()
     except Exception:
         return None
 

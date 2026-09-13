@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><title id="pageTitle">AI</title>
+<!DOCTYPE html><html lang="zh-CN" data-page-node-id="hzPbVr5UDp2Fq46nd0z5aU"><head data-page-node-id="gRvZ5pwKU6TwclDsKAS4xI"><meta charset="UTF-8" data-page-node-id="02lQzWNOVvlEjWEoT6HFgg"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" data-page-node-id="6n6issgLPHhJ2YQqmH7cur"><title id="pageTitle">AI</title>
 <style>:root{
   --bg:#0a0a0a;
   --surface:#0a0a0a;
@@ -927,247 +927,247 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
 .send.stopping:hover{box-shadow:0 6px 18px rgba(var(--danger-rgb),.45);filter:brightness(1.04)}
 .send.stopping:active{filter:brightness(.92)}
 </style><script src="vendor/marked.min.js"></script><script src="vendor/purify.min.js"></script><script src="vendor/mermaid.min.js"></script><script src="vendor/dagre.min.js"></script><script src="vendor/x6.js"></script></head>
-<body>
-<div id="balanceBanner"><span class="bal-text"></span><button class="bal-btn" onclick="showDonationModal()">❤ 支持</button></div>
-<div id="app">
-<div id="overlay" onclick="toggleSidebar()"></div>
-<div id="sidebar" class="closed">
-  <div id="sidebarContent">
-    <div id="sidebarTopics">
-      <div class="sidebar-header win-drag">
-        <h2><span style="color:#fff;display:inline-flex;align-items:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin-top:1px"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><line x1="9" y1="21" x2="15" y2="21"/><line x1="10" y1="17" x2="14" y2="17"/></svg></span> 任务</h2>
-        <button id="btnNew" onclick="newTopic()">+ 新建任务</button>
+<body data-page-node-id="2j3ydcDtZUTmZFe1ff9j7N">
+<div id="balanceBanner" data-page-node-id="9Esx1e7W6Dhrr4a2v8gMHp"><span class="bal-text" data-page-node-id="qjhHUCkZBlREFx6aZvETm9"></span><button class="bal-btn" onclick="showDonationModal()" data-page-node-id="RwHdGpDNjdSMOmqQECkSFJ">❤ 支持</button></div>
+<div id="app" data-page-node-id="oAO9WtrV36nCKgkZjqakZN">
+<div id="overlay" onclick="toggleSidebar()" data-page-node-id="OSpFfkrTAqZEKE5v0auWqJ"></div>
+<div id="sidebar" class="closed" data-page-node-id="B8o64SEBFx0wpMIVAw9G5y">
+  <div id="sidebarContent" data-page-node-id="B26oyz4DuSbT0SFZCyksul">
+    <div id="sidebarTopics" data-page-node-id="9eY9lfyj2u9fVmmHeetZZp">
+      <div class="sidebar-header win-drag" data-page-node-id="Hx2EEr26JYNn9iSAxwtYHF">
+        <h2 data-page-node-id="h9g6itJEQEzqJ8hfuZUKLh"><span style="color:#fff;display:inline-flex;align-items:center" data-page-node-id="53yqrI5dR4R0t8GByvSnJF"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin-top:1px" data-page-node-id="MabZCYnYUMB6igHSAnd9Uq"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" data-page-node-id="Y0C8PgMwGttlADxVy3u9og"/><line x1="9" y1="21" x2="15" y2="21" data-page-node-id="7qNaviSUR7HohPH6KzUnjK"/><line x1="10" y1="17" x2="14" y2="17" data-page-node-id="iRvhblL5vMdR1s5l0KcOiR"/></svg></span> 任务</h2>
+        <button id="btnNew" onclick="newTopic()" data-page-node-id="jftddBxVlSSe8UQkajBgUt">+ 新建任务</button>
       </div>
-      <div id="topicList"></div>
-      <div class="sidebar-footer">
-        <div class="sf-cost" id="sidebarCost"><div class="sf-cost-inner"><span class="sf-cost-val" id="sidebarCostVal">¥ —</span><span class="sf-tokens" id="sidebarTokens">— tok</span></div></div>
-        <button class="sf-btn" onclick="openSettings('mobile')" title="移动端"><span class="sf-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/></svg></span></button>
-        <button class="sf-btn" onclick="openSettings()" title="设置"><span class="sf-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span></button>
-        <button class="sf-btn" onclick="openSysMemory()" title="状态"><span class="sf-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span></button>
+      <div id="topicList" data-page-node-id="R140xBoCHXXs3cefHr2Snw"></div>
+      <div class="sidebar-footer" data-page-node-id="ld11hH7QOaKhYvEtOmyZOB">
+        <div class="sf-cost" id="sidebarCost" data-page-node-id="lFNDZOHVUfANvJ0sMLD6aT"><div class="sf-cost-inner" data-page-node-id="wEbmiKqDjRyUK3UaEtBvil"><span class="sf-cost-val" id="sidebarCostVal" data-page-node-id="pP6UEcembVIhEeyMrV5WFC">¥ —</span><span class="sf-tokens" id="sidebarTokens" data-page-node-id="ifS7Iazd545yl8GVkSv5yN">— tok</span></div></div>
+        <button class="sf-btn" onclick="openSettings('mobile')" title="移动端" data-page-node-id="uFxzvABPrzXVp2XtepeMHq"><span class="sf-icon" data-page-node-id="LRFu1vyUtALGJBh5TkQWtg"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="xybs8iFWKXBM39Y70C9HPP"><rect x="7" y="2" width="10" height="20" rx="2" data-page-node-id="3ZZG1wDaXJq4mOt3EnVKVI"/><line x1="11" y1="18" x2="13" y2="18" data-page-node-id="mnaHEYGXr5aNK5tQE7RHVw"/></svg></span></button>
+        <button class="sf-btn" onclick="openSettings()" title="设置" data-page-node-id="G8Wiy08ziHqFMtF4M0U9AZ"><span class="sf-icon" data-page-node-id="mvXxhydqUaehQpKfnIzPAx"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="fmMu45gb5RMtYRJ9EDghT9"><circle cx="12" cy="12" r="3" data-page-node-id="NsNKjR3QaH33pbCiRthHL1"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" data-page-node-id="s0oE5uEHmlarqCY4pZJZ1B"/></svg></span></button>
+        <button class="sf-btn" onclick="openSysMemory()" title="状态" data-page-node-id="dMJHlvXgsBsQOK5vG84HNi"><span class="sf-icon" data-page-node-id="5lngUmJeInOFcW1anX2U4Z"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="IM3qerWhMZVdVvhocE0dDy"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" data-page-node-id="fAoVgWWSf4FVNl9LEjsD7G"/></svg></span></button>
       </div>
     </div>
-    <div id="sidebarSettings">
-      <div class="sp-header">
-        <button class="sp-back" onclick="spBackClick()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-        <h3 id="spTitle">设置</h3>
+    <div id="sidebarSettings" data-page-node-id="0t3QzIw0ht908jWd0Rc6JL">
+      <div class="sp-header" data-page-node-id="CNwUCWg94wFwF4C3xBSeOA">
+        <button class="sp-back" onclick="spBackClick()" data-page-node-id="qkHUwA9O4ALuJ3UMNDSHwo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="hnZ0KnQWzkVMGNFF4d78Dx"><polyline points="15 18 9 12 15 6" data-page-node-id="lmzjHVVeSVLUCDfN9tiAdH"/></svg></button>
+        <h3 id="spTitle" data-page-node-id="7IWnkB3ZWTuPuSzJ9MOJBa">设置</h3>
       </div>
-      <div class="sp-body" id="settingsBody"></div>
+      <div class="sp-body" id="settingsBody" data-page-node-id="jEIoD02s6BVOVsz5Qx1s4F"></div>
     </div>
   </div>
 </div>
-<div id="changelogModal" class="modal-overlay" onclick="closeChangelog(event)">
-  <div class="modal-box" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <span>📋 变更日志</span>
-      <button class="modal-close" onclick="document.getElementById('changelogModal').classList.remove('show')">✕</button>
+<div id="changelogModal" class="modal-overlay" onclick="closeChangelog(event)" data-page-node-id="w4W2461fG5nmFHajJPGxIA">
+  <div class="modal-box" onclick="event.stopPropagation()" data-page-node-id="F9VutMmQcfCuTgFUGezT8G">
+    <div class="modal-header" data-page-node-id="GQX7SxZue7kZEIaLiAuWAn">
+      <span data-page-node-id="IZ9DK5nBHRBn89bI1dDsQq">📋 变更日志</span>
+      <button class="modal-close" onclick="document.getElementById('changelogModal').classList.remove('show')" data-page-node-id="zr1B3n6gAQg3yLhe6ily5B">✕</button>
     </div>
-    <div class="modal-body" id="changelogBody">加载中…</div>
+    <div class="modal-body" id="changelogBody" data-page-node-id="lFKGcPOboEcxTBinAVuqzW">加载中…</div>
   </div>
 </div>
-<div id="sysMemoryModal" class="modal-overlay" onclick="closeSysMemory(event)">
-  <div class="modal-box" style="max-width:680px" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <span>状态</span>
-      <button class="modal-close" onclick="document.getElementById('sysMemoryModal').classList.remove('show')">✕</button>
+<div id="sysMemoryModal" class="modal-overlay" onclick="closeSysMemory(event)" data-page-node-id="qQIp95eW58wofORhi4G4O8">
+  <div class="modal-box" style="max-width:680px" onclick="event.stopPropagation()" data-page-node-id="GWO1gP0T2ejKSn6CoBKEFM">
+    <div class="modal-header" data-page-node-id="WnrJtDcrOauxlSXen5GwGU">
+      <span data-page-node-id="vQXTKofSNBfTLRF7S6jR8P">状态</span>
+      <button class="modal-close" onclick="document.getElementById('sysMemoryModal').classList.remove('show')" data-page-node-id="HxJwmlQsDiBl3CPr6R4KMJ">✕</button>
     </div>
-    <div class="modal-body" id="sysMemoryBody" style="max-height:78vh;overflow-y:auto">加载中…</div>
+    <div class="modal-body" id="sysMemoryBody" style="max-height:78vh;overflow-y:auto" data-page-node-id="opUaSEqoBuwySQnsGDBhcp">加载中…</div>
   </div>
 </div>
 
 <!-- Task Flow Chart Modal -->
-<div id="flowChartModal" class="modal-overlay" onclick="closeFlowChart(event)">
-  <div class="modal-box" style="max-width:1320px;width:96vw;height:92vh;max-height:92vh;display:flex;flex-direction:column" onclick="event.stopPropagation()">
+<div id="flowChartModal" class="modal-overlay" onclick="closeFlowChart(event)" data-page-node-id="C9SKlkMEcrIBOYCgv7FCmH">
+  <div class="modal-box" style="max-width:1320px;width:96vw;height:92vh;max-height:92vh;display:flex;flex-direction:column" onclick="event.stopPropagation()" data-page-node-id="qghOSQUcVYai8HAk1CZmnq">
 
-    <div class="modal-body" id="flowChartBody" style="flex:1 1 auto;min-height:0;overflow:hidden;padding:8px;display:flex;flex-direction:column;gap:6px">
-      <div id="flowChartContent" style="flex:1 1 auto;min-height:0;display:flex;flex-direction:column;width:100%">加载中…</div>
+    <div class="modal-body" id="flowChartBody" style="flex:1 1 auto;min-height:0;overflow:hidden;padding:8px;display:flex;flex-direction:column;gap:6px" data-page-node-id="RryVkDPrDjMwLVhfWaOHPE">
+      <div id="flowChartContent" style="flex:1 1 auto;min-height:0;display:flex;flex-direction:column;width:100%" data-page-node-id="Zo6QSaQmqEYLXNQiro61K7">加载中…</div>
     </div>
   </div>
 </div>
-<div id="mainPanel">
-<div id="dropChatHint" class="drop-hint">松开添加为附件</div>
-<header class="win-drag">
-  <button id="btnMenu" onclick="toggleSidebar()">☰</button>
-  <div id="sDot"></div>
-  <div id="workingDot"></div>
-  <h1 id="topicTitle"><span id="topicTitleText" onclick="openFlowChart()" title="查看任务流程图">AI</span></h1>
-  <span id="sText" style="display:none"></span>
-  <span id="tokenDisplay" style="font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;min-width:60px;text-align:center">—</span>
-  <span id="wmDisplay" title="工作记忆使用率" style="display:none;align-items:center;gap:5px;font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;line-height:1"><svg width="14" height="14" viewBox="0 0 36 36" style="display:block;flex-shrink:0"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="6"/><circle id="wmRing" cx="18" cy="18" r="14" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round" stroke-dasharray="0 88" transform="rotate(-90 18 18)"/></svg><span id="wmPct">—</span></span>
-  <span id="balanceDisplay" style="display:inline-flex;align-items:center;font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;line-height:1">余额 —</span>
-  <button id="btnFiles" onclick="toggleFileBrowser()" title="工作区文件（Esc 关闭）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
-  <button id="btnDebug" onclick="toggleDebugPanel()" title="调试面板"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="7" width="8" height="13" rx="4"/><path d="M12 7V5"/><path d="M10 5.5 9 3.5"/><path d="M14 5.5 15 3.5"/><path d="M8 11H4"/><path d="M8 15H5"/><path d="M8 18.5H4"/><path d="M16 11h4"/><path d="M16 15h3"/><path d="M16 18.5h4"/></svg></button>
-  <span id="uInfo"></span>
-  <span class="win-ctrls" id="winCtrls">
-    <button id="btnWinMin" title="最小化"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1.5 6h9"/></svg></button>
-    <button id="btnWinMax" title="最大化"><svg id="icoMax" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5"/></svg><svg id="icoRestore" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" style="display:none"><rect x="1.5" y="3.5" width="7" height="7" rx="1.2"/><path d="M4 3.5V2.7A1.2 1.2 0 0 1 5.2 1.5h4.1a1.2 1.2 0 0 1 1.2 1.2v4.1a1.2 1.2 0 0 1-1.2 1.2H8.5"/></svg></button>
-    <button id="btnWinClose" title="关闭"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 2l8 8M10 2l-8 8"/></svg></button>
+<div id="mainPanel" data-page-node-id="Nxvhkjz3sTUbKKMSNL8hCD">
+<div id="dropChatHint" class="drop-hint" data-page-node-id="GuWH6ukhTVxAoBtBhePMWD">松开添加为附件</div>
+<header class="win-drag" data-page-node-id="Cou3E7IGVfcEWkTBFu4TT9">
+  <button id="btnMenu" onclick="toggleSidebar()" data-page-node-id="vCCw8NemUwQvzJuA9gyVpx">☰</button>
+  <div id="sDot" data-page-node-id="1I2MsGBwa95VYv4M36vESf"></div>
+  <div id="workingDot" data-page-node-id="P1FDSObIu3xDGkSd16vvfn"></div>
+  <h1 id="topicTitle" data-page-node-id="DX8yp6XCOrDqgrGWPys9nR"><span id="topicTitleText" onclick="openFlowChart()" title="查看任务流程图" data-page-node-id="QHfKdiIwPflwfbT6HBADQW">AI</span></h1>
+  <span id="sText" style="display:none" data-page-node-id="5fvIIpnUaZxH1bKR4k7tvT"></span>
+  <span id="tokenDisplay" style="font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;min-width:60px;text-align:center" data-page-node-id="FOBO7vamDYScRoSQ1DlI8d">—</span>
+  <span id="wmDisplay" title="工作记忆使用率" style="display:none;align-items:center;gap:5px;font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;line-height:1" data-page-node-id="B46HI1kM7BB4xgJmgwNHtC"><svg width="14" height="14" viewBox="0 0 36 36" style="display:block;flex-shrink:0" data-page-node-id="H6FiOC1tcFz41Gosf55bE9"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="6" data-page-node-id="LjJCsBUmCaMFCTchrEpFVv"/><circle id="wmRing" cx="18" cy="18" r="14" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round" stroke-dasharray="0 88" transform="rotate(-90 18 18)" data-page-node-id="dA5pvxYsF6BlrbxYtta9Kq"/></svg><span id="wmPct" data-page-node-id="2A7JAGUEHWYOC8Y4y6PBCA">—</span></span>
+  <span id="balanceDisplay" style="display:inline-flex;align-items:center;font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;line-height:1" data-page-node-id="YRbgjBGDY1qWHIS3gM9dW7">余额 —</span>
+  <button id="btnFiles" onclick="toggleFileBrowser()" title="工作区文件（Esc 关闭）" data-page-node-id="gyN19HiRLgwHXuSmo89RcX"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="FY0maM0KOiYKW1qOqOALv8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" data-page-node-id="u6SKPAS6NsdomlHN2I6id5"/></svg></button>
+  <button id="btnDebug" onclick="toggleDebugPanel()" title="调试面板" data-page-node-id="c8zFNAuu46kNHCSvRjFZ5d"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="HLPgQILxXRrOznMrMVMQAm"><rect x="8" y="7" width="8" height="13" rx="4" data-page-node-id="GW6fRfl9f0CECGmTr2YUUZ"/><path d="M12 7V5" data-page-node-id="ajUNdVxfHK2VbyUFCj6RHH"/><path d="M10 5.5 9 3.5" data-page-node-id="KbHkliUrWFSx5zgcqaTWAI"/><path d="M14 5.5 15 3.5" data-page-node-id="i92pOGPJRWzWCH2xEjreP0"/><path d="M8 11H4" data-page-node-id="ix260ARmzGqvvb9nqStRyu"/><path d="M8 15H5" data-page-node-id="yqwVNChRcUqkgaofipPsi8"/><path d="M8 18.5H4" data-page-node-id="VOALKF0ad1SrftlyHDN8Au"/><path d="M16 11h4" data-page-node-id="uWcTCixEL8ycNd8sOoUzks"/><path d="M16 15h3" data-page-node-id="7NbGMcdWH8HEvWw4xMqgwC"/><path d="M16 18.5h4" data-page-node-id="q7IAJKUmVcYtlLjNukZ8JU"/></svg></button>
+  <span id="uInfo" data-page-node-id="GyIR4VoHerEVhatorecOFR"></span>
+  <span class="win-ctrls" id="winCtrls" data-page-node-id="5dL1LttssDBFHXn8eNZYVo">
+    <button id="btnWinMin" title="最小化" data-page-node-id="3CeGS2UX47yebDeCLN8QP8"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" data-page-node-id="OtbXevF5DZrTbcTZbc3ajy"><path d="M1.5 6h9" data-page-node-id="RTm5Tfqex3RP13EOqCTil9"/></svg></button>
+    <button id="btnWinMax" title="最大化" data-page-node-id="eBAzDtexdQdX4W7nczYmeu"><svg id="icoMax" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" data-page-node-id="heSZZSbavr1BmTBCGQ5OJL"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5" data-page-node-id="WyHh0xDGYlwMlwjGHovjfo"/></svg><svg id="icoRestore" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" style="display:none" data-page-node-id="y2zxx9eNBg3cRVmPqm520B"><rect x="1.5" y="3.5" width="7" height="7" rx="1.2" data-page-node-id="0Kup4g5NkNtqdAOLofU5O1"/><path d="M4 3.5V2.7A1.2 1.2 0 0 1 5.2 1.5h4.1a1.2 1.2 0 0 1 1.2 1.2v4.1a1.2 1.2 0 0 1-1.2 1.2H8.5" data-page-node-id="3a7vpPLksRXZkr1alAiwBb"/></svg></button>
+    <button id="btnWinClose" title="关闭" data-page-node-id="Y2huSXXhy19Nw4uZuTumbH"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" data-page-node-id="h7V24sani2FC0zNM05iGXs"><path d="M2 2l8 8M10 2l-8 8" data-page-node-id="dadzOJwCnRmnaqYcjI31xe"/></svg></button>
   </span>
 </header>
-<main id="chatBox"></main>
-<button id="btnJump" onclick="jumpBottom()" title="回到底部"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 11 5 5 5-5"/><path d="M6 20h12"/></svg></button>
-<footer><div id="attachPreview" style="display:none;flex-wrap:wrap;gap:4px;padding:4px 8px;background:var(--surface2);border-top:1px solid var(--border)"></div><div class="input-row"><input type="file" id="fileInput" multiple style="display:none" onchange="onFileSelect(this)"><button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="添加附件"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button><textarea id="msgInput" rows="1" placeholder="输入消息…" onkeydown="onKey(event)"></textarea><button class="send" id="btnSend" onclick="toggleSend()" title="发送"><svg class="ico-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></svg><svg class="ico-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor"/></svg></button></div></footer>
+<main id="chatBox" data-page-node-id="DxizxaMlb1wAwfI51LAr7C"></main>
+<button id="btnJump" onclick="jumpBottom()" title="回到底部" data-page-node-id="suot2KpdKZwotcUDgWBAm3"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="9uaf8d8N7ip3FrrEm8kxOK"><path d="M12 4v11" data-page-node-id="IEHeiNEtrPJVDy8cCV3xWy"/><path d="m7 11 5 5 5-5" data-page-node-id="7Su29ETinw6TZ8Ib9taZEB"/><path d="M6 20h12" data-page-node-id="H2HtDKmUeFTWUmV0WFwvct"/></svg></button>
+<footer data-page-node-id="HCHcKJDyDuJ4GjQiJqU2kp"><div id="attachPreview" style="display:none;flex-wrap:wrap;gap:4px;padding:4px 8px;background:var(--surface2);border-top:1px solid var(--border)" data-page-node-id="yhOv5DMFkpuyyAh58krcBG"></div><div class="input-row" data-page-node-id="SrZNQIQvUw3jq3L6WJVMwW"><input type="file" id="fileInput" multiple style="display:none" onchange="onFileSelect(this)" data-page-node-id="CqWIYwKndzTfTL9tgFzdBT"><button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="添加附件" data-page-node-id="RJwZ0SRzpcwJt1ugersOTE"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="iuiDCKfmIlScUkrGpd0opv"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" data-page-node-id="bOzZUrTJtPrw3JGDMyiyep"/></svg></button><textarea id="msgInput" rows="1" placeholder="输入消息…" onkeydown="onKey(event)"></textarea><button class="send" id="btnSend" onclick="toggleSend()" title="发送" data-page-node-id="983AB8HRgBx90LPUBkVEHF"><svg class="ico-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="3y7v19Me6vEKpjfi6DT2M3"><path d="M12 19V5" data-page-node-id="K4uPQwgfuDxBYFCEELQ4HB"/><path d="m6 11 6-6 6 6" data-page-node-id="Wb9lgQ6gY5qCtazXxWs7Zx"/></svg><svg class="ico-stop" viewBox="0 0 24 24" data-page-node-id="OIoaAyHWyka0aqXAr7TBuw"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" data-page-node-id="DkbLuNJzVJeirdWFyNCB9E"/></svg></button></div></footer>
 </div>
-<div id="debugPanel">
-  <div class="debug-header">
-    <span>🐛 调试日志</span>
-    <div style="display:flex;gap:8px">
-      <button id="btnDebugClear" onclick="clearDebugLogs()">清空</button>
-      <button id="btnDebugPause" onclick="toggleDebugPause()">⏸</button>
-      <button onclick="toggleDebugPanel()">✕</button>
+<div id="debugPanel" data-page-node-id="ldff4vcJfpKOl1QPmP4E0Z">
+  <div class="debug-header" data-page-node-id="z1fBKBp45BrE15jkmZjBdS">
+    <span data-page-node-id="29MW6SosFPxLuNNZUppDPs">🐛 调试日志</span>
+    <div style="display:flex;gap:8px" data-page-node-id="W4zOzq84cVDUXmlKsjKTVR">
+      <button id="btnDebugClear" onclick="clearDebugLogs()" data-page-node-id="pBVUYLFoq40aOhc06Zb6bb">清空</button>
+      <button id="btnDebugPause" onclick="toggleDebugPause()" data-page-node-id="OHl92p6irMWuxRWxLkzLHX">⏸</button>
+      <button onclick="toggleDebugPanel()" data-page-node-id="TuvZCX1KBCD7VOqt2OF3P4">✕</button>
     </div>
   </div>
-  <div class="debug-tabs">
-    <button class="debug-tab active" data-tab="rpc" onclick="switchDebugTab('rpc')">RPC</button>
-    <button class="debug-tab" data-tab="api" onclick="switchDebugTab('api')" id="btnDebugTabApi">API</button>
-    <button class="debug-tab" data-tab="info" onclick="switchDebugTab('info')">信息</button>
-    <button class="debug-tab" data-tab="domain" onclick="switchDebugTab('domain')">领域</button>
+  <div class="debug-tabs" data-page-node-id="hQk5bg8CXQmsFs8VVElDYB">
+    <button class="debug-tab active" data-tab="rpc" onclick="switchDebugTab('rpc')" data-page-node-id="hQjMhjFrOClw9BbkzRkoC9">RPC</button>
+    <button class="debug-tab" data-tab="api" onclick="switchDebugTab('api')" id="btnDebugTabApi" data-page-node-id="kKUPiIF8L0DtP6dvdEOBk8">API</button>
+    <button class="debug-tab" data-tab="info" onclick="switchDebugTab('info')" data-page-node-id="dT1SJ1c69mEiz1Dk5niOqA">信息</button>
+    <button class="debug-tab" data-tab="domain" onclick="switchDebugTab('domain')" data-page-node-id="BvL3luq6pprLGoNPlp8aYx">领域</button>
   </div>
-  <div id="debugTabRPC">
-    <div class="debug-filter">
-      <label><input type="checkbox" checked onchange="applyDebugFilter()" data-filter="send"> send</label>
-      <label><input type="checkbox" checked onchange="applyDebugFilter()" data-filter="recv"> recv</label>
-      <label><input type="checkbox" checked onchange="applyDebugFilter()" data-filter="tool"> tool</label>
-      <label><input type="checkbox" checked onchange="applyDebugFilter()" data-filter="error"> error</label>
+  <div id="debugTabRPC" data-page-node-id="B2zPOhUtjQdUHUYBgxKfx1">
+    <div class="debug-filter" data-page-node-id="E9y7x36WZrvTFlFo2cQOWW">
+      <label data-page-node-id="MSO236cCEwg68tiCy07ucq"><input type="checkbox" checked onchange="applyDebugFilter()" data-filter="send" data-page-node-id="bTYgn5S4FU0BVsOZG05yF7"> send</label>
+      <label data-page-node-id="ALAHOn1MKlJmzBzL8MOc9G"><input type="checkbox" checked onchange="applyDebugFilter()" data-filter="recv" data-page-node-id="cNuDeOgrGBWgrcTh3Sw1Zu"> recv</label>
+      <label data-page-node-id="Co9pRGOTQr42u35dN0TAZ9"><input type="checkbox" checked onchange="applyDebugFilter()" data-filter="tool" data-page-node-id="DhweFceFsT84WIgmEZ7Rs8"> tool</label>
+      <label data-page-node-id="F8E0eqbVxYcV3mbuHHpXZa"><input type="checkbox" checked onchange="applyDebugFilter()" data-filter="error" data-page-node-id="2etd3F3vYQIAVfHdUArrrM"> error</label>
     </div>
-    <div id="debugLogList" class="debug-list"></div>
+    <div id="debugLogList" class="debug-list" data-page-node-id="CmvgwYkADNTJgIcklEW7Ru"></div>
   </div>
-  <div id="debugTabAPI" style="display:none">
-    <div class="debug-filter">
-      <span style="color:var(--tdim);font-size:11px">🧾 原始 API 日志 · <span id="rawApiLogCount">0</span> 条</span>
-      <label><input type="checkbox" checked onchange="applyRawApiFilter()" data-raw-filter="request"> 请求</label>
-      <label><input type="checkbox" checked onchange="applyRawApiFilter()" data-raw-filter="response"> 响应</label>
-      <label><input type="checkbox" onchange="applyRawApiFilter()" data-raw-filter="contentOnly"> 只看内容</label>
-      <label onclick="event.stopPropagation()"><input type="checkbox" id="chkRawAutoRefresh" checked onchange="if(this.checked)fetchRawApiLogs()"> 自动刷新</label>
+  <div id="debugTabAPI" style="display:none" data-page-node-id="RiMvOJEMrtEu1DlZCfzcQx">
+    <div class="debug-filter" data-page-node-id="5S3Ki5l3yyAJ5I2RlVXV8y">
+      <span style="color:var(--tdim);font-size:11px" data-page-node-id="K4VOCyzzEKdimJs2IlbiqT">🧾 原始 API 日志 · <span id="rawApiLogCount" data-page-node-id="dDrNk5sIbz3Ko0DxY2AXyj">0</span> 条</span>
+      <label data-page-node-id="UwXkcttqrNaXKIQqqL1Va2"><input type="checkbox" checked onchange="applyRawApiFilter()" data-raw-filter="request" data-page-node-id="SI1NO4EY3FUPcW4ZNAv1uC"> 请求</label>
+      <label data-page-node-id="wFi7PnhQoJ2yLKoIxOgNSk"><input type="checkbox" checked onchange="applyRawApiFilter()" data-raw-filter="response" data-page-node-id="VUNAZtwMHR3N5WSJEp68pp"> 响应</label>
+      <label data-page-node-id="dttir6xTRcIhLXbN3Kpyir"><input type="checkbox" onchange="applyRawApiFilter()" data-raw-filter="contentOnly" data-page-node-id="U355NtktAzZpvQc7uPr4SI"> 只看内容</label>
+      <label onclick="event.stopPropagation()" data-page-node-id="KHNSOJGXgWTzJHc51LsGrK"><input type="checkbox" id="chkRawAutoRefresh" checked onchange="if(this.checked)fetchRawApiLogs()" data-page-node-id="HNSqGt9bqvOOH94UbFj5rZ"> 自动刷新</label>
     </div>
-    <div id="rawApiLogList" class="debug-list"></div>
+    <div id="rawApiLogList" class="debug-list" data-page-node-id="xIKcL86irKSS5wDJ7ELUD7"></div>
   </div>
-  <div id="debugTabInfo" style="display:none">
-    <div id="debugInfoList" class="debug-list"></div>
+  <div id="debugTabInfo" style="display:none" data-page-node-id="V2HcGWKPRiGGEwCqJMPmsc">
+    <div id="debugInfoList" class="debug-list" data-page-node-id="7edFvHu7fxMb86hR6S9Bx9"></div>
   </div>
-  <div id="debugTabDomain" style="display:none">
-    <div id="debugDomainList" class="debug-list"></div>
+  <div id="debugTabDomain" style="display:none" data-page-node-id="ykCdA2P9o3NsCDJckUNnQa">
+    <div id="debugDomainList" class="debug-list" data-page-node-id="SMRFo0fYxzKXa7fD6DISXK"></div>
   </div>
 </div>
-<div id="fileBrowser" style="display:none">
-  <div id="dropFbHint" class="drop-hint">松开上传到当前目录</div>
-  <div class="fb-resizer" id="fbResizer" title="拖动调整宽度"></div>
-  <div class="fb-header win-drag" id="fbHeader">
-    <span>文件管理</span>
-    <button id="fbPasteBtn" onclick="pasteFiles()" title="粘贴" style="display:none">粘贴</button>
-    <button id="fbChangeWsBtn" onclick="openPathPicker(fbWorkspaceAbs)" title="修改工作区">修改工作区</button>
-    <button id="fbXferBtn" onclick="toggleXferPanel()">队列<span id="fbXferBadge" class="xq-badge" style="display:none"></span></button>
-    <button id="fbMindMapBtn" onclick="toggleMindMapView()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg><span class="fb-btn-label">思维导图</span></button>
-    <button onclick="closeFileBrowser()">✕</button>
+<div id="fileBrowser" style="display:none" data-page-node-id="EGUhH3ulwn79BOjSfeUWFn">
+  <div id="dropFbHint" class="drop-hint" data-page-node-id="KMp9QhUJR6eAFHv3WeAizX">松开上传到当前目录</div>
+  <div class="fb-resizer" id="fbResizer" title="拖动调整宽度" data-page-node-id="xtw2rLJoPKEA00EnEEIukK"></div>
+  <div class="fb-header win-drag" id="fbHeader" data-page-node-id="BvkJ6RBLnQyDTJDukxBrzC">
+    <span data-page-node-id="NNtvDasQ4uwrtW7ikFw2uK">文件管理</span>
+    <button id="fbPasteBtn" onclick="pasteFiles()" title="粘贴" style="display:none" data-page-node-id="aKztI3JK6nqALFuscOpgPT">粘贴</button>
+    <button id="fbChangeWsBtn" onclick="openPathPicker(fbWorkspaceAbs)" title="修改工作区" data-page-node-id="EEI6DELf2U2p8MGoypF685">修改工作区</button>
+    <button id="fbXferBtn" onclick="toggleXferPanel()" data-page-node-id="D0O2ojPf3TCWqliEZS63HT">队列<span id="fbXferBadge" class="xq-badge" style="display:none" data-page-node-id="v7tlANsgXApdgIERiFoBZq"></span></button>
+    <button id="fbMindMapBtn" onclick="toggleMindMapView()" data-page-node-id="Uy07xfpNvg4BwY9fBhsyBr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="Q0Cr9tq5leaxtImWGTdD0g"><circle cx="18" cy="5" r="3" data-page-node-id="1uMSxQ4f72lH5QcrUPVXs1"/><circle cx="6" cy="12" r="3" data-page-node-id="Z7BNKxxbFyKO3fmxoB6ZCi"/><circle cx="18" cy="19" r="3" data-page-node-id="XZXbccu77RzAfqCLRaO3EC"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" data-page-node-id="dQdEYD7fPJ9uiVpmot1xM7"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" data-page-node-id="9FozCzCyY9W6nF6XxQP204"/></svg><span class="fb-btn-label" data-page-node-id="oq1ETNtHA8DRAo7rgbCcPP">思维导图</span></button>
+    <button onclick="closeFileBrowser()" data-page-node-id="xKNTfE65d3utZ1O6LbaBGH">✕</button>
   </div>
-  <div class="fb-header fb-action-bar" id="fbActionBar" style="display:none">
-    <span id="fbSelCount">已选 0 项</span>
-    <button class="danger" onclick="deleteSelectedFiles()" title="删除">删除</button>
-    <button onclick="renameSelectedFile()" title="重命名">重命名</button>
-    <button onclick="copySelectedFiles()" title="复制">复制</button>
-    <button onclick="cutSelectedFiles()" title="剪切">剪切</button>
-    <button onclick="downloadSelectedFiles()" title="下载">下载</button>
-    <button onclick="clearFileSelection()">取消</button>
+  <div class="fb-header fb-action-bar" id="fbActionBar" style="display:none" data-page-node-id="PS6aGRSuuAkhFbFXL2Gxhv">
+    <span id="fbSelCount" data-page-node-id="H8zqHRmozdWWpQAiSOUXkf">已选 0 项</span>
+    <button class="danger" onclick="deleteSelectedFiles()" title="删除" data-page-node-id="aWvshbEN6BKCEqCoLsAUZE">删除</button>
+    <button onclick="renameSelectedFile()" title="重命名" data-page-node-id="6OHW6ghcWlKOnVAHfN9ngp">重命名</button>
+    <button onclick="copySelectedFiles()" title="复制" data-page-node-id="ofhBtLf4NRjjz94RvqNvgO">复制</button>
+    <button onclick="cutSelectedFiles()" title="剪切" data-page-node-id="9EEY4khHueR5JyNc80Yn2s">剪切</button>
+    <button onclick="downloadSelectedFiles()" title="下载" data-page-node-id="TckUFOD0q2gzcfTPl6Hghv">下载</button>
+    <button onclick="clearFileSelection()" data-page-node-id="QK2NFfdw9uhuhhE2tLJeCR">取消</button>
   </div>
-  <div id="fbXferPanel" style="display:none">
-    <div class="xq-head"><span>传输队列</span><span class="xq-head-btns"><button class="xq-clear" onclick="xferClearDone()">清除已完成</button><button class="xq-close" onclick="toggleXferPanel(false)" title="关闭">✕</button></span></div>
-    <div id="fbXferList" class="xq-list"></div>
+  <div id="fbXferPanel" style="display:none" data-page-node-id="H7pazbuC163VsexrzXo4Zu">
+    <div class="xq-head" data-page-node-id="XiErFrNdaBWNZnVS3OCyuH"><span data-page-node-id="ZpaWZ5ACE7dmhRvKXBtIuO">传输队列</span><span class="xq-head-btns" data-page-node-id="roIBCN25KAHEntDJ2W74So"><button class="xq-clear" onclick="xferClearDone()" data-page-node-id="ZBBcy0BfGeY7f54ynSjddU">清除已完成</button><button class="xq-close" onclick="toggleXferPanel(false)" title="关闭" data-page-node-id="c9ja2DPQPQHrEzbQBgyVMW">✕</button></span></div>
+    <div id="fbXferList" class="xq-list" data-page-node-id="0d8WdwKmNiWFawywbJQNvR"></div>
   </div>
-  <div id="fbWorkspace" title="点击修改工作区（从当前位置开始浏览）">工作区: …</div>
+  <div id="fbWorkspace" title="点击修改工作区（从当前位置开始浏览）" data-page-node-id="qZ3f9WIky8C66IbCTAv0Mh">工作区: …</div>
 
-  <div id="fbGrid" class="fb-grid"></div>
- <div id="imgLightbox" onclick="closeImgLightbox()"></div>
- <div id="fbViewer" style="display:none">
-    <div class="fv-head">
-      <span id="fvName" class="fv-name"></span>
-      <span class="fv-btns">
-        <button id="fvPrevBtn" onclick="fvPrev()" title="上一个（←）">‹</button>
-        <button id="fvNextBtn" onclick="fvNext()" title="下一个（→）">›</button>
-        <button onclick="fvDownload()">下载</button>
-        <button onclick="closeViewer()">关闭</button>
+  <div id="fbGrid" class="fb-grid" data-page-node-id="LoUWE0BztfUZEFH8W5iHsr"></div>
+ <div id="imgLightbox" onclick="closeImgLightbox()" data-page-node-id="Hp64U5GBdm1Eww9cDhKnoF"></div>
+ <div id="fbViewer" style="display:none" data-page-node-id="bH2ecLtRMxlSk2xFEh2B6G">
+    <div class="fv-head" data-page-node-id="kjlRlKtxPMf3pIXab4SELV">
+      <span id="fvName" class="fv-name" data-page-node-id="lgJa0UHyesbGV78801gCz6"></span>
+      <span class="fv-btns" data-page-node-id="J53w4b6IHhW8wDtB7T7ZNL">
+        <button id="fvPrevBtn" onclick="fvPrev()" title="上一个（←）" data-page-node-id="Dk8a43VemY5QHDomasSAxE">‹</button>
+        <button id="fvNextBtn" onclick="fvNext()" title="下一个（→）" data-page-node-id="nExGlylfjMVAX8nYDMk7Es">›</button>
+        <button onclick="fvDownload()" data-page-node-id="zU5q2qAGAwFG1qDgiygB4m">下载</button>
+        <button onclick="closeViewer()" data-page-node-id="DfMgXKjgNEh8clgS0y7d5l">关闭</button>
       </span>
     </div>
-    <div id="fvBody" class="fv-body"></div>
+    <div id="fvBody" class="fv-body" data-page-node-id="Z8itySR4UA3ByWf9kudLV1"></div>
   </div>
-  <div class="fb-upload-bar"><input type="file" id="fbUploadInput" multiple style="display:none" onchange="onFbUploadSelect(this)"><button onclick="document.getElementById('fbUploadInput').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>上传到当前目录</button></div>
+  <div class="fb-upload-bar" data-page-node-id="r9F1I0065OaTupZ0NxjtOH"><input type="file" id="fbUploadInput" multiple style="display:none" onchange="onFbUploadSelect(this)" data-page-node-id="iqEH2bAEqu6ITPt3QgzeXW"><button onclick="document.getElementById('fbUploadInput').click()" data-page-node-id="O0mFB6YHRqB3TPT1492Rtl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="WNv0ktLXXFidYQxpT0WEcj"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" data-page-node-id="FniLkBpTzhNyRTO14GHiOj"/></svg>上传到当前目录</button></div>
   <!-- 思维导图视图（与文件管理视图互斥） -->
-  <div id="mindMapView" style="display:none;flex:1 1 0%;min-height:0;flex-direction:column;overflow:hidden"></div>
+  <div id="mindMapView" style="display:none;flex:1 1 0%;min-height:0;flex-direction:column;overflow:hidden" data-page-node-id="Fmeyb79MTUV1dbwp9kx9TU"></div>
 </div>
-<div id="pathPicker" class="modal-overlay" style="display:none">
-  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:520px">
-    <div class="modal-header">
-      <span>📂 选择工作区文件夹</span>
-      <button class="modal-close" onclick="closePathPicker()">✕</button>
+<div id="pathPicker" class="modal-overlay" style="display:none" data-page-node-id="O6DJKfx6Jdk789SL543wXJ">
+  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:520px" data-page-node-id="BWBvQnInO2H52avKsAams9">
+    <div class="modal-header" data-page-node-id="VXcHuZKIuWLds1RpHrbVyL">
+      <span data-page-node-id="bKEHAcoc8BFvE8r0yv4Ofy">📂 选择工作区文件夹</span>
+      <button class="modal-close" onclick="closePathPicker()" data-page-node-id="EjzwCC1uh7jccxAkbCG6gA">✕</button>
     </div>
-    <div id="ppBreadcrumb"></div>
-    <div id="ppEntries"></div>
-    <div class="pp-footer">
-      <label class="pp-allow-outside" title="开启后，AI 可读写电脑任意位置文件（不再限制在工作区内）。仅在信任 AI 操作时开启。">
-        <input type="checkbox" id="ppAllowOutside">
-        <span>🔓 允许 AI 跨出工作区访问</span>
+    <div id="ppBreadcrumb" data-page-node-id="j6khIHVAMDkg2lu3utwi4I"></div>
+    <div id="ppEntries" data-page-node-id="8A8fdtzTAzQbB5cKWZXAUt"></div>
+    <div class="pp-footer" data-page-node-id="VJTBzVeiRH9N9vIxRfWMv2">
+      <label class="pp-allow-outside" title="开启后，AI 可读写电脑任意位置文件（不再限制在工作区内）。仅在信任 AI 操作时开启。" data-page-node-id="5O5bMA86afsKp47JN2dNBS">
+        <input type="checkbox" id="ppAllowOutside" data-page-node-id="alzjiE7mFtWyS12r1YDGLC">
+        <span data-page-node-id="fru7bDoyEhR1ob6lZGO4Kt">🔓 允许 AI 跨出工作区访问</span>
       </label>
-      <button class="pp-cancel" onclick="closePathPicker()">取消</button>
-      <button class="pp-set" onclick="setWorkspace()">设为当前工作区</button>
+      <button class="pp-cancel" onclick="closePathPicker()" data-page-node-id="vtrcolgRgQSue9aIINHqFn">取消</button>
+      <button class="pp-set" onclick="setWorkspace()" data-page-node-id="Ip08F16lwUccD3GEVr8aUE">设为当前工作区</button>
     </div>
   </div>
 </div>
 </div>
-<div id="donationModal" class="modal-overlay" onclick="closeDonationModal(event)">
-  <div class="modal-box" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <span>❤ 支持 AI</span>
-      <button class="modal-close" onclick="document.getElementById('donationModal').classList.remove('show')">✕</button>
+<div id="donationModal" class="modal-overlay" onclick="closeDonationModal(event)" data-page-node-id="kKndO4M3Ih4f6AwzSZQ4DH">
+  <div class="modal-box" onclick="event.stopPropagation()" data-page-node-id="j5SAT5iM1pdvMkUwUhHJC8">
+    <div class="modal-header" data-page-node-id="PKBcqrDFilv0wSEseDQMuW">
+      <span data-page-node-id="UcO8sIv89GcH8P9yJaG9pk">❤ 支持 AI</span>
+      <button class="modal-close" onclick="document.getElementById('donationModal').classList.remove('show')" data-page-node-id="lCh4jF6PpszQH4ufORt5AH">✕</button>
     </div>
-    <div class="donation-body">
-      <div class="donation-message">「<b>AI</b>」运行在付费 API 上，需要社区支持才能持续提供服务。<br>每一份支持都能让 AI 更好地为更多人服务。</div>
-      <div class="qr-section">
-        <div class="qr-card">
-          <div class="qr-img"><svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" fill="#07c160"/><text x="60" y="55" text-anchor="middle" fill="white" font-size="14" font-weight="bold">微信</text><text x="60" y="72" text-anchor="middle" fill="white" font-size="10">WeChat</text><text x="60" y="90" text-anchor="middle" fill="rgba(255,255,255,.7)" font-size="8">扫码赞赏</text></svg></div>
-          <div class="qr-label">微信赞赏</div>
+    <div class="donation-body" data-page-node-id="blCI41hYlKwt5vqMmHILnw">
+      <div class="donation-message" data-page-node-id="LiRySTul9gttokhuTDqWP1">「<b data-page-node-id="rVrSvQ8AM0SN8z4aM4Shmt">AI</b>」运行在付费 API 上，需要社区支持才能持续提供服务。<br data-page-node-id="EnMV7I6bTMmaTcS8G7lNqD">每一份支持都能让 AI 更好地为更多人服务。</div>
+      <div class="qr-section" data-page-node-id="tYX4FPJfMvtF0wmFbphw2d">
+        <div class="qr-card" data-page-node-id="p5Sj2qlDWYbHxj7Y1cFfMS">
+          <div class="qr-img" data-page-node-id="ucVj1oqAyIZ5kDyJHpSXXT"><svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" data-page-node-id="OjSdinHgrSBMKL4oIwEnzf"><rect width="120" height="120" fill="#07c160" data-page-node-id="ovq4CAaPoNWFLqVnLwZUyL"/><text x="60" y="55" text-anchor="middle" fill="white" font-size="14" font-weight="bold" data-page-node-id="ancUmtK6IZBWUiQYdz2rfa">微信</text><text x="60" y="72" text-anchor="middle" fill="white" font-size="10" data-page-node-id="25x887a2HBeG6S8pwR6CdT">WeChat</text><text x="60" y="90" text-anchor="middle" fill="rgba(255,255,255,.7)" font-size="8" data-page-node-id="zH7b5IDh582kJVfAppeh8T">扫码赞赏</text></svg></div>
+          <div class="qr-label" data-page-node-id="bWcDxXcoy7GfjLtkniQCxF">微信赞赏</div>
         </div>
-        <div class="qr-card">
-          <div class="qr-img"><svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" fill="#1677ff"/><text x="60" y="55" text-anchor="middle" fill="white" font-size="14" font-weight="bold">支付宝</text><text x="60" y="72" text-anchor="middle" fill="white" font-size="10">Alipay</text><text x="60" y="90" text-anchor="middle" fill="rgba(255,255,255,.7)" font-size="8">扫码支持</text></svg></div>
-          <div class="qr-label">支付宝转账</div>
-        </div>
-      </div>
-      <div class="wallet-section">
-        <div class="wallet-label">💳 钱包地址</div>
-        <div class="wallet-row">
-          <span class="wallet-addr" id="walletAddr">0xYourWalletAddressHere</span>
-          <button class="wallet-copy" id="walletCopyBtn" onclick="copyWalletAddress()">📋 复制</button>
+        <div class="qr-card" data-page-node-id="vOtNf9DVFJIesDZcJdLJuu">
+          <div class="qr-img" data-page-node-id="ojQ8GZadEekrEHlbeWLWqG"><svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" data-page-node-id="ZWVIpbq3dvZZZ6nJ5kPdDJ"><rect width="120" height="120" fill="#1677ff" data-page-node-id="jwvkZdCdx2qhjBaBziiTMl"/><text x="60" y="55" text-anchor="middle" fill="white" font-size="14" font-weight="bold" data-page-node-id="SnGtM0S4DoBz0Ibbr0NbRA">支付宝</text><text x="60" y="72" text-anchor="middle" fill="white" font-size="10" data-page-node-id="lBmvXsf7HN6zuzFpTHheNi">Alipay</text><text x="60" y="90" text-anchor="middle" fill="rgba(255,255,255,.7)" font-size="8" data-page-node-id="cmRQ83P9getUrLgAUW69lD">扫码支持</text></svg></div>
+          <div class="qr-label" data-page-node-id="FYEC7kaEyaJxdSogrYvEua">支付宝转账</div>
         </div>
       </div>
-      <hr class="donation-divider">
-      <div class="free-section">
-        <h3>🔑 免费获取 API Key</h3>
-        <div class="free-links">
-          <a class="free-link" href="https://openrouter.ai/keys" target="_blank" rel="noopener">🌐 OpenRouter</a>
-          <a class="free-link" href="https://console.groq.com/keys" target="_blank" rel="noopener">⚡ Groq</a>
-          <a class="free-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">🤖 Google AI</a>
+      <div class="wallet-section" data-page-node-id="k5S0DA6QZWZtbxRZPDx2IB">
+        <div class="wallet-label" data-page-node-id="3kZ0aS3Nd4DySqIcRCGAG5">💳 钱包地址</div>
+        <div class="wallet-row" data-page-node-id="5VXnR3giTEBFahLqffIUrR">
+          <span class="wallet-addr" id="walletAddr" data-page-node-id="oyKybUouw6yzE5BhfkIJ9W">0xYourWalletAddressHere</span>
+          <button class="wallet-copy" id="walletCopyBtn" onclick="copyWalletAddress()" data-page-node-id="3KOP5V3aE6VT6YjfgMXUR5">📋 复制</button>
         </div>
-        <div class="key-form">
-          <label>提供商</label>
-          <select id="freeKeyProvider">
-            <option value="openrouter">OpenRouter</option>
-            <option value="groq">Groq</option>
-            <option value="google">Google AI Studio</option>
+      </div>
+      <hr class="donation-divider" data-page-node-id="lRIFfm8xeqP5le4Uf27LGn">
+      <div class="free-section" data-page-node-id="MTGFFlNDGSFnSk8GmG7e2O">
+        <h3 data-page-node-id="Y96cNbECRwv7G7Z8UxG7tJ">🔑 免费获取 API Key</h3>
+        <div class="free-links" data-page-node-id="iRWNf82GCHh1aiQD9CrKIV">
+          <a class="free-link" href="https://openrouter.ai/keys" target="_blank" rel="noopener" data-page-node-id="CKBBaoaQXnifqzQxXcdQGA">🌐 OpenRouter</a>
+          <a class="free-link" href="https://console.groq.com/keys" target="_blank" rel="noopener" data-page-node-id="mA302SDwUlwfeDy85Rla6X">⚡ Groq</a>
+          <a class="free-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" data-page-node-id="I38rANO4MlDuH7vSCmUxqh">🤖 Google AI</a>
+        </div>
+        <div class="key-form" data-page-node-id="zl8PNzDeVWuXZCTQNWgjMp">
+          <label data-page-node-id="5rnyfUyiVmdavlrsRyPe9Q">提供商</label>
+          <select id="freeKeyProvider" data-page-node-id="oZ6AZoiHtzGsPNqYQRW35X">
+            <option value="openrouter" data-page-node-id="Mwj1UoD7nPHkXjc3q83BcY">OpenRouter</option>
+            <option value="groq" data-page-node-id="wERI3MWfVODJnYXUil2uN2">Groq</option>
+            <option value="google" data-page-node-id="cG0341LEjwDY1iuOll2lg2">Google AI Studio</option>
           </select>
-          <label>API Key</label>
-          <input id="freeKeyInput" type="password" placeholder="粘贴你的 API Key">
-          <button class="key-submit" onclick="submitFreeApiKey()">🔑 配置密钥</button>
+          <label data-page-node-id="86SfAnFCHQqVKaXtyw2gPN">API Key</label>
+          <input id="freeKeyInput" type="password" placeholder="粘贴你的 API Key" data-page-node-id="2gZcCk4v4nngCWUSY6FZVa">
+          <button class="key-submit" onclick="submitFreeApiKey()" data-page-node-id="cEZW4jAzHEWzVJ30YgMubV">🔑 配置密钥</button>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<div id="reqModal" class="modal-overlay" onclick="closeReqModal(event)">
-  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:800px">
-    <div class="modal-header">
-      <span>📤 本次发送给 API 的内容</span>
-      <button class="modal-copy" onclick="copyReqBody()" title="复制全部内容">📋</button>
-      <button class="modal-close" onclick="document.getElementById('reqModal').classList.remove('show')">✕</button>
+<div id="reqModal" class="modal-overlay" onclick="closeReqModal(event)" data-page-node-id="7IX6Y78mmugpDQBGautuyl">
+  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:800px" data-page-node-id="Ep5ePLVzgzvhVUEv3Pu2Jw">
+    <div class="modal-header" data-page-node-id="rNsWO7E6GAJjHOSClBXrcS">
+      <span data-page-node-id="RpRxXKU0sQcKDiYoj5jupt">📤 本次发送给 API 的内容</span>
+      <button class="modal-copy" onclick="copyReqBody()" title="复制全部内容" data-page-node-id="4wiHKhpFY1umuEzd0keb8F">📋</button>
+      <button class="modal-close" onclick="document.getElementById('reqModal').classList.remove('show')" data-page-node-id="Xmgg9MNu7Lu2DWt0LlbvGq">✕</button>
     </div>
-    <div style="padding:16px;overflow:auto;max-height:70vh;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;color:var(--t);background:var(--surface)" id="reqBody">加载中…</div>
+    <div style="padding:16px;overflow:auto;max-height:70vh;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;color:var(--t);background:var(--surface)" id="reqBody" data-page-node-id="aDl4WlIt3LOJObb2nFzYC7">加载中…</div>
   </div>
 </div>
 <script>
@@ -1674,7 +1674,7 @@ function closeTopicSwipe(){
 async function deleteTopicItem(tid){
   var removed=topics.find(function(t){return t.id===tid;});
   var taskName=(removed&&removed.title)||tid;
-  if(!confirm('删除任务「'+taskName+'」？\n所有聊天记录将被清除。')) return;
+  if(!await uiConfirm({title:'删除任务', message:'删除「'+taskName+'」？\n所有聊天记录将被清除。', okText:'删除', danger:true})) return;
   closeTopicSwipe();
   // Optimistic: remove from UI immediately
   topics=topics.filter(function(t){return t.id!==tid;});
@@ -1726,7 +1726,7 @@ async function deleteTopicItem(tid){
 
 async function renameTopicItem(tid, oldTitle){
   closeTopicSwipe();
-  var title=prompt('重命名任务：',oldTitle||'');
+  var title=await uiPrompt({title:'重命名任务', label:'新的任务名称', value:oldTitle||'', placeholder:'输入任务名称'});
   if(!title||title===oldTitle) return;
   try{
     await fetch('/api/topic/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic_id:tid,title:title})});
@@ -2928,6 +2928,31 @@ async function uploadFile(filename,b64){
     else alert('上传失败: '+(d.error||''));
   }catch(e){ alert('上传错误: '+e.message); }
 }
+var _IMG_EXT_RE = /\.(jpe?g|png|gif|webp)$/i;
+
+// 附件里含图片、且当前模型不能直接收图时，把"会发生什么"说清楚 ——
+// 以前是静默失败：图片块打到不支持视觉的服务上直接 HTTP 500，
+// 用户只看到一句 WinError，完全不知道是模型看不了图。
+function attachVisionHintHtml(){
+  var hasImg = false;
+  for(var i=0;i<pendingAttachments.length;i++){
+    if(_IMG_EXT_RE.test(pendingAttachments[i].filename||'')){ hasImg = true; break; }
+  }
+  if(!hasImg) return '';
+  var text, color;
+  if(_visionCapable){
+    text = '✓ 当前模型可直接识别图片';
+    color = 'var(--success)';
+  } else if(_visionFallbackEnabled){
+    text = '⚠ 当前模型不能看图，发送时会自动改用 DeepSeek 云端视觉模型（图片会上传到云端）';
+    color = 'var(--warn)';
+  } else {
+    text = '⚠ 当前模型不能看图，且已关闭云端回退 —— 图片不会发给模型，只提供文件路径（可让 AI 用 OCR 读文字）';
+    color = 'var(--warn)';
+  }
+  return '<div style="flex:0 0 100%;font-size:11px;line-height:1.5;color:'+color+';padding:2px 2px 0">'+text+'</div>';
+}
+
 function renderAttachPreview(){
   var el=document.getElementById('attachPreview');
   if(!pendingAttachments.length){ el.style.display='none'; el.innerHTML=''; return; }
@@ -2941,6 +2966,7 @@ function renderAttachPreview(){
       html+='<div class="att-chip">'+ATT_ICON+esc(a.filename)+' <span class="rm" onclick="removeAttach('+i+')">✕</span></div>';
     }
   }
+  html += attachVisionHintHtml();
   el.innerHTML=html;
 }
 function removeAttach(i){ pendingAttachments.splice(i,1); renderAttachPreview(); }
@@ -3705,9 +3731,9 @@ function clearFileSelection(){
   updateFileSelectionUI();
 }
 
-function deleteMissionFile(name){
+async function deleteMissionFile(name){
   if(!currentTopic) return;
-  if(!confirm('删除文件「'+name+'」？此操作不可撤销。')) return;
+  if(!await uiConfirm({title:'删除文件', message:'删除文件「'+name+'」？此操作不可撤销。', okText:'删除', danger:true})) return;
   fetch('/api/mission-file?topic_id='+encodeURIComponent(currentTopic.id)+'&file='+encodeURIComponent(fbFullPath(name)),{method:'DELETE'})
     .then(function(r){return r.json();})
     .then(function(d){ if(d&&d.success) loadWorkspaceFiles(); else alert('删除失败: '+((d&&d.error)||'')); })
@@ -3968,10 +3994,10 @@ function downloadSelectedFiles(){
       url:'/api/mission-file?topic_id='+encodeURIComponent(currentTopic.id)+'&file='+encodeURIComponent(fp)});
   }
 }
-function deleteSelectedFiles(){
+async function deleteSelectedFiles(){
   if(!currentTopic||!fbSelected.length) return;
   var names=fbSelected.map(function(i){return fbFilesData[i].name;});
-  if(!confirm('删除 '+fbSelected.length+' 个文件？此操作不可撤销。')) return;
+  if(!await uiConfirm({title:'删除文件', message:'删除 '+fbSelected.length+' 个文件？此操作不可撤销。', okText:'删除', danger:true})) return;
   var remaining=fbSelected.length;
   var errors=[];
   fbSelected.forEach(function(i){
@@ -3992,10 +4018,10 @@ function deleteSelectedFiles(){
   }
 }
 
-function renameSelectedFile(){
+async function renameSelectedFile(){
   if(!currentTopic||fbSelected.length!==1){ alert('请先选择一个文件进行重命名'); return; }
   var f=fbFilesData[fbSelected[0]];
-  var newName=prompt('重命名「'+f.name+'」为：',f.name);
+  var newName=await uiPrompt({title:'重命名', label:'将「'+f.name+'」重命名为：', value:f.name, placeholder:'输入新文件名'});
   if(!newName||newName===f.name) return;
   fetch('/api/file-op',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'rename',topic_id:currentTopic.id,file:fbFullPath(f.name),target:fbFullPath(newName)})})
     .then(function(r){return r.json();})
@@ -4053,6 +4079,209 @@ function pasteFiles(){
     loadWorkspaceFiles();
     if(errs.length) alert('粘贴失败:\n'+errs.join('\n'));
   }
+}
+
+// ═══ 通用对话框：统一替代原生 prompt / confirm / select ═══
+// 原生弹窗由浏览器渲染，不受页面 CSS 控制，与主题完全脱节 —— 统一换成应用内弹窗。
+// 复用 .modal-overlay / .modal-box / .modal-header，自动继承主题变量与入场动画。
+//   var v = await uiPrompt({title:'重命名', label:'新名称', value:old});   // 取消 -> null
+//   if(await uiConfirm({title:'删除', message:'…', danger:true})){…}      // 取消 -> false
+//   var s = await uiSelect({title:'选择', label:'类型', options:[{value,label}], value:cur});
+// 键盘：Enter 确认 / Esc 取消；打开期间吞掉按键，避免触发全局快捷键。
+function uiDialog(cfg){
+  cfg=cfg||{};
+  var kind=cfg.kind||'confirm';
+  return new Promise(function(resolve){
+    var prevFocus=document.activeElement;
+    var closed=false;
+    var ov=document.createElement('div');
+    ov.className='modal-overlay ui-dlg-overlay';
+    var box=document.createElement('div');
+    box.className='modal-box ui-dlg-box';
+    box.addEventListener('click',function(e){ e.stopPropagation(); });
+
+    var head=document.createElement('div');
+    head.className='modal-header';
+    var ttl=document.createElement('span');
+    ttl.textContent=cfg.title||'提示';
+    head.appendChild(ttl);
+    box.appendChild(head);
+
+    var body=document.createElement('div');
+    body.className='ui-dlg-body';
+    var field=null;
+    function addLabel(text){
+      var lb=document.createElement('label');
+      lb.className='ui-dlg-label';
+      lb.textContent=text;
+      body.appendChild(lb);
+    }
+    if(cfg.message){
+      var msg=document.createElement('div');
+      msg.className='ui-dlg-msg';
+      msg.textContent=cfg.message;
+      body.appendChild(msg);
+    }
+    if(kind==='prompt'){
+      if(cfg.label) addLabel(cfg.label);
+      field=document.createElement('input');
+      field.type=cfg.inputType||'text';
+      field.className='ui-dlg-field';
+      if(cfg.placeholder) field.placeholder=cfg.placeholder;
+      if(cfg.maxlength) field.maxLength=cfg.maxlength;
+      field.value=(cfg.value==null)?'':String(cfg.value);
+      body.appendChild(field);
+    }else if(kind==='select'){
+      if(cfg.label) addLabel(cfg.label);
+      field=document.createElement('select');
+      field.className='ui-dlg-field';
+      var opts=cfg.options||[];
+      for(var i=0;i<opts.length;i++){
+        var op=document.createElement('option');
+        op.value=opts[i].value;
+        op.textContent=opts[i].label;
+        field.appendChild(op);
+      }
+      if(cfg.value!=null) field.value=cfg.value;
+      body.appendChild(field);
+    }
+    box.appendChild(body);
+
+    var foot=document.createElement('div');
+    foot.className='ui-dlg-footer';
+    var btnCancel=document.createElement('button');
+    btnCancel.type='button';
+    btnCancel.className='ui-dlg-btn ghost';
+    btnCancel.textContent=cfg.cancelText||'取消';
+    var btnOk=document.createElement('button');
+    btnOk.type='button';
+    btnOk.className='ui-dlg-btn '+(cfg.danger?'danger':'primary');
+    btnOk.textContent=cfg.okText||'确定';
+    foot.appendChild(btnCancel);
+    foot.appendChild(btnOk);
+    box.appendChild(foot);
+    ov.appendChild(box);
+
+    function cancelVal(){ return (kind==='confirm')?false:null; }
+    function done(val){
+      if(closed) return;
+      closed=true;
+      ov.classList.remove('show');
+      document.removeEventListener('keydown',onKey,true);
+      setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); },220);
+      try{ if(prevFocus&&prevFocus.focus&&document.contains(prevFocus)) prevFocus.focus(); }catch(_){}
+      resolve(val);
+    }
+    function okVal(){
+      if(kind==='confirm'){ done(true); return; }
+      done(field?field.value:null);
+    }
+    function onKey(e){
+      e.stopPropagation();
+      if(e.key==='Escape'){ e.preventDefault(); done(cancelVal()); return; }
+      if(e.key!=='Enter') return;
+      var tag=e.target&&e.target.tagName;
+      // 焦点在按钮上时交给浏览器原生 click，避免"回车确认"与按钮点击重复触发
+      if(tag==='BUTTON'||tag==='TEXTAREA') return;
+      e.preventDefault();
+      okVal();
+    }
+    btnCancel.addEventListener('click',function(){ done(cancelVal()); });
+    btnOk.addEventListener('click',okVal);
+    ov.addEventListener('click',function(){ done(cancelVal()); });
+
+    document.body.appendChild(ov);
+    requestAnimationFrame(function(){ requestAnimationFrame(function(){ ov.classList.add('show'); }); });
+    document.addEventListener('keydown',onKey,true);
+    setTimeout(function(){
+      if(field){ try{ field.focus(); if(kind==='prompt'&&field.select) field.select(); }catch(_){} }
+      else { try{ btnOk.focus(); }catch(_){} }
+    },80);
+  });
+}
+function uiPrompt(cfg){ cfg=cfg||{}; cfg.kind='prompt'; return uiDialog(cfg); }
+function uiConfirm(cfg){ cfg=cfg||{}; cfg.kind='confirm'; return uiDialog(cfg); }
+function uiSelect(cfg){ cfg=cfg||{}; cfg.kind='select'; return uiDialog(cfg); }
+
+// ═══ 文件右键菜单 ═══
+function fbMenuHide(){ var m=document.getElementById('fbCtxMenu'); if(m) m.remove(); }
+document.addEventListener('click', fbMenuHide, true);
+document.addEventListener('contextmenu', fbMenuHide, true);
+document.addEventListener('scroll', fbMenuHide, true);
+
+// 剪贴板兼容（http 非 localhost 时 navigator.clipboard 不可用，回退 execCommand）
+function fbCopyText(t){
+  function fallback(){
+    var ta=document.createElement('textarea');
+    ta.value=t; ta.style.cssText='position:fixed;left:-9999px;top:0;opacity:0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try{ document.execCommand('copy'); }catch(_){}
+    ta.remove();
+  }
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).catch(fallback);
+  }else fallback();
+}
+// 在系统资源管理器中显示（open=false 时仅解析绝对路径，供"复制路径"用）
+function fbRevealFile(rel, open){
+  fetch('/api/open-explorer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic_id:currentTopic?currentTopic.id:'',file:rel,open:open!==false})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d&&d.success){ if(open===false) fbCopyText(d.path||''); }
+      else alert('操作失败: '+((d&&d.error)||''));
+    })
+    .catch(function(e){ alert('操作错误: '+e.message); });
+}
+// 右键菜单主体：菜单项作用于右键对象；若右键对象处于多选中，删除/添加到对话作用于全部选中项
+function fbShowContextMenu(ev, item){
+  fbMenuHide();
+  var idx=+item.getAttribute('data-idx');
+  var f=fbFilesData[idx];
+  if(!f||!currentTopic) return;
+  var name=f.name;
+  var rel=fbFullPath(name);
+  var multi=fbSelected.length>1&&fbSelected.indexOf(idx)>=0;
+  var selFiles=[];
+  if(multi){
+    for(var k=0;k<fbSelected.length;k++){ var sf=fbFilesData[fbSelected[k]]; if(sf&&!sf.is_dir) selFiles.push(sf); }
+  }
+  var menu=document.createElement('div');
+  menu.id='fbCtxMenu';
+  menu.style.cssText='position:fixed;left:'+ev.clientX+'px;top:'+ev.clientY+'px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:180px;box-shadow:var(--shadow-md);font-size:12px';
+  var items=[
+    {label:'在文件资源管理器中显示', action:function(){ fbMenuHide(); fbRevealFile(rel, true); }},
+    {label:'添加到对话'+(multi&&selFiles.length>1?' ('+selFiles.length+')':''), hide:f.is_dir, action:function(){
+      fbMenuHide();
+      if(multi&&selFiles.length){
+        for(var k=0;k<selFiles.length;k++) pendingAttachments.push({filename:fbFullPath(selFiles[k].name),size:selFiles[k].size||0});
+      }else{
+        pendingAttachments.push({filename:rel,size:f.size||0});
+      }
+      renderAttachPreview();
+    }},
+    {label:'在新标签页中打开', hide:f.is_dir, action:function(){ fbMenuHide(); window.open(fvUrl(name),'_blank'); }},
+    {label:'复制路径', action:function(){ fbMenuHide(); fbRevealFile(rel, false); }},
+    {label:'重命名', action:function(){ fbMenuHide(); fbSelected=[idx]; updateFileSelectionUI(); fbAnchor=idx; renameSelectedFile(); }},
+    {label:'删除'+(multi?' ('+fbSelected.length+' 项)':''), action:function(){
+      fbMenuHide();
+      if(multi) deleteSelectedFiles();
+      else deleteMissionFile(name);
+    }}
+  ];
+  items.forEach(function(it){
+    if(it.hide) return;
+    var el=document.createElement('div');
+    el.textContent=it.label;
+    el.style.cssText='padding:6px 14px;cursor:pointer;color:var(--text)';
+    el.onmouseenter=function(){ el.style.background='var(--hover)'; };
+    el.onmouseleave=function(){ el.style.background=''; };
+    el.onclick=it.action;
+    menu.appendChild(el);
+  });
+  document.body.appendChild(menu);
+  var r=menu.getBoundingClientRect();
+  if(r.right>window.innerWidth) menu.style.left=(window.innerWidth-r.width-8)+'px';
+  if(r.bottom>window.innerHeight) menu.style.top=(window.innerHeight-r.height-8)+'px';
 }
 
 function openPathPicker(startPath){
@@ -4206,6 +4435,18 @@ function setWorkspace(){
       var di=+item.getAttribute('data-idx'); var df=fbFilesData[di]; if(!df||!currentTopic) return;
       clearFileSelection();
       openViewerByIdx(di);
+    });
+    // 右键：文件上下文菜单（资源管理器中显示/添加到对话/新标签页打开/复制路径/重命名/删除）
+    fbGrid.addEventListener('contextmenu',function(ev){
+      var item=ev.target.closest?ev.target.closest('.fb-item'):null;
+      if(!item||item.getAttribute('data-back')==='1') return; // 空白/上级按钮：走默认行为
+      ev.preventDefault();
+      ev.stopPropagation();
+      var idx=+item.getAttribute('data-idx');
+      if(isNaN(idx)) return;
+      // 资源管理器习惯：右键未选中项 → 单选该项（已处于多选中则保留，菜单批量作用于选中集）
+      if(fbSelected.indexOf(idx)<0){ fbSelected=[idx]; updateFileSelectionUI(); fbAnchor=idx; }
+      fbShowContextMenu(ev, item);
     });
     // PC 鼠标框选（空白处按下拖动，Ctrl 追加，靠边自动滚动）
     (function(){
@@ -4376,53 +4617,70 @@ async function checkOmpStatus(){
 // Theme
 var THEME_LS_KEY='dayan_theme';
 function getTheme(){ return localStorage.getItem(THEME_LS_KEY)||'black'; }
+// 深色调色板（黑色 / 灰色主题共用）——必须与 :root 默认值保持一致
+var THEME_DARK={
+  '--border':'rgba(255,255,255,.07)',
+  '--border2':'rgba(255,255,255,.14)',
+  '--hover':'rgba(255,255,255,.06)',
+  '--text':'#eef1f7',
+  '--tdim':'#8992a8',
+  '--accent':'#2fe0c6',
+  '--accent2':'#12b3a8',
+  '--accent-rgb':'47,224,198',
+  '--ub':'linear-gradient(135deg,var(--accent) 0%,var(--accent2) 100%)',
+  '--success':'#3ddc84',
+  '--success-rgb':'61,220,132',
+  '--warn':'#f2b84b',
+  '--warn-rgb':'242,184,75',
+  '--danger':'#f85149',
+  '--danger-rgb':'248,81,73',
+  '--tool':'#ffa657',
+  '--tool-rgb':'255,166,87',
+  '--shadow-sm':'0 1px 2px rgba(0,0,0,.28),0 1px 1px rgba(0,0,0,.2)',
+  '--shadow-md':'0 10px 28px rgba(0,0,0,.34),0 2px 8px rgba(0,0,0,.22)',
+  '--shadow-lg':'0 20px 50px rgba(0,0,0,.44),0 4px 14px rgba(0,0,0,.28)'
+};
+// 每套主题都给出完整变量集，切换时全量写入，避免上套主题的内联变量残留
+var THEME_VARS={
+  black:Object.assign({'--bg':'#0a0a0a','--surface':'#0a0a0a','--surface2':'#161616','--surface3':'#202020','--ab':'#161616'},THEME_DARK),
+  gray:Object.assign({'--bg':'#171717','--surface':'#171717','--surface2':'#202020','--surface3':'#171717','--ab':'#202020'},THEME_DARK),
+  white:{
+    '--bg':'#f5f6f8',
+    '--surface':'#ffffff',
+    '--surface2':'#f0f1f4',
+    '--surface3':'#eceef2',
+    '--ab':'#f6f7f9',
+    '--border':'rgba(0,0,0,.10)',
+    '--border2':'rgba(0,0,0,.16)',
+    '--hover':'rgba(0,0,0,.05)',
+    '--text':'#1d2330',
+    '--tdim':'#5c6474',
+    '--accent':'#0f9d8f',
+    '--accent2':'#0b7d73',
+    '--accent-rgb':'15,157,143',
+    '--ub':'linear-gradient(135deg,#4fb3a7 0%,#0f9d8f 100%)',
+    '--success':'#1e9e55',
+    '--success-rgb':'30,158,85',
+    '--warn':'#c47f14',
+    '--warn-rgb':'196,127,20',
+    '--danger':'#d93025',
+    '--danger-rgb':'217,48,37',
+    '--tool':'#b25f0e',
+    '--tool-rgb':'178,95,14',
+    '--shadow-sm':'0 1px 2px rgba(16,24,40,.08),0 1px 1px rgba(16,24,40,.04)',
+    '--shadow-md':'0 8px 22px rgba(16,24,40,.10),0 2px 6px rgba(16,24,40,.05)',
+    '--shadow-lg':'0 12px 32px rgba(16,24,40,.12),0 2px 8px rgba(16,24,40,.05)'
+  }
+};
 function setTheme(t){
+  if(!THEME_VARS[t]) t='black';
   localStorage.setItem(THEME_LS_KEY,t);
   var r=document.documentElement.style;
+  var vars=THEME_VARS[t],k;
+  for(k in vars) r.setProperty(k,vars[k]);
   var m=document.querySelector('meta[name="theme-color"]');
   if(!m){ m=document.createElement('meta'); m.name='theme-color'; document.head.appendChild(m); }
-  if(t==='white'){
-    r.setProperty('--bg','#f5f6f8');
-    r.setProperty('--surface','#ffffff');
-    r.setProperty('--surface2','#f0f1f4');
-    r.setProperty('--surface3','#eceef2');
-    r.setProperty('--ab','#f6f7f9');
-    r.setProperty('--border','rgba(0,0,0,.10)');
-    r.setProperty('--border2','rgba(0,0,0,.16)');
-    r.setProperty('--hover','rgba(0,0,0,.05)');
-    r.setProperty('--text','#1d2330');
-    r.setProperty('--tdim','#5c6474');
-    r.setProperty('--accent','#0f9d8f');
-    r.setProperty('--accent2','#0b7d73');
-    r.setProperty('--accent-rgb','15,157,143');
-r.setProperty('--ub','linear-gradient(135deg,#4fb3a7 0%,#0f9d8f 100%)');
-    r.setProperty('--success','#1e9e55');
-    r.setProperty('--success-rgb','30,158,85');
-    r.setProperty('--warn','#c47f14');
-    r.setProperty('--warn-rgb','196,127,20');
-    r.setProperty('--danger','#d93025');
-    r.setProperty('--danger-rgb','217,48,37');
-    r.setProperty('--tool','#b25f0e');
-    r.setProperty('--tool-rgb','178,95,14');
-    r.setProperty('--shadow-sm','0 1px 2px rgba(16,24,40,.08),0 1px 1px rgba(16,24,40,.04)');
-    r.setProperty('--shadow-md','0 8px 22px rgba(16,24,40,.10),0 2px 6px rgba(16,24,40,.05)');
-    r.setProperty('--shadow-lg','0 12px 32px rgba(16,24,40,.12),0 2px 8px rgba(16,24,40,.05)');
-    m.setAttribute('content','#f5f6f8');
-  }else if(t==='gray'){
-    r.setProperty('--bg','#171717');
-    r.setProperty('--surface','#171717');
-    r.setProperty('--surface2','#202020');
-    r.setProperty('--surface3','#171717');
-    r.setProperty('--ab','#202020');
-    m.setAttribute('content','#171717');
-  }else{
-    r.setProperty('--bg','#0a0a0a');
-    r.setProperty('--surface','#0a0a0a');
-    r.setProperty('--surface2','#161616');
-    r.setProperty('--surface3','#202020');
-    r.setProperty('--ab','#161616');
-    m.setAttribute('content','#0a0a0a');
-  }
+  m.setAttribute('content',vars['--bg']);
   document.documentElement.setAttribute('data-theme',t);
   try{ if(window.mermaid&&typeof mermaid.initialize==='function') mermaid.initialize(_mmThemeVars()); }catch(e){}
 }
@@ -4509,6 +4767,12 @@ function loadThemeSettings(){
       }
     }).catch(function(){});
   }
+  // 预热"当前模型能否看图"（附件区提示要用；失败不影响启动）
+  fetch('/api/models').then(function(r){return r.json();}).then(function(d){
+    _visionCapable = !!d.vision_capable;
+    _visionFallbackEnabled = d.vision_fallback !== false;
+    renderAttachPreview();
+  }).catch(function(){});
   var _tOk=await loadTopics();
   if(_tOk) pruneCache(); // 仅在拿到服务端任务列表后清理,避免离线误删全部缓存
   // Auto-select latest topic if none is active
@@ -5026,10 +5290,10 @@ function fcShowNodeEditor(cell, currentText, origId){
   var rect=modal.getBoundingClientRect();
   var div=document.createElement('div');
   div.id='fcNodeEditor';
-  div.style.cssText='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--panel);border:1px solid var(--border2);border-radius:8px;padding:16px 20px;z-index:10000;min-width:360px;box-shadow:var(--shadow-md)';
+  div.style.cssText='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:16px 20px;z-index:10000;min-width:360px;box-shadow:var(--shadow-md)';
   div.innerHTML=
-    '<div style="font-size:13px;color:var(--fg);margin-bottom:8px">✏️ 编辑节点</div>'+
-    '<textarea id="fcNodeEditorText" rows="3" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box">'+currentText.replace(/</g,'&lt;')+'</textarea>'+
+    '<div style="font-size:13px;color:var(--text);margin-bottom:8px">✏️ 编辑节点</div>'+
+    '<textarea id="fcNodeEditorText" rows="3" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box">'+currentText.replace(/</g,'&lt;')+'</textarea>'+
     '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">'+
       '<button id="fcNodeEditorCancel" style="padding:6px 14px;background:transparent;color:var(--dim);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:12px">取消</button>'+
       '<button id="fcNodeEditorOk" style="padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">确定</button>'+
@@ -5082,12 +5346,12 @@ function fcShowContextMenu(e, cell, origId){
   var x=e.clientX, y=e.clientY;
   var menu=document.createElement('div');
   menu.id='fcContextMenu';
-  menu.style.cssText='position:fixed;left:'+x+'px;top:'+y+'px;background:var(--panel);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:160px;box-shadow:var(--shadow-md);font-size:12px';
+  menu.style.cssText='position:fixed;left:'+x+'px;top:'+y+'px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:160px;box-shadow:var(--shadow-md);font-size:12px';
   var items=[
-    {label:'✏️ 重命名', action:function(){ var attrs=cell.getAttrs(); var t=(attrs&&attrs.label&&attrs.label.text)?attrs.label.text.replace(/\n/g,' '):''; fcShowNodeEditor(cell, t, origId); }},
-    {label:'📋 复制 ID', action:function(){ try{ navigator.clipboard.writeText(origId); }catch(_){} fcHideContextMenu(); }},
-    {label:'🗑️ 删除节点', action:function(){
-      if(!confirm('删除此节点？相关连线也会被移除。')) return;
+    {label:'重命名', action:function(){ var attrs=cell.getAttrs(); var t=(attrs&&attrs.label&&attrs.label.text)?attrs.label.text.replace(/\n/g,' '):''; fcShowNodeEditor(cell, t, origId); }},
+    {label:'复制 ID', action:function(){ try{ navigator.clipboard.writeText(origId); }catch(_){} fcHideContextMenu(); }},
+    {label:'删除节点', action:async function(){
+      if(!await uiConfirm({title:'删除节点', message:'删除此节点？相关连线也会被移除。', okText:'删除', danger:true})) return;
       cell.remove();
       var sb=document.getElementById('fcSaveBtn');
       if(sb){ sb.textContent='💾 保存*'; sb.style.color='#f2b84b'; }
@@ -5097,7 +5361,7 @@ function fcShowContextMenu(e, cell, origId){
   items.forEach(function(it){
     var el=document.createElement('div');
     el.textContent=it.label;
-    el.style.cssText='padding:6px 14px;cursor:pointer;color:var(--fg)';
+    el.style.cssText='padding:6px 14px;cursor:pointer;color:var(--text)';
     el.onmouseenter=function(){ el.style.background='var(--hover)'; };
     el.onmouseleave=function(){ el.style.background=''; };
     el.onclick=it.action;
@@ -5115,10 +5379,10 @@ function fcShowBlankMenu(e, x, y){
   var cx=e.clientX, cy=e.clientY;
   var menu=document.createElement('div');
   menu.id='fcContextMenu';
-  menu.style.cssText='position:fixed;left:'+cx+'px;top:'+cy+'px;background:var(--panel);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:160px;box-shadow:var(--shadow-md);font-size:12px';
+  menu.style.cssText='position:fixed;left:'+cx+'px;top:'+cy+'px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:160px;box-shadow:var(--shadow-md);font-size:12px';
   var el=document.createElement('div');
-  el.textContent='➕ 添加节点';
-  el.style.cssText='padding:6px 14px;cursor:pointer;color:var(--fg)';
+  el.textContent='添加节点';
+  el.style.cssText='padding:6px 14px;cursor:pointer;color:var(--text)';
   el.onmouseenter=function(){ el.style.background='var(--hover)'; };
   el.onmouseleave=function(){ el.style.background=''; };
   el.onclick=function(){
@@ -5152,19 +5416,19 @@ function fcShowEdgeMenu(e, cell){
   var x=e.clientX, y=e.clientY;
   var menu=document.createElement('div');
   menu.id='fcContextMenu';
-  menu.style.cssText='position:fixed;left:'+x+'px;top:'+y+'px;background:var(--panel);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:160px;box-shadow:var(--shadow-md);font-size:12px';
+  menu.style.cssText='position:fixed;left:'+x+'px;top:'+y+'px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:4px 0;z-index:10001;min-width:160px;box-shadow:var(--shadow-md);font-size:12px';
   var d=cell.getData&&cell.getData();
   var et=(d&&d.edgeType)||'flow';
   var items=[
     et==='bidir'
-      ? {label:'➡️ 改为单向箭头', action:function(){ cell.setData({ edgeType:'flow' }, { overwrite:true }); fcApplyEdgeStyle(cell,'flow'); fcMarkDirty(); fcHideContextMenu(); }}
-      : {label:'🔀 改为双向箭头', action:function(){ cell.setData({ edgeType:'bidir' }, { overwrite:true }); fcApplyEdgeStyle(cell,'bidir'); fcMarkDirty(); fcHideContextMenu(); }},
-    {label:'🗑️ 删除连线', action:function(){ cell.remove(); fcMarkDirty(); fcHideContextMenu(); }}
+      ? {label:'改为单向箭头', action:function(){ cell.setData({ edgeType:'flow' }, { overwrite:true }); fcApplyEdgeStyle(cell,'flow'); fcMarkDirty(); fcHideContextMenu(); }}
+      : {label:'改为双向箭头', action:function(){ cell.setData({ edgeType:'bidir' }, { overwrite:true }); fcApplyEdgeStyle(cell,'bidir'); fcMarkDirty(); fcHideContextMenu(); }},
+    {label:'删除连线', action:function(){ cell.remove(); fcMarkDirty(); fcHideContextMenu(); }}
   ];
   items.forEach(function(it){
     var el=document.createElement('div');
     el.textContent=it.label;
-    el.style.cssText='padding:6px 14px;cursor:pointer;color:var(--fg)';
+    el.style.cssText='padding:6px 14px;cursor:pointer;color:var(--text)';
     el.onmouseenter=function(){ el.style.background='var(--hover)'; };
     el.onmouseleave=function(){ el.style.background=''; };
     el.onclick=it.action;
@@ -6033,20 +6297,20 @@ async function openFlowChart(){
        // ── 极简顶栏：只有缩放% + 设置 + 关闭 ──
        +'<div id="fcTopBar" style="flex:0 0 auto;padding:4px 10px;border-bottom:1px solid var(--border);display:flex;justify-content:flex-end;align-items:center;gap:6px;background:transparent;user-select:none">'
        +'<span id="fcZoomLabel" style="font-size:11px;color:var(--tdim);font-variant-numeric:tabular-nums;min-width:36px;text-align:right">100%</span>'
-+'<button id="fcSettingsBtn" onclick="fcToggleSettings()" style="font-size:11px;padding:2px 8px;background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="画布设置"> 设置</button>'
-       +'<button id="fcEditBtn" onclick="fcToggleEdit()" style="font-size:11px;padding:3px 8px;background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="切换编辑模式">✏️ 编辑</button>'
++'<button id="fcSettingsBtn" onclick="fcToggleSettings()" style="font-size:11px;padding:2px 8px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="画布设置"> 设置</button>'
+       +'<button id="fcEditBtn" onclick="fcToggleEdit()" style="font-size:11px;padding:3px 8px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="切换编辑模式">✏️ 编辑</button>'
        +'<button id="fcSaveBtn" onclick="fcSave()" style="font-size:11px;padding:3px 8px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer" title="保存修改">💾 保存</button>'
-       +'<button onclick="document.getElementById(\'flowChartModal\').classList.remove(\'show\')" style="font-size:11px;padding:2px 8px;background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="关闭">✕</button>'
+       +'<button onclick="document.getElementById(\'flowChartModal\').classList.remove(\'show\')" style="font-size:11px;padding:2px 8px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="关闭">✕</button>'
        +'</div>'
        // ── 设置面板（默认隐藏，点击⚙展开） ──
        +'<div id="fcSettingsPanel" style="display:none;flex:0 0 auto;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface2);gap:6px;flex-wrap:wrap;align-items:center">'
-       +'<select id="fcThemeSelect" onchange="fcApplyTheme(this.value)" style="font-size:11px;padding:2px 4px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="主题">'
+       +'<select id="fcThemeSelect" onchange="fcApplyTheme(this.value)" style="font-size:11px;padding:2px 4px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="主题">'
        + Object.keys(FC_THEMES).map(function(k){ return '<option value="'+k+'"'+(k===_fcThemeKey?' selected':'')+'>'+FC_THEMES[k].name+'</option>'; }).join('')
        +'</select>'
-       +'<select id="fcLayoutSelect" onchange="fcApplyLayout(this.value)" style="font-size:11px;padding:2px 4px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="布局">'
+       +'<select id="fcLayoutSelect" onchange="fcApplyLayout(this.value)" style="font-size:11px;padding:2px 4px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="布局">'
        + Object.keys(FC_LAYOUTS).map(function(k){ return '<option value="'+k+'"'+(k===_fcLayoutKey?' selected':'')+'>'+FC_LAYOUTS[k].name+'</option>'; }).join('')
        +'</select>'
-       +'<select id="fcRouterSelect" onchange="fcApplyRouter(this.value)" style="font-size:11px;padding:2px 4px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="连线">'
+       +'<select id="fcRouterSelect" onchange="fcApplyRouter(this.value)" style="font-size:11px;padding:2px 4px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="连线">'
        + Object.keys(FC_ROUTERS).map(function(k){ return '<option value="'+k+'"'+(k===_fcRouterKey?' selected':'')+'>'+FC_ROUTERS[k].name+'</option>'; }).join('')
        +'</select>'
 +'</div>';
@@ -6601,7 +6865,7 @@ async function loadRecycleBin(){
       body.innerHTML='<div class="center-msg">🗑<br>回收站为空</div>';
       return;
     }
-    var html='<div class="rc-toolbar"><span class="rc-count">'+items.length+' 个已删除任务</span><button class="rc-clear" onclick="if(confirm(\'永久清空回收站？此操作不可撤销。\')) recycleClearAll()">清空</button></div>';
+    var html='<div class="rc-toolbar"><span class="rc-count">'+items.length+' 个已删除任务</span><button class="rc-clear" onclick="uiConfirm({title:\'清空回收站\',message:\'永久清空回收站？此操作不可撤销。\',okText:\'清空\',danger:true}).then(function(ok){if(ok)recycleClearAll();})">清空</button></div>';
     for(var i=0;i<items.length;i++){
       var it=items[i];
       var tsLabel=it.deleted_at||'';
@@ -6619,7 +6883,7 @@ async function loadRecycleBin(){
 }
 
 async function recycleRestore(dir_name){
-  if(!confirm('恢复此任务？')) return;
+  if(!await uiConfirm({title:'恢复任务', message:'恢复此任务？', okText:'恢复'})) return;
   try{
     var r=await fetch('/api/recycle/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dir_name:dir_name})});
     var d=await r.json();
@@ -6698,8 +6962,8 @@ function refreshLlmCacheStats(){
     el.textContent = '条目 '+(s.entries||0)+' / '+(s.max_entries||1000)+' · 累计命中 '+(s.total_hits||0)+' · 占用 '+kb+' KB';
   }).catch(function(){ el.textContent = '统计加载失败'; });
 }
-function clearLlmCache(){
-  if(!confirm('确定清空所有 LLM 响应缓存？已命中的记录将全部删除。')) return;
+async function clearLlmCache(){
+  if(!await uiConfirm({title:'清空缓存', message:'确定清空所有 LLM 响应缓存？已命中的记录将全部删除。', okText:'清空', danger:true})) return;
   fetch('/api/settings/llm_cache', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({clear:true})}).then(function(){refreshLlmCacheStats();}).catch(function(){});
 }
 var modelListCache = [];
@@ -6711,6 +6975,9 @@ async function loadModelConfig() {
     var resp = await fetch('/api/models').then(function(r){ return r.json(); });
     var models = resp.models || [];
     modelListCache = models;
+    // 视觉：当前模型能否直接收图 / 看不了图时是否回退云端（附件区提示用）
+    _visionCapable = !!resp.vision_capable;
+    _visionFallbackEnabled = resp.vision_fallback !== false;
     _keyEditOpen = null;
     var html = '';
     // Current model
@@ -6736,7 +7003,7 @@ async function loadModelConfig() {
         if (!providers[p]) providers[p] = [];
         providers[p].push(models[j]);
       }
-      var providerNames = { deepseek: 'DeepSeek', zhipu: '智谱', glm: '智谱 GLM', openrouter: 'OpenRouter' };
+      var providerNames = { deepseek: 'DeepSeek', zhipu: '智谱', glm: '智谱 GLM', openrouter: 'OpenRouter', ollama: '本地 · Ollama', llamacpp: '本地 · llama.cpp (GPU)' };
       var pkeys = Object.keys(providers);
       html += '<div class="sp-model-list">';
       for (var pi = 0; pi < pkeys.length; pi++) {
@@ -6747,16 +7014,25 @@ async function loadModelConfig() {
           var m = pModels[mi];
           var isCurrent = currentModel && m.provider === currentModel.provider && m.id === currentModel.id;
           var mid = 'm_' + esc(m.provider) + '_' + esc(m.id);
-          var badgeClass = isCurrent ? 'current' : (m.available ? 'ok' : 'need');
-          var badgeText = isCurrent ? '当前' : (m.available ? '已配置' : '需密钥');
+          // 本地模型不按"已配置/需密钥"判定——它的问题是"服务没开"，
+          // 需要用真实探活结果单独区分，否则用户看不出为什么发不出消息
+          var badgeClass, badgeText;
+          if (isCurrent) { badgeClass = 'current'; badgeText = '当前'; }
+          else if (m.local) {
+            if (m.running) { badgeClass = 'ok'; badgeText = '运行中'; }
+            else if (m.starting) { badgeClass = 'ok'; badgeText = '启动中'; }
+            else { badgeClass = 'need'; badgeText = '未启动'; }
+          } else { badgeClass = m.available ? 'ok' : 'need'; badgeText = m.available ? '已配置' : '需密钥'; }
           html += '<div class="sp-model-item' + (isCurrent ? ' active' : '') + '" id="' + mid + '">';
           html += '<div class="sp-model-info">';
           html += '<div class="sp-model-name">' + esc(m.name || m.id) + '</div>';
           html += '<span class="sp-model-badge ' + badgeClass + '">' + badgeText + '</span>';
           html += '</div>';
           html += '<div class="sp-model-actions">';
-          if (!isCurrent && m.available) {
-            html += '<button class="sp-btn sm" onclick="switchModel(\'' + esc(m.provider) + '\',\'' + esc(m.id) + '\')">切换</button>';
+          // 本地模型即使没启动也要给按钮：点了会弹窗拉起服务，而不是直接消失
+          if (!isCurrent && (m.available || m.local)) {
+            var btnLabel = (m.local && !m.running) ? (m.starting ? '等待就绪' : '启动并切换') : '切换';
+            html += '<button class="sp-btn sm" onclick="switchModel(\'' + esc(m.provider) + '\',\'' + esc(m.id) + '\')">' + btnLabel + '</button>';
           }
           html += '<button class="sp-btn key-btn" onclick="toggleKeyEdit(\'' + esc(m.provider) + '\',\'' + esc(m.id) + '\',\'' + esc(m.name || m.id) + '\',\'' + mid + '\')" title="配置密钥"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></button>';
           html += '</div>';
@@ -6767,10 +7043,17 @@ async function loadModelConfig() {
     }
     html += '</div>';
 
+    // 本地模型服务（llama.cpp）：状态 + 启动/停止 + 上下文长度
+    html += localServiceSectionHtml();
+
     // Clear all keys
     html += '<div class="sp-section" style="margin-top:8px"><button class="sp-btn danger sm" onclick="clearAllKeys()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清除所有密钥</button></div>';
 
     bodyEl.innerHTML = html;
+    // 本地服务状态用实时探活刷新（列表里的值来自 /api/models 的缓存探活）
+    refreshLocalServiceStatus();
+    renderVisionFallbackRow();
+    renderAttachPreview();   // 模型切换后，附件区的"能否看图"提示要跟着变
   } catch(e) {
     bodyEl.innerHTML = '<div class="center-msg err">加载失败<small>' + esc(e.message||'') + '</small></div>';
   }
@@ -6818,7 +7101,7 @@ async function saveKey(provider, modelId, rowId) {
 }
 
 async function deleteKey(provider, modelId) {
-  if (!confirm('确定删除 ' + provider + ' 的密钥？')) return;
+  if (!await uiConfirm({title:'删除密钥', message:'确定删除 ' + provider + ' 的密钥？', okText:'删除', danger:true})) return;
   try {
     var data = await fetch('/api/model-key', {
       method: 'DELETE',
@@ -6831,7 +7114,7 @@ async function deleteKey(provider, modelId) {
 }
 
 async function clearAllKeys() {
-  if (!confirm('确定清除所有模型的 API 密钥？')) return;
+  if (!await uiConfirm({title:'清除密钥', message:'确定清除所有模型的 API 密钥？此操作不可撤销。', okText:'清除', danger:true})) return;
   try {
     var data = await fetch('/api/model-key', {
       method: 'DELETE',
@@ -6843,7 +7126,329 @@ async function clearAllKeys() {
   } catch(e) { alert('请求失败: ' + (e.message || '')); }
 }
 
+// ═══ 本地模型服务（llama.cpp · Qwen3.8 27B）═══
+// 解决的问题：切到本地模型时服务可能根本没开。以前会"切换成功"但发消息
+// 才在 ~20 秒重试后抛 WinError —— 用户完全看不出是服务没启动。
+// 现在：切换前探活 → 没开就弹窗问 → 拉起并显示加载进度 → 就绪再真正切换。
+var _llmSvcBusy = false;
+var _visionCapable = false;          // 当前模型能否直接收图（来自 /api/models）
+var _visionFallbackEnabled = true;   // 看不了图时是否自动改用云端视觉模型
+
+// 设置视觉投影文件（mmproj）。Qwen3.8-27B 的视觉塔是独立 gguf，
+// 没有它 llama-server 只做文本，带图请求会 HTTP 500。
+async function editLocalLlmMmproj(){
+  var st = await fetchLocalLlmStatus(true);
+  var cur = st.mmproj_configured || st.mmproj_path || '';
+  var v = await uiPrompt({
+    title: '设置视觉投影文件（mmproj）',
+    label: '留空 = 自动在模型同目录找 mmproj*.gguf；填路径则强制使用该文件',
+    value: String(cur)
+  });
+  if(v == null) return;
+  var r = await fetch('/api/local-llm/config', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({mmproj: String(v).trim()})
+  }).then(function(x){ return x.json(); });
+  if(!r.ok){ alert('保存失败：' + (r.error || '未知错误')); return; }
+  await loadModelConfig();
+  var st2 = await fetchLocalLlmStatus(true);
+  if(st2.running && !st2.vision){
+    if(await uiConfirm({title:'需要重启服务',
+                        message:'视觉投影文件已保存，但当前运行的进程没有加载它。现在重启本地服务以启用视觉？',
+                        okText:'重启'})){
+      await stopLocalLlm();
+      await startLocalLlmFromPanel();
+    }
+  }
+}
+
+async function fetchLocalLlmStatus(force){
+  try {
+    var url = '/api/local-llm/status' + (force ? '?force=1' : '');
+    var r = await fetch(url).then(function(x){ return x.json(); });
+    return r || {ok:false, running:false, error:'空响应'};
+  } catch(e) {
+    return {ok:false, running:false, starting:false, error:(e.message||'状态查询失败')};
+  }
+}
+
+async function startLocalLlm(){
+  try {
+    var r = await fetch('/api/local-llm/start', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
+    }).then(function(x){ return x.json(); });
+    return r || {ok:false, error:'空响应'};
+  } catch(e) { return {ok:false, error:(e.message||'启动请求失败')}; }
+}
+
+async function stopLocalLlm(){
+  if(!await uiConfirm({title:'停止本地服务', message:'确定停止 llama-server？\n\n停止后切换到本地模型时会重新拉起（需重新加载模型，约 30~90 秒）。', okText:'停止', danger:true})) return;
+  var r = await fetch('/api/local-llm/stop', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+            .then(function(x){ return x.json(); }).catch(function(e){ return {ok:false,error:e.message}; });
+  if(!r.ok) alert('停止失败：' + (r.error||'未知'));
+  await loadModelConfig();
+}
+
+// 加载进度弹窗：轮询状态 + 显示日志尾部（加载失败时能直接看到原因）
+function localLlmProgressOverlay(){
+  var ov = document.createElement('div');
+  ov.className = 'modal-overlay ui-dlg-overlay';
+  ov.innerHTML = '<div class="modal-box ui-dlg-box">'
+    + '<div class="modal-header"><span>正在启动本地模型服务</span></div>'
+    + '<div class="ui-dlg-body">'
+    +   '<div class="ui-dlg-msg" id="llmProgStep">正在拉起 llama-server…</div>'
+    +   '<div style="height:6px;border-radius:3px;background:var(--surface3);overflow:hidden;margin:10px 0">'
+    +     '<div id="llmProgBar" style="height:100%;width:4%;background:linear-gradient(135deg,var(--accent),var(--accent2));transition:width .4s"></div>'
+    +   '</div>'
+    +   '<div class="cfg-hint" id="llmProgDetail">首次加载约需 30~90 秒，模型权重较大请耐心等待</div>'
+    +   '<pre id="llmProgLog" style="display:none;max-height:140px;overflow:auto;font-size:11px;white-space:pre-wrap;background:var(--surface2);padding:8px;border-radius:6px;margin:8px 0 0"></pre>'
+    + '</div>'
+    + '<div class="ui-dlg-footer"><button type="button" class="ui-dlg-btn ghost" id="llmProgClose">关闭（后台继续加载）</button></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ ov.classList.add('show'); }); });
+  return ov;
+}
+
+// 轮询直到就绪；返回最终状态。cancelled=true 表示用户关掉了弹窗（加载仍在后台继续）
+async function waitLocalLlmReady(){
+  var ov = localLlmProgressOverlay();
+  var cancelled = false;
+  var t0 = Date.now();
+  function close(){
+    ov.classList.remove('show');
+    setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); }, 220);
+  }
+  document.getElementById('llmProgClose').onclick = function(){ cancelled = true; close(); };
+
+  var limit = 300;   // 秒；默认拉起上限 240s，留余量
+  while(true){
+    if(cancelled) return {ok:true, running:false, cancelled:true};
+    var st = await fetchLocalLlmStatus(true);
+    var el = Math.round((Date.now() - t0) / 1000);
+    var bar = document.getElementById('llmProgBar');
+    var step = document.getElementById('llmProgStep');
+    var detail = document.getElementById('llmProgDetail');
+    var logEl = document.getElementById('llmProgLog');
+    if(!step){ return st; }   // 弹窗被外部移除
+    limit = (st.start_timeout || 240) + 30;
+
+    if(st.running){
+      bar.style.width = '100%';
+      step.textContent = '服务已就绪';
+      detail.textContent = '上下文 ' + (st.live_ctx || st.ctx_size || '') + ' tokens · 正在切换模型…';
+      await new Promise(function(r){ setTimeout(r, 350); });
+      close();
+      return st;
+    }
+    // 进程已拉起但已退出 → 启动失败，别再等
+    if(st.spawn_pid && !st.starting){
+      bar.style.background = 'var(--danger)';
+      step.textContent = '启动失败';
+      detail.textContent = 'llama-server 进程已退出，请查看下方日志';
+      if(st.log_tail){ logEl.style.display='block'; logEl.textContent = st.log_tail.slice(-1200); }
+      document.getElementById('llmProgClose').textContent = '关闭';
+      return st;
+    }
+    if(el > limit){
+      bar.style.background = 'var(--danger)';
+      step.textContent = '启动超时';
+      detail.textContent = '已等待 ' + el + ' 秒仍未就绪';
+      if(st.log_tail){ logEl.style.display='block'; logEl.textContent = st.log_tail.slice(-1200); }
+      document.getElementById('llmProgClose').textContent = '关闭';
+      return st;
+    }
+    // 还没就绪：按时间给个粗略进度（加载权重耗时无法从日志稳定解析）
+    bar.style.width = Math.min(94, 4 + el * 1.2) + '%';
+    step.textContent = '正在加载模型…';
+    detail.textContent = '已等待 ' + el + ' 秒 / 上限 ' + limit + ' 秒' + (st.starting ? '' : '（等待进程响应）');
+    if(st.log_tail){ logEl.style.display='block'; logEl.textContent = st.log_tail.slice(-1200); }
+    await new Promise(function(r){ setTimeout(r, 2000); });
+  }
+}
+
+// 模型面板里的「本地模型服务」区块
+function localServiceSectionHtml(){
+  return '<div class="sp-section" style="margin-top:10px"><h4>本地模型服务</h4>'
+    + '<div class="sp-model-item" style="cursor:default">'
+    +   '<div class="sp-model-info">'
+    +     '<div class="sp-model-name">'
+    +       '<span id="llmSvcDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--tdim);margin-right:6px;vertical-align:1px"></span>'
+    +       '<span id="llmSvcState">检测中…</span>'
+    +     '</div>'
+    +     '<span class="cfg-hint" id="llmSvcMeta">—</span>'
+    +   '</div>'
+    +   '<div class="sp-model-actions">'
+    +     '<button class="sp-btn sm" id="llmSvcStartBtn" style="display:none" onclick="startLocalLlmFromPanel()">启动</button>'
+    +     '<button class="sp-btn danger sm" id="llmSvcStopBtn" style="display:none" onclick="stopLocalLlm()">停止</button>'
+    +   '</div>'
+    + '</div>'
+    + '<button class="sp-btn sm" style="width:auto;margin:8px 0 0" onclick="editLocalLlmCtx()">修改上下文长度</button>'
+    + '<div class="cfg-hint" style="margin-top:4px">上下文长度 = llama-server 的 <code>--ctx-size</code>（启动参数），修改后需重启服务生效；Ollama 的按请求 num_ctx 机制不适用于这里。</div>'
+    + '<div class="sp-model-item" style="cursor:default;margin-top:8px">'
+    +   '<div class="sp-model-info">'
+    +     '<div class="sp-model-name">'
+    +       '<span id="llmVisionDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--tdim);margin-right:6px;vertical-align:1px"></span>'
+    +       '<span id="llmVisionState">视觉能力检测中…</span>'
+    +     '</div>'
+    +     '<span class="cfg-hint" id="llmVisionMeta">—</span>'
+    +   '</div>'
+    +   '<div class="sp-model-actions">'
+    +     '<button class="sp-btn sm" style="width:auto" onclick="editLocalLlmMmproj()">设置 mmproj</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="cfg-hint" style="margin-top:4px">Qwen3.8-27B 本身是 VLM，但视觉塔是<b>独立文件</b>（mmproj-F16.gguf，约 0.86&nbsp;GB）。没有它服务就只做文本，带图请求会被拒（HTTP&nbsp;500）。把它放到模型同目录即可自动识别。</div>'
+    + '<div class="sp-model-item" style="cursor:default;margin-top:8px">'
+    +   '<div class="sp-model-info">'
+    +     '<div class="sp-model-name">图片回退到云端视觉模型</div>'
+    +     '<span class="cfg-hint" id="llmVisionFallbackMeta">—</span>'
+    +   '</div>'
+    +   '<div class="sp-model-actions">'
+    +     '<button class="sp-btn sm" id="llmVisionFallbackBtn" style="width:auto" onclick="toggleVisionFallback()">—</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="cfg-hint" style="margin-top:4px">开启时：当前模型看不了图 → 自动改用 DeepSeek 云端视觉模型（图片会上传到云端）。关闭时：图片不外发，只提示"当前模型看不了图"。</div>'
+    + '</div>';
+}
+
+async function refreshLocalServiceStatus(){
+  var dot = document.getElementById('llmSvcDot');
+  if(!dot) return;   // 面板已关闭
+  var st = await fetchLocalLlmStatus(true);
+  if(!st.ok && st.error){
+    dot.style.background = 'var(--danger)';
+    document.getElementById('llmSvcState').textContent = '状态查询失败';
+    document.getElementById('llmSvcMeta').textContent = st.error;
+    return;
+  }
+  var running = !!st.running, starting = !!st.starting;
+  dot.style.background = running ? 'var(--success)' : (starting ? 'var(--warn)' : 'var(--danger)');
+  document.getElementById('llmSvcState').textContent = running ? '运行中' : (starting ? '加载中…' : '未启动');
+  var ctxVal = st.live_ctx || st.ctx_size || st.configured_ctx || '';
+  var fname = '';
+  try { fname = String(st.model_path || '').split(/[\\/]/).pop(); } catch(_){}
+  document.getElementById('llmSvcMeta').textContent = (st.base_url || '')
+    + ' · 上下文 ' + ctxVal + ' tokens'
+    + (fname ? ' · ' + fname : '')
+    + (st.spawn_elapsed ? ' · 已等待 ' + st.spawn_elapsed + 's' : '');
+  var sb = document.getElementById('llmSvcStartBtn');
+  var tb = document.getElementById('llmSvcStopBtn');
+  if(sb) sb.style.display = (running || starting) ? 'none' : '';
+  if(tb) tb.style.display = running ? '' : 'none';
+  applyLocalVisionStatus(st);
+}
+
+// 本地服务"视觉能力"一行：能收图 / 有 mmproj 但没加载 / 缺 mmproj
+function applyLocalVisionStatus(st){
+  var dot = document.getElementById('llmVisionDot');
+  if(!dot) return;
+  var hasFile = !!st.mmproj_path;
+  dot.style.background = st.vision ? 'var(--success)' : (hasFile ? 'var(--warn)' : 'var(--danger)');
+  document.getElementById('llmVisionState').textContent =
+    st.vision ? '视觉已启用（可看图）'
+              : (hasFile ? '有 mmproj 但当前进程未加载' : '未启用视觉（缺少 mmproj）');
+  document.getElementById('llmVisionMeta').textContent = st.vision_hint || '—';
+}
+
+async function toggleVisionFallback(){
+  var cur = _visionFallbackEnabled;
+  var want = !cur;
+  var r = await fetch('/api/vision-fallback', {method:'POST', headers:{'Content-Type':'application/json'},
+                                               body: JSON.stringify({enabled: want})})
+              .then(function(x){ return x.json(); });
+  if(!r.ok){ alert('保存失败：' + (r.error || '未知错误')); return; }
+  _visionFallbackEnabled = !!r.enabled;
+  renderVisionFallbackRow();
+}
+
+function renderVisionFallbackRow(){
+  var btn = document.getElementById('llmVisionFallbackBtn');
+  var meta = document.getElementById('llmVisionFallbackMeta');
+  if(!btn) return;
+  btn.textContent = _visionFallbackEnabled ? '已开启（点击关闭）' : '已关闭（点击开启）';
+  btn.className = 'sp-btn sm' + (_visionFallbackEnabled ? '' : ' danger');
+  btn.style.width = 'auto';
+  if(meta){
+    meta.textContent = _visionFallbackEnabled
+      ? '当前模型看不了图时会自动改用 DeepSeek 云端视觉模型'
+      : '图片不会发往云端，只提示当前模型看不了图';
+  }
+}
+
+async function startLocalLlmFromPanel(){
+  if(_llmSvcBusy) return;
+  _llmSvcBusy = true;
+  try{
+    var r = await startLocalLlm();
+    if(!r.ok){
+      alert('启动失败：' + (r.error || '未知错误') + (r.log_tail ? '\n\n' + r.log_tail.slice(-500) : ''));
+      return;
+    }
+    var st = await waitLocalLlmReady();
+    if(!st.running && !st.cancelled){
+      alert('服务未能就绪。' + (st.log_tail ? '\n\n' + st.log_tail.slice(-500) : ''));
+    }
+  } finally {
+    _llmSvcBusy = false;
+    await loadModelConfig();
+  }
+}
+
+async function editLocalLlmCtx(){
+  var st = await fetchLocalLlmStatus(true);
+  var cur = st.configured_ctx || st.live_ctx || 24576;
+  var v = await uiPrompt({title:'设置上下文长度', label:'tokens（512 ~ 1048576，显存有限建议 16K~32K）', value:String(cur)});
+  if(v == null) return;
+  var n = parseInt(v, 10);
+  if(!n || n < 512 || n > 1048576){ alert('请输入 512 ~ 1048576 之间的整数'); return; }
+  var r = await fetch('/api/local-llm/config', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ctx_size:n})
+  }).then(function(x){ return x.json(); }).catch(function(e){ return {ok:false, error:e.message}; });
+  if(!r.ok){ alert('保存失败：' + (r.error || '未知错误')); return; }
+  // 运行中才需要重启；没运行的话下次启动自然生效
+  if(st.running){
+    if(await uiConfirm({title:'需要重启服务', message:'上下文长度已保存为 ' + n + ' tokens。\n\nllama.cpp 的上下文只在启动时生效，现在重启服务让它立即生效？', okText:'重启服务'})){
+      await fetch('/api/local-llm/stop', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+              .then(function(x){ return x.json(); }).catch(function(){});
+      var res = await startLocalLlm();
+      if(!res.ok){ alert('重启失败：' + (res.error || '未知错误')); }
+      else { var s2 = await waitLocalLlmReady(); if(!s2.running && !s2.cancelled) alert('服务未能就绪，请查看 data/local_llm.log'); }
+    } else {
+      alert('已保存为 ' + n + ' tokens，下次启动服务时生效。');
+    }
+  } else {
+    alert('已保存为 ' + n + ' tokens，下次启动服务时生效。');
+  }
+  await loadModelConfig();
+}
+
 async function switchModel(provider, modelId) {
+  // 本地 llama.cpp 模型：切换前先确认服务在跑；没跑就弹窗拉起，
+  // 避免"切换成功但发消息才炸"的体验
+  if(provider === 'llamacpp'){
+    var st = await fetchLocalLlmStatus(true);
+    if(!st.running){
+      if(st.starting){
+        var r0 = await waitLocalLlmReady();     // 已经在加载中 → 直接等
+        if(!r0.running) return;
+      } else {
+        var ok = await uiConfirm({
+          title: '本地服务未启动',
+          message: 'Qwen3.8 27B 本地推理服务（' + (st.base_url || '127.0.0.1:8901') + '）当前没有运行。\n\n'
+                 + '现在启动吗？首次加载模型约需 30~90 秒，期间会显示加载进度。',
+          okText: '启动并切换'
+        });
+        if(!ok) return;
+        var res = await startLocalLlm();
+        if(!res.ok){
+          alert('启动失败：' + (res.error || '未知错误') + (res.log_tail ? '\n\n' + res.log_tail.slice(-500) : ''));
+          return;
+        }
+        var r1 = await waitLocalLlmReady();
+        if(!r1.running) return;
+      }
+    }
+  }
   try {
     var data = await fetch('/api/switch-model', {
       method: 'POST',
@@ -6852,6 +7457,10 @@ async function switchModel(provider, modelId) {
     }).then(function(r){ return r.json(); });
     if (data.success) {
       // Refresh model list to update UI
+      await loadModelConfig();
+    } else if (data.code === 'local_not_running') {
+      // 竞态兜底：预检时还在、切的时候没了
+      alert('本地推理服务未启动，请先在「本地模型服务」里点「启动」再切换。');
       await loadModelConfig();
     } else {
       alert('切换失败: ' + (data.error || '未知错误'));
@@ -7116,7 +7725,7 @@ function toggleFhCard(headEl, idx) {
   arrow.textContent = '▾';
 }
 async function restoreAiFile(path, recordId) {
-  if (!confirm('确定把 ' + path.split(/[\\/]/).pop() + ' 恢复到这次修改之前？\n\n恢复前的当前内容会先记录，可再次恢复回来。')) return;
+  if (!await uiConfirm({title:'恢复文件', message:'确定把 ' + path.split(/[\\/]/).pop() + ' 恢复到这次修改之前？\n\n恢复前的当前内容会先记录，可再次恢复回来。', okText:'恢复'})) return;
   try {
     var resp = await fetch('/api/file_restore', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path:path, record_id:recordId})});
     var data = await resp.json();
@@ -7145,7 +7754,7 @@ function selectArchive(el, dir) {
 
 async function restoreArchive() {
   if (!selectedArchive) return;
-  if (!confirm('确定回滚到 ' + selectedArchive + '？\n\n当前文件会先备份。回滚后将重启服务，页面会短暂不可用。')) return;
+  if (!await uiConfirm({title:'回滚版本', message:'确定回滚到 ' + selectedArchive + '？\n\n当前文件会先备份。回滚后将重启服务，页面会短暂不可用。', okText:'回滚', danger:true})) return;
   try {
     var data = await guardianApi('POST', '/api/rollback', { version: selectedArchive });
     if (data.success) {
@@ -8276,6 +8885,30 @@ html[data-theme="white"] .act-rename{background:linear-gradient(135deg,#3fc7b6,#
 html[data-theme="white"] .sp-toggle input:checked+.slider{background:linear-gradient(135deg,#3fc7b6,#12a294)}
 /* ══════ 移动端抽屉遮罩：白主题下 55% 黑太重，整片深灰看着像“一大坨阴影” ══════ */
 html[data-theme="white"] #overlay{background:rgba(15,23,42,.28)}
+
+/* ══════════ 通用对话框：替代原生 prompt / confirm / select ══════════
+   原生弹窗由浏览器渲染，不受页面 CSS 控制，外观与主题完全脱节，故统一替换。
+   复用 .modal-overlay / .modal-box / .modal-header，自动继承主题变量与入场动画。 */
+.ui-dlg-overlay{z-index:20000}
+.ui-dlg-box{width:min(92vw,400px);max-width:400px}
+.ui-dlg-body{padding:16px 20px 4px}
+.ui-dlg-msg{font-size:13px;line-height:1.65;color:var(--tdim);white-space:pre-wrap;word-break:break-word}
+.ui-dlg-label{display:block;font-size:11.5px;color:var(--tdim);margin:0 0 6px;line-height:1.5;word-break:break-word}
+.ui-dlg-field{width:100%;box-sizing:border-box;background:var(--surface3);color:var(--text);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:10px 12px;font-size:13px;font-family:inherit;line-height:1.4;outline:none;transition:border-color .18s,box-shadow .18s;-webkit-appearance:none;appearance:none}
+.ui-dlg-field::placeholder{color:var(--tdim);opacity:.65}
+.ui-dlg-field:focus{border-color:rgba(var(--accent-rgb),.6);box-shadow:0 0 0 3px rgba(var(--accent-rgb),.13)}
+select.ui-dlg-field{cursor:pointer;padding-right:30px;background-image:linear-gradient(45deg,transparent 50%,var(--tdim) 50%),linear-gradient(135deg,var(--tdim) 50%,transparent 50%);background-position:calc(100% - 17px) calc(50% - 2px),calc(100% - 12px) calc(50% - 2px);background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+.ui-dlg-footer{display:flex;gap:8px;justify-content:flex-end;padding:16px 20px 18px}
+.ui-dlg-btn{border:none;border-radius:var(--radius-md);padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0;transition:box-shadow .15s,filter .15s,transform .1s}
+.ui-dlg-btn:active{transform:scale(.97)}
+.ui-dlg-btn.ghost{background:var(--surface3);color:var(--tdim);border:1px solid var(--border2)}
+.ui-dlg-btn.ghost:hover{color:var(--text);filter:brightness(1.12)}
+.ui-dlg-btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04241f}
+.ui-dlg-btn.primary:hover{box-shadow:0 5px 14px rgba(var(--accent-rgb),.32)}
+.ui-dlg-btn.danger{background:var(--danger);color:#fff}
+.ui-dlg-btn.danger:hover{box-shadow:0 5px 14px rgba(var(--danger-rgb),.34)}
+/* 白主题下主按钮用白字，与 #btnNew / button.send 的既有约定一致 */
+html[data-theme="white"] .ui-dlg-btn.primary{color:#fff}
 </style>
 <script>
 /* ── 配对面板逻辑 ── */

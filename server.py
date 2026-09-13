@@ -11,6 +11,8 @@ import time
 import datetime
 import uuid
 import re
+import math
+import base64
 import socket
 import signal
 import threading
@@ -42,6 +44,10 @@ from db import get_db, Database
 from llm import LLMConfig, chat_stream, chat_stream_cached, _build_messages, is_transient_conn_error, build_multimodal_content, strip_image_content, image_mime_type, is_vision_model
 from tools.registry import get_tool_defs, execute_tool, register_tool
 import loop_detector  # 目标级打转检测（探索类占比高且零落地 → 注入提醒）
+import local_llm  # 本地模型服务探活/按需拉起（Qwen3.8 27B @ llama.cpp）
+# 打包成 exe 后 ROOT_DIR ≠ 源码目录，必须把真实路径注入进去
+local_llm.configure(config_path=os.path.join(ROOT_DIR, "model_config.json"),
+                    data_dir=os.path.join(ROOT_DIR, "data"))
 # Import tool modules to register them
 import tools.web_search
 import tools.bash
@@ -72,23 +78,26 @@ import tools.rules_engine_tools  # 规则引擎管理工具（rule_list/rule_add
 import tools.audit_guard  # 坑指纹核查工具（audit_check：动作前比对事件账本历史坑）
 
 
-def _get_matters():
+def _get_matters(tid=None):
     from tools.important_matters import get_matters
-    from db import get_db
-    # 按当前活跃任务取叠加视图：全局段+任务段+本任务挂起缓冲预览
-    try:
-        tid = get_db().get_active_topic_id()
-    except Exception:
-        tid = None
+    # 优先用调用方传入的话题（组装系统提示时必须显式传，否则会读到全局活跃指针串台）；
+    # 未传时回落本线程任务上下文。
+    if tid is None:
+        try:
+            from tools.task_context import get_current_topic
+            tid = get_current_topic()
+        except Exception:
+            tid = None
     return get_matters(tid)
 
 
-def _get_matter_items():
+def _get_matter_items(tid=None):
     """完整条目视图（带缓冲标记），前端区分已生效/缓冲中。"""
-    from db import get_db
     try:
         from tools.mission_overlay import combined_entries
-        tid = get_db().get_active_topic_id()
+        if tid is None:
+            from tools.task_context import get_current_topic
+            tid = get_current_topic()
         return [{"content": e["content"], "pending": bool(e.get("_pending"))}
                 for e in combined_entries(tid)]
     except Exception:
@@ -262,12 +271,38 @@ def _model_context_window(model_id):
     if not model_id:
         return _DEFAULT_CONTEXT_WINDOW
     mid = model_id.lower()
+    # 本地 llama.cpp 模型：上下文由 llama-server 的 --ctx-size 决定（本机 24K），
+    # 不是默认的 128K。必须用真实值，否则应用按 128K 估算上下文、实际只有 24K
+    # → 请求超长被 llama-server 拒绝或头部被截断，表现为"忘了前面说的话"。
+    try:
+        if local_llm.is_local_model(mid):
+            return int(local_llm.effective_ctx())
+    except Exception as e:
+        print(f"[ctx] local ctx probe failed, fallback to default: {e}")
     if mid in _MODEL_CONTEXT_WINDOWS:
         return _MODEL_CONTEXT_WINDOWS[mid]
     for k, v in _MODEL_CONTEXT_WINDOWS.items():
         if mid.startswith(k) or k.startswith(mid):
             return v
     return _DEFAULT_CONTEXT_WINDOW
+
+
+def _effective_token_limit(db=None):
+    """实际生效的工作记忆上限 = 库里的设置 → 钳制到 [最小可设值, 模型上下文窗口]。
+
+    GET /api/settings/compress 用它回报，保证前端输入框的 value ≤ max
+    （本地 llama.cpp 模型上下文只有 24K，而库里可能存着 80000）。
+    """
+    try:
+        db = db or get_db()
+        raw = int(db.get_meta("compress_token_limit") or TOKEN_LIMIT)
+    except Exception:
+        raw = TOKEN_LIMIT
+    try:
+        return int(min(max(raw, _wm_min_token_limit()),
+                       _model_context_window(get_model_config().model)))
+    except Exception:
+        return int(raw)
 
 
 def _wm_min_token_limit():
@@ -953,7 +988,7 @@ def _estimate_tokens(messages):
     """Estimate token count including overhead (tools, formatting ~1.5x multiplier).
     CJK chars ≈ 1.2 tokens/char, ASCII ≈ 0.3 tokens/char.
     图片消息（content 为数组）的 image 块不按 base64 字符数估算（否则撑爆预算），
-    按固定值 _EST_IMAGE_TOKENS 计。"""
+    而是解出图片真实宽高后按 patch 换算（见 _image_tokens_from_data_url）。"""
     def _count_text(s):
         c = 0.0
         for ch in s:
@@ -974,7 +1009,8 @@ def _estimate_tokens(messages):
                     if t == "text":
                         total += _count_text(block.get("text", ""))
                     elif t == "image_url":
-                        total += _EST_IMAGE_TOKENS
+                        total += _image_tokens_from_data_url(
+                            (block.get("image_url") or {}).get("url", ""))
             rest = {k: v for k, v in m.items() if k != "content"}
             if rest:
                 total += _count_text(json.dumps(rest, ensure_ascii=False))
@@ -984,9 +1020,104 @@ def _estimate_tokens(messages):
     return int(total * 1.5)
 
 
-# 单张图片的 token 估算值：DeepSeek vision 按尺寸算（约 85 + 每 512² tile×170），
-# 普通照片在几百到两千 token；固定 1000 足够避免误触发上下文截断。
-_EST_IMAGE_TOKENS = 1000
+# ── 单张图片的 token 估算 ──────────────────────────
+# 旧实现固定 _EST_IMAGE_TOKENS = 1000，严重低估：一张 1216×2640 的手机截图
+# 实测约 4180 视觉 token（按 28px/patch）。低估的后果是压缩逻辑以为图很小、
+# 不去裁剪，真实请求直接爆上下文（09-12 实测 HTTP 400:
+# request 25868 tokens exceeds the available context size 24576）。
+# 现在按图片真实宽高换算，并取偏大值 —— 高估只是多压缩一点，低估会直接失败。
+_EST_IMAGE_TOKENS_DEFAULT = 1500   # 头部解析失败时的兜底
+_EST_IMAGE_TOKENS_MAX = 16000      # 单图上限（视觉编码器自身也会缩放/切块）
+
+
+def _image_size_from_bytes(b):
+    """从图片字节流解析 (宽, 高)，失败返回 (0, 0)。只读头部，不解码像素。"""
+    try:
+        if len(b) < 24:
+            return 0, 0
+        # PNG：IHDR 紧跟签名
+        if b[:8] == b"\x89PNG\r\n\x1a\n":
+            return (int.from_bytes(b[16:20], "big"),
+                    int.from_bytes(b[20:24], "big"))
+        # GIF：宽高为小端 16 位
+        if b[:6] in (b"GIF87a", b"GIF89a"):
+            return (int.from_bytes(b[6:8], "little"),
+                    int.from_bytes(b[8:10], "little"))
+        # JPEG：遍历段找 SOF（跳过 SOI/APPn 等）
+        if b[:2] == b"\xff\xd8":
+            i, n = 2, len(b)
+            while i + 9 < n:
+                if b[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = b[i + 1]
+                if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+                    i += 2
+                    continue
+                seg_len = int.from_bytes(b[i + 2:i + 4], "big")
+                if seg_len < 2:
+                    break
+                if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                              0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    return (int.from_bytes(b[i + 7:i + 9], "big"),
+                            int.from_bytes(b[i + 5:i + 7], "big"))
+                i += 2 + seg_len
+            return 0, 0
+        # WebP：VP8X 有显式画布尺寸；VP8 / VP8L 头里也有
+        if b[:4] == b"RIFF" and b[8:12] == b"WEBP":
+            fourcc = b[12:16]
+            if fourcc == b"VP8X":
+                return (int.from_bytes(b[24:27], "little") + 1,
+                        int.from_bytes(b[27:30], "little") + 1)
+            if fourcc == b"VP8 ":
+                s = b.find(b"\x9d\x01\x2a", 20)
+                if s > 0 and s + 7 <= len(b):
+                    return (int.from_bytes(b[s + 3:s + 5], "little") & 0x3FFF,
+                            int.from_bytes(b[s + 5:s + 7], "little") & 0x3FFF)
+            if fourcc == b"VP8L" and len(b) >= 25:
+                bits = int.from_bytes(b[21:25], "little")
+                return ((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1)
+    except Exception:
+        pass
+    return 0, 0
+
+
+def _tokens_from_size(w, h):
+    """按视觉编码器的 patch 切块换算 token 数。
+
+    Qwen-VL / GLM 系：14px patch + 2×2 merge ≈ 28px 一个 token。
+    DeepSeek vision：85 + 每 512² tile × 170。
+    取两者较大值（宁可高估），并封顶。
+    """
+    if not w or not h:
+        return _EST_IMAGE_TOKENS_DEFAULT
+    qwen = math.ceil(w / 28) * math.ceil(h / 28)
+    ds = 85 + math.ceil(w / 512) * math.ceil(h / 512) * 170
+    return min(max(qwen, ds), _EST_IMAGE_TOKENS_MAX)
+
+
+def _image_tokens_from_path(path):
+    """从磁盘图片文件估算 token（只看头部）。"""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(65536)
+        return _tokens_from_size(*_image_size_from_bytes(head))
+    except Exception:
+        return _EST_IMAGE_TOKENS_DEFAULT
+
+
+def _image_tokens_from_data_url(url):
+    """从 data:image/...;base64,xxx 估算 token（只解前 8KB 头部）。"""
+    try:
+        s = str(url)
+        if ";base64," not in s:
+            return _EST_IMAGE_TOKENS_DEFAULT
+        b64 = s.split(";base64,", 1)[1]
+        chunk = b64[:8192]
+        chunk += "=" * (-len(chunk) % 4)
+        return _tokens_from_size(*_image_size_from_bytes(base64.b64decode(chunk)))
+    except Exception:
+        return _EST_IMAGE_TOKENS_DEFAULT
 
 
 def _estimate_tools_tokens(tool_defs):
@@ -1532,6 +1663,128 @@ def _get_provider_key(cfg, provider: str) -> str:
     return ""
 
 
+# ── 视觉（图片输入）能力判定与回退 ──────────────────
+
+def _vision_capable(cfg) -> bool:
+    """当前模型能否**直接**收图。
+
+    - 云端/云端兼容：按模型名判定（is_vision_model 的白名单 + 名字含 vision）
+    - 本地（llamacpp/ollama）：不能靠名字猜 —— 直接问服务自己。
+      llama.cpp 在 /props 暴露 modalities.vision，只有加载了 mmproj 才会是 true。
+      所以本地模型"看起来不支持"其实经常只是没加载视觉投影文件。
+    """
+    try:
+        if is_vision_model(cfg.model):
+            return True
+    except Exception:
+        pass
+    if str(getattr(cfg, "provider", "")) in ("llamacpp", "ollama"):
+        try:
+            return bool(local_llm.supports_vision())
+        except Exception:
+            return False
+    return False
+
+
+def _vision_fallback_config(cfg):
+    """找"能收图"的备选模型。返回 (新config, 说明) 或 (None, 原因)。
+
+    关键：必须连 provider / base_url / api_key 一起换。
+    历史 bug 只换了 model 名，于是本地 provider 下图片仍被发到
+    http://127.0.0.1:8901/v1，而不支持视觉的 llama-server 直接 HTTP 500
+    （"image input is not supported ... you may need to provide the mmproj"）。
+    """
+    key = _get_provider_key(cfg, "deepseek")
+    if not key:
+        return None, "没有可用的 DeepSeek 密钥"
+    try:
+        new_cfg = cfg.clone_with(
+            provider="deepseek",
+            model="deepseek-v4-flash-vision-exp",
+            base_url="https://api.deepseek.com",
+            api_key=key,
+        )
+    except Exception as e:
+        return None, f"构造回退配置失败: {e}"
+    return new_cfg, "DeepSeek 云端视觉模型"
+
+
+# 已知的多模态模型家族（本地模型拿不到可靠的 /props 时按名字兜底判断）
+_LOCAL_VISION_HINTS = (
+    "llava", "bakllava", "moondream", "minicpm-v", "minicpmv",
+    "qwen2-vl", "qwen2.5-vl", "qwen3-vl", "qwen-vl",
+    "internvl", "gemma3", "granite-vision", "smolvlm", "pixtral",
+    "llama3.2-vision", "llama4", "glm-4v", "glm-5",
+)
+
+
+def _model_vision_flag(provider, model_id) -> bool:
+    """模型列表里给前端的"能否看图"标记（静态判断，不含运行时探测）。"""
+    try:
+        if is_vision_model(model_id):
+            return True
+    except Exception:
+        pass
+    if str(provider) in ("ollama", "llamacpp", "lmstudio", "local"):
+        mid = str(model_id or "").lower()
+        return any(h in mid for h in _LOCAL_VISION_HINTS)
+    return False
+
+
+def _vision_fallback_enabled() -> bool:
+    """当前模型看不了图时，是否允许自动改用云端视觉模型（默认允许）。
+
+    隐私/离线优先的用户可以在 model_config.json 里设 "vision_fallback": false，
+    这样带图请求不会把图片发到云端，只提示"当前模型看不了图"，图片仅留路径。
+    """
+    try:
+        with open(os.path.join(ROOT_DIR, "model_config.json"), encoding="utf-8") as f:
+            raw = json.load(f) or {}
+        return bool(raw.get("vision_fallback", True))
+    except Exception:
+        return True
+
+
+def _prepare_vision_request(llm_config, message, image_abs_paths):
+    """决定"带图请求"怎么发。返回 (llm_config, message, image_content, note)。
+
+    - 当前模型能收图（本地已加载 mmproj / 云端视觉模型）
+        → 原样用，image_content = 多模态 content 数组
+    - 当前模型不能收图且允许云端回退
+        → 换到 DeepSeek 云端视觉模型（provider / base_url / api_key **一起换**），
+          image_content = 多模态内容，message 里追加一句说明
+    - 都不能（没 key 或用户关了回退）
+        → image_content = None，图片不外发；message 里说明"只能给路径"
+
+    抽成独立函数是为了能脱离 HTTP/DB 直接单测 —— 这段逻辑出过 bug
+    （只换 model 名不换 base_url，导致图片打到不支持视觉的本地服务 → HTTP 500）。
+    """
+    note = ""
+    if _vision_capable(llm_config):
+        content = build_multimodal_content(message, image_abs_paths)
+        return llm_config, message, content, note
+
+    enabled = _vision_fallback_enabled()
+    if enabled:
+        fb, why = _vision_fallback_config(llm_config)
+    else:
+        fb, why = None, "已关闭云端图片回退（vision_fallback = false）"
+
+    if fb is not None:
+        old_model = llm_config.model
+        note = (f"[图片识别] 当前模型 {old_model} 不支持图片输入，"
+                f"本次已自动改用 {why}。")
+        message = (message + "\n" + note).strip()
+        print(f"[vision] fallback {old_model} -> {why}")
+        return fb, message, build_multimodal_content(message, image_abs_paths), note
+
+    note = (f"[图片识别] 当前模型 {llm_config.model} 不支持图片输入，且{why}；"
+            f"图片未发送给模型（仅提供文件路径，可用 OCR 工具读取图中文字）。")
+    message = (message + "\n" + note).strip()
+    print(f"[vision] no fallback: {why}")
+    return llm_config, message, None, note
+
+
 def _build_model_list(cfg) -> list[dict]:
     """Build frontend model list: merge API-fetched models with hardcoded fallback."""
     result = []
@@ -1554,6 +1807,7 @@ def _build_model_list(cfg) -> list[dict]:
             "name": m.get("name", m["id"]),
             "desc": m.get("desc", ""),
             "available": bool(ds_key),
+            "vision": _model_vision_flag("deepseek", m["id"]),
             "current": cfg.provider == "deepseek" and cfg.model == m["id"],
         })
 
@@ -1566,6 +1820,7 @@ def _build_model_list(cfg) -> list[dict]:
             "name": friendly,
             "desc": desc,
             "available": bool(cfg.api_key),
+            "vision": _model_vision_flag("deepseek", cfg.model),
             "current": True,
         })
 
@@ -1573,6 +1828,7 @@ def _build_model_list(cfg) -> list[dict]:
     # when current provider is something else.
     _OLLAMA_DEFAULT_URL = "http://localhost:11434/v1"
     ollama_models = _fetch_provider_models("ollama", _OLLAMA_DEFAULT_URL, "")
+    _ollama_up = bool(ollama_models)  # 拉到列表即视为服务在跑（只探活，不拉起）
     for m in ollama_models:
         result.append({
             "provider": "ollama",
@@ -1580,6 +1836,9 @@ def _build_model_list(cfg) -> list[dict]:
             "name": m.get("name", m["id"]),
             "desc": m.get("desc", "本地模型"),
             "available": True,
+            "local": True,
+            "running": _ollama_up,
+            "vision": _model_vision_flag("ollama", m["id"]),
             "current": cfg.provider == "ollama" and cfg.model == m["id"],
         })
     # Ensure current ollama model is listed even if /v1/models missed it
@@ -1591,16 +1850,49 @@ def _build_model_list(cfg) -> list[dict]:
             "name": friendly,
             "desc": desc,
             "available": True,
+            "vision": _model_vision_flag("ollama", cfg.model),
             "current": True,
         })
 
-    # llama.cpp local server (Qwen3.8-27B IQ4_XS @ 127.0.0.1:8901)
-    result.append({
-        "provider": "llamacpp",
-        "id": "qwen3.8-27b-iq4xs", "name": "Qwen3.8 27B (Local GPU)", "desc": "本地GPU推理~23tok/s,无需联网",
-        "available": True,
-        "current": cfg.provider == "llamacpp" and cfg.model == "qwen3.8-27b-iq4xs",
-    })
+    # llama.cpp 本地服务（Qwen3.8-27B IQ4_XS @ 127.0.0.1:8901）
+    # 真实探活：服务没开时 available 仍为 True（前端据此弹窗拉起），
+    # 但 running=False —— 前端显示「未启动」，不再骗人地说「已配置」。
+    try:
+        _lc = local_llm.get_config()
+        _ls = local_llm.probe()
+        _lctx = _ls.get("live_ctx") or _lc.get("ctx_size")
+        _lstate = ("运行中" if _ls.get("running")
+                   else ("加载中…" if _ls.get("starting") else "未启动"))
+        _lid = str(_lc.get("model_id") or "qwen3.8-27b-iq4xs")
+        # 视觉：只有服务真加载了 mmproj 才能收图（/props 的 modalities.vision）。
+        # 没加载时前端会提示"带图会自动改用云端视觉模型"，而不是让请求撞 500。
+        _lvision = bool(_ls.get("vision"))
+        _desc = f"本地GPU推理 · 端口 {_lc.get('port')} · 上下文 {_lctx} · {_lstate}"
+        _desc += " · 已启用视觉" if _lvision else " · 仅文本"
+        result.append({
+            "provider": "llamacpp",
+            "id": _lid,
+            "name": "Qwen3.8 27B (Local GPU)",
+            "desc": _desc,
+            "available": True,
+            "local": True,
+            "running": bool(_ls.get("running")),
+            "starting": bool(_ls.get("starting")),
+            "ctx_size": _lctx,
+            "vision": _lvision,
+            "vision_hint": _ls.get("vision_hint") or "",
+            "mmproj": _ls.get("mmproj_path") or "",
+            "current": cfg.provider == "llamacpp" and cfg.model == _lid,
+        })
+    except Exception as e:
+        print(f"[models] local llama.cpp probe failed: {e}")
+        result.append({
+            "provider": "llamacpp",
+            "id": "qwen3.8-27b-iq4xs", "name": "Qwen3.8 27B (Local GPU)",
+            "desc": "本地GPU推理~23tok/s,无需联网",
+            "available": True, "local": True, "running": False,
+            "current": cfg.provider == "llamacpp" and cfg.model == "qwen3.8-27b-iq4xs",
+        })
 
     # Zhipu: hardcoded
     zhipu_key = _get_provider_key(cfg, "zhipu")
@@ -1694,20 +1986,63 @@ def set_working(tid, status, thinking="", intermediate="", response="", tool_cal
         }
 
 
-def get_working_all():
+# 终态（回合结束）标记：仅在 /api/topics 里暴露给侧栏绿/红点，
+# /api/working 仍返回 idle（否则前端会把它当"处理中"，重建幽灵实时泡）。
+_TERMINAL_STATUS = ("done", "failed", "cancelled")
+TERMINAL_TTL = 180.0  # 秒：终态点在侧栏保留时长，过期自动清
+
+
+def _purge_expired_locked(now):
+    """清理过期终态（须持锁调用）。"""
+    dead = [t for t, w in _current_working.items()
+            if w.get("status") in _TERMINAL_STATUS and now - (w.get("ts") or 0) > TERMINAL_TTL]
+    for t in dead:
+        _current_working.pop(t, None)
+
+
+def finish_working(tid, status="done"):
+    """回合收尾写终态：done=正常结束/用户停止，failed=异常。
+    /api/topics 用它点亮侧栏绿/红点；TTL 到期自动清，避免常亮。"""
     with _working_lock:
+        prev = _current_working.get(tid) or {}
+        _current_working[tid] = {
+            "status": status,
+            "thinking": "", "intermediate": "", "response": "",
+            "tool_calls": [], "turn": prev.get("turn", 0),
+            "remaining": None, "ts": time.time(),
+        }
+    # 终态同样解绑线程上下文，避免 keep-alive 复用线程时残留归属
+    try:
+        from tools.task_context import clear_if_matches
+        clear_if_matches(tid)
+    except Exception:
+        pass
+
+
+def get_working_all():
+    now = time.time()
+    with _working_lock:
+        _purge_expired_locked(now)
         return dict(_current_working)
 
 def get_working(tid):
+    now = time.time()
     with _working_lock:
+        _purge_expired_locked(now)
         w = _current_working.get(tid)
-        if w:
+        if w and w.get("status") not in _TERMINAL_STATUS:
             return w
     return {"status": "idle", "thinking": "", "intermediate": "", "response": "", "tool_calls": [], "turn": 0, "remaining": None}
 
 def clear_working(tid):
     with _working_lock:
         _current_working.pop(tid, None)
+    # 任务生命周期结束：解绑线程上下文，避免 keep-alive 复用线程时残留归属
+    try:
+        from tools.task_context import clear_if_matches
+        clear_if_matches(tid)
+    except Exception:
+        pass
 
 
 
@@ -2061,12 +2396,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/models":
             cfg = get_model_config()
             models = _build_model_list(cfg)
-            self._json(200, {"models": models})
+            self._json(200, {
+                "models": models,
+                # 前端据此提示：当前模型看不了图时，带图会发生什么
+                "vision_capable": _vision_capable(cfg),
+                "vision_fallback": _vision_fallback_enabled(),
+            })
         # ── Models fallback chain ──
         elif path == "/api/models/fallback-chain":
             cfg = get_model_config()
             self._json(200, {"fallback_chain": cfg.fallback_chain,
                              "current": cfg.to_dict()})
+
+        # ── 本地模型服务状态（llama.cpp / Ollama）──
+        # 供前端：①切换前预检 ②拉起后轮询进度 ③设置页状态灯
+        elif path == "/api/local-llm/status":
+            try:
+                force = str(params.get("force", ["0"])[0]).lower() in ("1", "true", "yes")
+                self._json(200, local_llm.status(force=force))
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e)})
 
         # ── Project config ──
         elif path == "/api/project-config":
@@ -2190,7 +2539,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             db = get_db()
             config = {
                 "per_message_chars": int(db.get_meta("compress_per_msg_chars") or PER_MESSAGE_COMPRESS_CHARS),
-                "token_limit": int(db.get_meta("compress_token_limit") or TOKEN_LIMIT),
+                # 上报"实际生效值"（已钳制到模型上下文窗口），而不是库里存的原始值。
+                # 否则本地模型只有 24K 窗口时会显示存的 80000，超出输入框 max=24576。
+                "token_limit": _effective_token_limit(db),
                 "warn_threshold_pct": int(db.get_meta("compress_warn_pct") or 60),
                 "turn_budget": int(db.get_meta("compress_turn_budget") or 50),
                 "msg_count_warn": int(db.get_meta("compress_msg_count_warn") or MSG_COUNT_WARN),
@@ -2568,7 +2919,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # ── Important matters ──
         elif path == "/api/important-matters":
-            self._json(200, {"matters": _get_matter_items()})
+            _m_tid = params.get("tid", [None])[0]
+            self._json(200, {"matters": _get_matter_items(_m_tid)})
 
         # ── 互动基调 ──
         elif path == "/api/tone":
@@ -2878,7 +3230,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # 清理 working state，否则前端永久显示"处理中…"
                 tid = data.get("topic_id", "")
                 if tid:
-                    clear_working(tid)
+                    finish_working(tid, "failed")
                     with _cancel_lock:
                         _cancel_events.pop(tid, None)
                 try:
@@ -2975,7 +3327,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.db.add_message(tid, "ai", state["full_response"],
                                     thinking=state["full_thinking"], ts=time.time())
                 self.db.update_topic(tid, updated_at=time.time())
-                clear_working(tid)
+                finish_working(tid, "done")
                 self._json(200, {"status": "stopped", "response": state["full_response"]})
             else:
                 # Check if there's an active chat loop to cancel
@@ -3048,8 +3400,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "zhipu": "https://open.bigmodel.cn/api/paas/v4",
                     "openrouter": "https://openrouter.ai/api/v1",
                     "ollama": "http://localhost:11434/v1",
-                    "llamacpp": "http://127.0.0.1:8901/v1",
+                    "llamacpp": local_llm.base_url(),
                 }
+                # 本地服务没启动就别静默切换 —— 否则切过去之后第一条消息
+                # 才在 ~20 秒重试后抛 WinError。这里返回专门 code，
+                # 前端据此弹窗问"要不要现在拉起"。
+                if provider == "llamacpp":
+                    try:
+                        _st = local_llm.probe(force=True)
+                        if not _st.get("running"):
+                            self._json(200, {
+                                "success": False,
+                                "code": "local_not_running",
+                                "error": f"本地推理服务未启动（{_st.get('base_url', '')}）",
+                                "starting": bool(_st.get("starting")),
+                                "status": _st,
+                            })
+                            return
+                    except Exception as e:
+                        print(f"[switch-model] local probe failed: {e}")
                 base_url = provider_urls.get(provider, "")
                 with _config_lock:
                     old_cfg = get_model_config()
@@ -3060,7 +3429,72 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         provider=provider, model=model_id,
                         base_url=base_url, api_key=new_key)
                 _save_model_config()
+                # 上下文窗口随模型变化（本地模型按 --ctx-size，不是默认 128K）
+                try:
+                    _load_compress_config()
+                except Exception:
+                    pass
             self._json(200, {"success": True})
+
+        # ── 本地模型服务：启动 ──
+        elif path == "/api/local-llm/start":
+            try:
+                r = local_llm.start()
+                self._json(200 if r.get("ok") else 500, r)
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e)})
+
+        # ── 本地模型服务：停止 ──
+        elif path == "/api/local-llm/stop":
+            try:
+                self._json(200, local_llm.stop())
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e)})
+
+        # ── 图片回退开关：当前模型看不了图时是否允许改用云端视觉模型 ──
+        # 关掉后带图请求不会把图片发到云端（本地/离线优先场景）
+        elif path == "/api/vision-fallback":
+            try:
+                p = os.path.join(ROOT_DIR, "model_config.json")
+                raw = {}
+                if os.path.exists(p):
+                    with open(p, "r", encoding="utf-8") as f:
+                        raw = json.load(f) or {}
+                if "enabled" in data:
+                    raw["vision_fallback"] = bool(data["enabled"])
+                    with open(p, "w", encoding="utf-8") as f:
+                        json.dump(raw, f, ensure_ascii=False, indent=4)
+                self._json(200, {"ok": True, "enabled": bool(raw.get("vision_fallback", True))})
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e)})
+
+        # ── 本地模型服务：配置（含上下文长度，改后需重启生效）──
+        elif path == "/api/local-llm/config":
+            try:
+                updates = {}
+                for k in ("ctx_size", "port", "threads", "gpu_layers", "start_timeout",
+                          "exe", "model_path", "model_id", "extra_args", "mmproj"):
+                    if k in data:
+                        updates[k] = data[k]
+                if "ctx_size" in updates:
+                    try:
+                        ctx = int(updates["ctx_size"])
+                    except Exception:
+                        self._json(400, {"ok": False, "error": "上下文长度必须是整数"})
+                        return
+                    if not (512 <= ctx <= 1048576):
+                        self._json(400, {"ok": False, "error": "上下文长度需在 512 ~ 1048576 之间"})
+                        return
+                    updates["ctx_size"] = ctx
+                r = local_llm.save_config(updates)
+                # 新的上下文上限要立刻参与压缩阈值钳制
+                try:
+                    _load_compress_config()
+                except Exception:
+                    pass
+                self._json(200 if r.get("ok") else 500, r)
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e)})
 
         # ── Model key (save) ──
         elif path == "/api/model-key":
@@ -3341,6 +3775,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         else:
                             shutil.copy2(src_path, dst_path)
                 self._json(200, {"success": True})
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+
+        # ── Reveal file in system explorer（右键菜单"在文件资源管理器中显示"/"复制路径"）──
+        # body: {topic_id, file: 工作区相对路径或绝对路径, open: bool}
+        # open=True → 打开资源管理器并定位文件；open=False → 仅解析并返回绝对路径
+        elif path == "/api/open-explorer":
+            try:
+                tid = data.get("topic_id", "")
+                filename = data.get("file", "")
+                want_open = data.get("open", True)
+                ws_rel = self.db.get_topic_meta(tid, "workspace")
+                ws_path = _resolve_workspace(ws_rel, tid)
+                # filename 为相对路径时拼工作区；绝对路径（工作区外浏览）时 os.path.join 直接返回其本身
+                filepath = os.path.join(ws_path, filename) if filename else ws_path
+                if filename and not os.path.exists(filepath):
+                    filepath = os.path.join(ROOT_DIR, "data", "missions", tid, filename)
+                filepath = os.path.abspath(os.path.normpath(filepath))
+                if not os.path.exists(filepath):
+                    self._json(404, {"error": "file not found"})
+                    return
+                if want_open:
+                    import subprocess
+                    if os.name == "nt":
+                        if os.path.isdir(filepath):
+                            subprocess.Popen(["explorer", filepath])
+                        else:
+                            # /select, 定位到具体文件并选中
+                            subprocess.Popen(["explorer", "/select,", filepath])
+                    elif sys.platform == "darwin":
+                        subprocess.Popen(["open", "-R", filepath])
+                    else:
+                        subprocess.Popen(["xdg-open", filepath if os.path.isdir(filepath) else os.path.dirname(filepath)])
+                self._json(200, {"success": True, "path": filepath})
             except Exception as e:
                 self._json(500, {"error": str(e)})
 
@@ -4066,7 +4534,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # Block 1: 身份与行为规则（重要事项）—— 视角敏感的标题
         from tools.perspective import vocab as _vocab
-        matters = _get_matters()
+        matters = _get_matters(tid)
         if matters:
             rule_lines = []
             for i, entry in enumerate(matters, 1):
@@ -4098,13 +4566,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             from tools.domain_book_tools import get_active_pages_info, _load_book, resolve_active_pages
 
-            active_pages = get_active_pages_info()
+            active_pages = get_active_pages_info(tid)
 
             book = _load_book()
 
             all_pages = book.get("pages", {})
 
-            active_ids, _book_src = resolve_active_pages(book)
+            active_ids, _book_src = resolve_active_pages(book, tid)
             if active_pages or all_pages:
                 page_lines = []
                 # 列出所有页面，标记激活状态（入口透明）
@@ -4233,7 +4701,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # Block 2.6: 思维链热层 --- 任务切换自动装载
         try:
             from task.thought_chain import ThoughtChain
-            active_tid = self.db.get_active_topic_id()
+            active_tid = tid
             if active_tid:
                 tc = ThoughtChain(active_tid)
                 if tc.step_count > 0:
@@ -4757,17 +5225,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         old_msgs = _compress_context(msgs[:-1], tid, store, self.db)
         msgs = old_msgs + [current_msg]
         llm_config = get_model_config()
-        # ── 看图：图片附件 → 多模态 content + 切 vision 模型 ──
+        # ── 看图：图片附件 → 多模态 content + 选对"能收图"的模型 ──
+        # 见 _prepare_vision_request：老实现只换 model 名不换 provider/base_url，
+        # 于是本地 provider 下图片仍被发到不支持视觉的本地服务 → HTTP 500。
         if _image_abs_paths:
-            _mm = build_multimodal_content(message, _image_abs_paths)
+            llm_config, message, _mm, _note = _prepare_vision_request(
+                llm_config, message, _image_abs_paths)
             if _mm is not None:
                 current_msg["content"] = _mm
-                # 当前模型是视觉模型（如 glm-5.3-flash）直接用，否则回退 deepseek vision
-                if not is_vision_model(llm_config.model):
-                    llm_config = llm_config.clone_with(model="deepseek-v4-flash-vision-exp")
+            else:
+                current_msg["content"] = message
+                msgs = strip_image_content(msgs, llm_config.model, vision_ok=False)
         else:
-            # 非 vision 轮次：剥离历史残留的图片 content，避免 v4-pro 报错
-            msgs = strip_image_content(msgs, llm_config.model)
+            # 非看图轮次：剥离历史残留的图片 content，避免纯文本模型报错
+            msgs = strip_image_content(msgs, llm_config.model,
+                                       vision_ok=_vision_capable(llm_config))
         _inject_context_hints(msgs, tid, limit_truncated=limit_truncated)
         # 缓存调试快照：包含 messages + tools + token 拆解
         # 之前只存 msgs，导致工具 schema（可达 13k+ tokens）不可见，调试时对不上 token 数
@@ -4800,6 +5272,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.db.set_topic_meta(tid, "focus_custom_blocks", "[]")
             self.db.set_topic_meta(tid, "focus_explicit", "0")
             print(f"[agent] focus auto-restore at iteration 0")
+        # ── 任务上下文通道：把本线程绑定到当前任务（工具层据此读归属，治串台）──
+        try:
+            from tools.task_context import set_current_topic
+            set_current_topic(tid)
+        except Exception as _ctx_err:
+            print(f"[agent] set_current_topic failed: {_ctx_err}")
         print(f"[agent] task started, budget {remaining} turns")
         set_working(tid, "thinking", turn=0, remaining=remaining)
         _budget_warned = False  # 每个预算周期只提醒一次
@@ -4807,9 +5285,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         _auto_downgraded = False  # 上下文压力被动降级标记（每任务最多降一次）
         _turn_retries = 0  # 连接层瞬时故障的轮级重试计数
         _dangling_retries = 0  # 防悬空检测：每请求最多强制续跑 2 次
+        _resume_retries = 0  # 流式中断续写（A 方案）：每请求最多续写 2 次
+        _carry = ""  # 流式中断续写：承接被提前掐断的那半段正文
         while remaining > 0:
             has_tool_calls = False
-            turn_text = ""
+            # 续写时以被掐断的前半段为起点；否则最终答案只剩后半截
+            turn_text = _carry
+            _carry = ""
             turn_tool_calls = []
             turn_error = None
             turn_usage = {}
@@ -4910,6 +5392,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 set_working(tid, "thinking", thinking=full_thinking,
                             intermediate=full_intermediate, response="",
                             turn=turn+1, remaining=remaining)
+                continue
+            # ── 流式中断续写（A 方案）────────────────────────────────
+            # 触发：① 流读到一半抛异常（瞬时网络故障）但本轮已有部分输出
+            #          旧逻辑只对“零输出”重试，有输出就直接 raise 干掉整个 loop；
+            #       ② 连接被静默掐断，llm 层已把收尾标成 interrupted。
+            # 做法：把已产出正文交给 _carry 承接（下一轮 turn_text 以它为起点，
+            #      最终答案不会丢前半段），把这段+续写指令塞进上下文，continue 续跑。
+            # 上限 2 次，防“断了→续→又断”死循环。
+            # 只有“干净收尾”才重置续写计数：带部分输出的中断算不干净，
+            # 否则连续中断会把预算每次刷回 0，上限形同虚设（实测 4 次调用不停）。
+            if turn_error is None and turn_finish_reason != "interrupted":
+                _resume_retries = 0
+            _interrupted_turn = (
+                turn_finish_reason == "interrupted"
+                or (turn_error is not None and is_transient_conn_error(turn_error))
+            )
+            if (not has_tool_calls and _interrupted_turn
+                    and (turn_text.strip() or full_thinking.strip())
+                    and _resume_retries < 2 and not cancel_evt.is_set()):
+                _resume_retries += 1
+                print(f"[agent] stream interrupted ({turn_error or turn_finish_reason}), "
+                      f"resume {_resume_retries}/2, kept {len(turn_text)} chars")
+                if turn_text.strip():
+                    _carry = turn_text  # 前半段已写内容随到下一轮，不丢
+                    msgs.append({"role": "assistant", "content": turn_text})
+                    _resume_hint = ("[系统提示] 你上一条回复因网络中断被截断，只写到这里。"
+                                    "请从中断处接着写：不要重复已写过的内容、不要重新开头、"
+                                    "不要解释中断原因，直接继续输出剩余部分。"
+                                    "如果上一条其实已经写完，只回复一个句号「。」。")
+                else:
+                    _resume_hint = ("[系统提示] 你上一轮的思考因网络中断被截断，还没产出正文。"
+                                    "请跳过冗长推理，直接给出简洁的最终回答。")
+                msgs.append({"role": "user", "content": _resume_hint})
+                set_working(tid, "responding", thinking=full_thinking,
+                            intermediate=full_intermediate, response=turn_text,
+                            turn=turn+1, remaining=remaining)
+                time.sleep(_resume_retries * 2)
                 continue
             if not has_tool_calls:
                 # 最终轮（无 tool_call）：turn_text 就是最终答案
@@ -5178,7 +5697,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.db.add_message(tid, "ai", reply,
                                 thinking=full_thinking, ts=time.time())
             self.db.update_topic(tid, updated_at=time.time())
-            clear_working(tid)
+            finish_working(tid, "done")
             self._json(200, {
                 "response": reply,
                 "thinking": full_thinking,
@@ -5209,7 +5728,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.db.add_message(tid, "ai", full_response,
                                 thinking=full_thinking, ts=time.time())
         self.db.update_topic(tid, updated_at=time.time())
-        clear_working(tid)
+        finish_working(tid, "done")
         with _inject_lock:
             _inject_queues.pop(tid, None)
         # ── CMN P4: 空闲触发反思回路（2026-08-17 已禁用：自动反思产出的碎片平时不加载，对行为零约束，且每次对话后烧 LLM 调用；行为修正改由重要事项第12条承担，需要时手动调 reflect 工具/API）──

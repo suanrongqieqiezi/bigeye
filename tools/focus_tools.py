@@ -50,8 +50,9 @@ from .registry import register_tool
 )
 def set_focus_level(level: int, auto_rounds: int = None, memo: str = "", custom_blocks: list = None):
     from db import get_db
+    from .task_context import get_current_topic
     db = get_db()
-    tid = db.get_active_topic_id()
+    tid = get_current_topic()
     if not tid:
         return "没有活跃任务，无法设置注意力等级。"
 

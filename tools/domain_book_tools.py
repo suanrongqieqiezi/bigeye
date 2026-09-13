@@ -91,8 +91,8 @@ OVERLAY_KEY = "book_pages_overlay"
 
 def _active_tid():
     try:
-        from db import get_db
-        return get_db().get_active_topic_id()
+        from .task_context import get_current_topic
+        return get_current_topic()
     except Exception:
         return None
 
@@ -123,10 +123,12 @@ def _set_overlay(tid, pages):
         return False
 
 
-def resolve_active_pages(book):
+def resolve_active_pages(book, tid=None):
     """生效开页集 = 任务覆盖集（过滤已删页） || 全局默认。
-    返回 (pages: list[str], source: "task" | "global")。"""
-    tid = _active_tid()
+    返回 (pages: list[str], source: "task" | "global")。
+    tid 显式传入时优先（组装系统提示场景），否则用当前任务上下文。"""
+    if tid is None:
+        tid = _active_tid()
     if tid:
         ov = _get_overlay(tid)
         if ov is not None:
@@ -134,11 +136,11 @@ def resolve_active_pages(book):
     return list(book.get("active_pages", [])), "global"
 
 
-def get_active_pages_info():
+def get_active_pages_info(tid=None):
     """当前生效开页集的页面信息（任务覆盖集优先，回退全局默认）。
     Returns list of (title, page_id, content) tuples, or empty list."""
     book = _load_book()
-    active, _src = resolve_active_pages(book)
+    active, _src = resolve_active_pages(book, tid)
     result = []
     for pid in active:
         if pid in book["pages"]:

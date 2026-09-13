@@ -583,8 +583,14 @@ class Database:
 _db = None
 
 
-def get_db(path=DB_PATH):
+def get_db(path=None):
+    """获取 DB 单例。优先级：显式 path > 环境变量 BIGEYE_DB_PATH > 默认 DB_PATH。
+
+    BIGEYE_DB_PATH 是测试隔离开关：脚本里设了它，所有模块（含 evstore 等
+    自带 get_db 引用的模块）都会自动切到临时库，避免误写生产库。
+    """
     global _db
-    if _db is None:
-        _db = Database(path)
+    target = path or os.environ.get("BIGEYE_DB_PATH") or DB_PATH
+    if _db is None or os.path.abspath(_db.path) != os.path.abspath(target):
+        _db = Database(target)
     return _db

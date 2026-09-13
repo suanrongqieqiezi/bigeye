@@ -16,8 +16,9 @@ ROOT_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else
 def current_topic():
     try:
         from db import get_db
+        from .task_context import get_current_topic
         db = get_db()
-        tid = db.get_active_topic_id()
+        tid = get_current_topic()
         if tid:
             t = db.get_topic(tid)
             title = t["title"] if t else "?"
@@ -42,8 +43,9 @@ def current_topic():
 def name_task(name: str):
     try:
         from db import get_db
+        from .task_context import get_current_topic
         db = get_db()
-        tid = db.get_active_topic_id()
+        tid = get_current_topic()
         if tid:
             db.rename_topic(tid, name)
             return f"当前任务已改名 →「{name}」"
@@ -358,8 +360,8 @@ def get_topic_tree(topic_id: str = ""):
         topic_id = _os.environ.get("DAEYE_TOPIC_ID", "")
     if not topic_id:
         try:
-            from db import get_db
-            tid = get_db().get_active_topic_id()
+            from .task_context import get_current_topic
+            tid = get_current_topic()
             if tid:
                 topic_id = tid
         except Exception:

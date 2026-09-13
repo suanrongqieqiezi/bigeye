@@ -116,7 +116,8 @@ def spawn_agent(steps: list, background: str = "", workspace: str = "", allow_wr
     from tools.registry import execute_tool
 
     db = get_db()
-    parent_tid = db.get_active_topic_id()
+    from tools.task_context import get_current_topic
+    parent_tid = get_current_topic()
     if not parent_tid:
         return "没有活跃任务，无法派子代理。"
 

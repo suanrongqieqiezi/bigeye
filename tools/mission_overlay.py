@@ -130,7 +130,8 @@ def write_task_raw(tid, entries):
 
 def get_active_tid():
     try:
-        return get_db().get_active_topic_id()
+        from tools.task_context import get_current_topic
+        return get_current_topic()
     except Exception:
         return None
 

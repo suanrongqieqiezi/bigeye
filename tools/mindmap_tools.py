@@ -256,11 +256,10 @@ def _save_mindmap_raw(topic_id, mm_data):
 
 
 def _get_active_topic_id():
-    """获取当前活跃话题 ID（与 task_v4_tools 一致）"""
+    """获取当前任务 ID（优先本线程任务上下文，回落全局活跃话题）"""
     try:
-        from db import get_db
-        db = get_db()
-        return db.get_active_topic_id()
+        from .task_context import get_current_topic
+        return get_current_topic()
     except Exception:
         return None
 

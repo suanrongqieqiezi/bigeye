@@ -438,7 +438,8 @@ def expand_compressed(topic_id: str = "", anchor: str = "",
         _ensure_ct_table(db)
 
         if not topic_id:
-            topic_id = db.get_active_topic_id() or ""
+            from .task_context import get_current_topic
+            topic_id = get_current_topic() or ""
 
         # ── Mode 2: node_id expansion (nested tree) ──
         if node_id > 0:
@@ -944,7 +945,8 @@ def compress_context(topic_id: str = "", anchor_start: int = -1, anchor_end: int
 
         # ── Defaults: auto-detect topic ──
         if not topic_id:
-            topic_id = db.get_active_topic_id() or ""
+            from .task_context import get_current_topic
+            topic_id = get_current_topic() or ""
         if not topic_id:
             return "无法确定当前话题。请指定 topic_id 或先开始一个对话。"
         raw = db.get_messages(topic_id, limit=500)

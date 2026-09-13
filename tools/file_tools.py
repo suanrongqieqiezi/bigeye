@@ -55,8 +55,9 @@ def _record_file_edit(full_path, before_content, tool, operation=None):
     try:
         import hashlib, json, time as _time
         from db import get_db
+        from .task_context import get_current_topic
         db = get_db()
-        topic_id = db.get_active_topic_id() or ""
+        topic_id = get_current_topic() or ""
         if not topic_id:
             return
         after_content = None
@@ -455,6 +456,40 @@ def write_file(path: str, content: str, confirm: bool = False):
         return {"error": f"写文件失败: {e}"}
 
 
+# ── grep 扫描策略（修复：不再按文件数 30 截断，改为全量收集候选 + 只截断命中结果）──
+_GREP_SKIP_DIRS = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', 'dist',
+                   'build', '.idea', '.mypy_cache', '.pytest_cache', '.tox', '.hg', '.svn'}
+_GREP_BIN_EXTS = {'.pyc', '.pyo', '.so', '.dll', '.dylib', '.exe', '.bin', '.o', '.a', '.lib',
+                  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svgz',
+                  '.zip', '.gz', '.tar', '.7z', '.rar', '.whl', '.pyz',
+                  '.db', '.sqlite', '.sqlite3', '.pdf', '.docx', '.xlsx',
+                  '.mp3', '.mp4', '.wav', '.woff', '.woff2', '.ttf', '.eot', '.class'}
+_GREP_MAX_FILE_BYTES = 2 * 1024 * 1024   # 单文件上限 2MB，跳过超大文件
+_GREP_MAX_SCAN_FILES = 20000             # 候选文件上限（极端防护，正常目录远达不到）
+GREP_MAX_RESULTS = 30                    # 命中条数上限
+
+
+def _collect_scan_files(root):
+    """递归收集可搜索文件（全量，不按文件数截断）。
+    返回 (files, truncated_scan)：truncated_scan=True 表示撞到 _GREP_MAX_SCAN_FILES 上限。"""
+    files = []
+    for dirpath, dirs, fnames in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in _GREP_SKIP_DIRS]
+        for fn in fnames:
+            if os.path.splitext(fn)[1].lower() in _GREP_BIN_EXTS:
+                continue
+            fp = os.path.join(dirpath, fn)
+            try:
+                if os.path.getsize(fp) > _GREP_MAX_FILE_BYTES:
+                    continue
+            except OSError:
+                continue
+            files.append(fp)
+            if len(files) >= _GREP_MAX_SCAN_FILES:
+                return files, True
+    return files, False
+
+
 @register_tool(
     name="grep",
     description="在文件中搜索文本。支持正则表达式，用于找代码、找配置、找任何内容。",
@@ -473,12 +508,17 @@ def write_file(path: str, content: str, confirm: bool = False):
                 "type": "boolean",
                 "description": "是否区分大小写，默认否",
                 "default": False
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "命中条数上限，默认 30（只截断结果，不再按文件数截断导致漏搜）",
+                "default": 30
             }
         },
         "required": ["pattern", "path"]
     }
 )
-def grep(pattern: str, path: str, case_sensitive: bool = False):
+def grep(pattern: str, path: str, case_sensitive: bool = False, max_results: int = GREP_MAX_RESULTS):
     try:
         import glob as glob_mod
         full = _safe_path(path)
@@ -492,27 +532,23 @@ def grep(pattern: str, path: str, case_sensitive: bool = False):
 
         search_path = full
         files = []
+        truncated_scan = False
         if os.path.isfile(search_path):
             files = [search_path]
         elif os.path.isdir(search_path):
-            # Walk directory
-            for root, dirs, fnames in os.walk(search_path):
-                for fn in fnames:
-                    files.append(os.path.join(root, fn))
-                    if len(files) >= 30:
-                        break
-                if len(files) >= 30:
-                    break
+            # 全量收集候选文件（修复：原实现只走到第 30 个文件就 break，
+            # 内容排在后面的文件被漏搜 → 假阴性"没找到"）
+            files, truncated_scan = _collect_scan_files(search_path)
         else:
-            # Glob pattern
+            # Glob pattern：全量匹配（不再 [:30] 截断），仅按命中数截断结果
             matched = glob_mod.glob(search_path)
-            # Filter down to 30 matches, preferring text files
             txt_exts = {'.py', '.c', '.h', '.txt', '.md', '.json', '.xml', '.html', '.js', '.ts', '.css', '.yaml', '.yml', '.ini', '.cfg', '.conf', '.sh', '.bat'}
             matched.sort(key=lambda x: (os.path.splitext(x)[1] not in txt_exts, x))
-            files = matched[:30]
+            files = matched
 
         flag = 0 if case_sensitive else re.IGNORECASE
         results = []
+        hit_limit = False
         for fp in files:
             try:
                 with open(fp, "r", encoding="utf-8", errors="replace") as f:
@@ -520,15 +556,25 @@ def grep(pattern: str, path: str, case_sensitive: bool = False):
                         if re.search(pattern, line, flag):
                             rel = os.path.relpath(fp, BASE_DIR)
                             results.append(f"{rel}:{i}:{line.rstrip()[:200]}")
-                            if len(results) >= 30:
+                            if len(results) >= max_results:
+                                hit_limit = True
                                 break
-                if len(results) >= 30:
+                if hit_limit:
                     break
             except Exception:
                 continue
         if not results:
             return {"error": f"在 {path} 中没找到 '{pattern}'"}
-        return {"matches": len(results), "results": results, "pattern": pattern}
+        out = {"matches": len(results), "results": results, "pattern": pattern,
+               "scanned_files": len(files)}
+        if hit_limit:
+            out["truncated"] = True
+            out["hint"] = f"命中已达上限 {max_results} 条，结果被截断；可传 max_results 调大或缩小 path 范围"
+        if truncated_scan:
+            out["truncated_scan"] = True
+            out["hint"] = ((out.get("hint", "") + " ").strip() +
+                           f" 扫描文件数达上限 {_GREP_MAX_SCAN_FILES}，覆盖可能不全").strip()
+        return out
     except Exception as e:
         return {"error": f"搜索失败: {e}"}
 

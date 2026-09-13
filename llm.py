@@ -32,7 +32,12 @@ TRANSIENT_MARKERS = ("remote end closed", "timed out", "timeout",
                      "network is unreachable", "name or service not known",
                      # Windows 连接层瞬时故障文案（urllib 抛 WinError）
                      "winerror 10054", "winerror 10053", "winerror 10060",
-                     "forcibly closed", "existing connection was aborted")
+                     "forcibly closed", "existing connection was aborted",
+                     # SSE 流读到一半被掐断（urllib/http.client 抛的伪异常文案）
+                     # 2026-09-13 补：原清单漏了这几个，导致"流式中断"被当成
+                     # 非瞬时错误 → 上层直接终止整个 loop，不再续写。
+                     "incompleteread", "incomplete read", "chunked encoding",
+                     "response ended prematurely", "premature eof")
 
 def is_transient_conn_error(e):
     s = str(e).lower()
@@ -163,14 +168,21 @@ def build_multimodal_content(text, image_paths):
     return content
 
 
-def strip_image_content(messages, model):
-    """非 vision 模型：把 messages 里 content 为数组的图片消息降级为纯文本。
+def strip_image_content(messages, model, vision_ok=None):
+    """把 messages 里 content 为数组的图片消息降级为纯文本。
 
-    - vision 模型：原样返回（保留 image 块）。
-    - 非 vision 模型：删掉 image_url 块，text 块拼回字符串，避免 API 报错。
+    - 能看图：原样返回（保留 image 块）。
+    - 不能看图：删掉 image_url 块，text 块拼回字符串，避免 API 报错。
+      （非 vision 模型收到 image_url 块，云端会 400，本地 llama.cpp 会 500）
+
+    vision_ok: 由调用方给出的"能否收图"结论。本地模型（llamacpp/ollama）是否支持
+      视觉取决于服务有没有加载 mmproj，光看模型名判断不出来，所以允许覆盖。
+      None = 回退到按模型名判定（is_vision_model）。
     返回新列表（不修改入参）。
     """
-    if is_vision_model(model):
+    if vision_ok is None:
+        vision_ok = is_vision_model(model)
+    if vision_ok:
         return messages
     out = []
     for m in messages:
@@ -434,6 +446,9 @@ def chat_stream(config, messages, tools=None, cancel_event=None, verify_ssl=True
     full_thinking = ""
     last_usage = {}
     done_yielded = False
+    # 是否收到过"正常收尾标记"（finish_reason 或 [DONE]）。
+    # 都没收到 = 连接被静默掐断，回复是残缺的，不能当正常结束。
+    saw_terminator = False
 
     try:
         for raw_line in resp:
@@ -452,6 +467,7 @@ def chat_stream(config, messages, tools=None, cancel_event=None, verify_ssl=True
             data = line[6:]
             raw_sse_chunks.append(data)  # capture raw data for logging
             if data == "[DONE]":
+                saw_terminator = True
                 break
             try:
                 obj = json.loads(data)
@@ -500,6 +516,7 @@ def chat_stream(config, messages, tools=None, cancel_event=None, verify_ssl=True
 
             # Tool calls complete — emit them
             if finish_reason == "tool_calls":
+                saw_terminator = True
                 for idx in sorted(tool_calls_buffer.keys()):
                     tc = tool_calls_buffer[idx]
                     try:
@@ -516,6 +533,7 @@ def chat_stream(config, messages, tools=None, cancel_event=None, verify_ssl=True
 
             # Normal stop
             if finish_reason in ("stop", "length"):
+                saw_terminator = True
                 done_yielded = True
                 yield {"type": EVENT_DONE, "finish_reason": finish_reason,
                        "full_text": full_text, "full_thinking": full_thinking,
@@ -529,7 +547,14 @@ def chat_stream(config, messages, tools=None, cancel_event=None, verify_ssl=True
         return
 
     if not done_yielded:
-        yield {"type": EVENT_DONE, "finish_reason": "stop",
+        # 既没收到 [DONE] 也没收到 finish_reason → 连接被静默掐断（未抛异常）。
+        # 2026-09-13：以前一律标 "stop"，会把截断的回复当正常收尾
+        # （表现为"说到一半断了"却无任何错误信号）。现在只要产出过内容
+        # 就标 "interrupted"，交给上层决定是否续写。
+        _truncated = (not saw_terminator) and bool(
+            full_text or full_thinking or tool_calls_buffer)
+        yield {"type": EVENT_DONE,
+               "finish_reason": "interrupted" if _truncated else "stop",
                "full_text": full_text, "full_thinking": full_thinking,
                "usage": last_usage or {}}
 
@@ -605,6 +630,7 @@ def chat_stream_cached(config, messages, tools=None, cancel_event=None, verify_s
     collected_usage = {}
     had_tool_calls = False
     had_error = False
+    had_interrupted = False
     done_emitted = False
 
     for event in chat_stream(config, messages, tools=tools,
@@ -620,6 +646,8 @@ def chat_stream_cached(config, messages, tools=None, cancel_event=None, verify_s
             had_error = True
         elif et == EVENT_DONE:
             done_emitted = True
+            if event.get("finish_reason") == "interrupted":
+                had_interrupted = True
             collected_text = event.get("full_text", collected_text)
             collected_thinking = event.get("full_thinking", collected_thinking)
             collected_usage = event.get("usage", {}) or {}
@@ -628,8 +656,9 @@ def chat_stream_cached(config, messages, tools=None, cancel_event=None, verify_s
     # ── 落库条件：正常结束 + 无 tool_calls + 无错误 + 有正文 ──
     # 2026-09-08 修复：text 为空的纯思考截断响应不入缓存——
     # 否则同样的消息重发会命中缓存，永远重放空正文（"AI 无回复"循环）。
+    # 截断（interrupted）的回复同样不入缓存——否则重发永远重放半截答案。
     if (done_emitted and not had_tool_calls and not had_error
-            and collected_text.strip()):
+            and not had_interrupted and collected_text.strip()):
         try:
             cache.put(key, config.model, collected_text, collected_thinking,
                       collected_usage, has_tool_calls=0)

@@ -70,10 +70,12 @@ def submit_answer(question_id, answer):
     },
 )
 def ask_user(question: str, options: list = None, timeout_seconds: int = DEFAULT_TIMEOUT):
-    from db import get_db
     from server import set_working
+    from .task_context import get_current_topic
 
-    tid = get_db().get_active_topic_id() or ""
+    # 归属走任务上下文通道：agent 循环已在发起任务所在线程绑定 tid。
+    # 旧实现读全局 active 指针，多任务切换时会把提问卡片弹错窗口（已发生事故）。
+    tid = get_current_topic() or ""
     qid = uuid.uuid4().hex[:8]
     entry = {
         "question_id": qid,
