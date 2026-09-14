@@ -211,10 +211,53 @@ def _set_maximized_bounds():
         _splash_log(f"maximized_bounds err: {e!r}")
 
 
+# DWM 窗口属性。去掉 WS_CAPTION 后，窗口顶部那条非客户区会被 DWM 当成"标题栏"
+# 整块刷上系统标题栏颜色——强调色一开（ColorPrevalence=1）就是一抹亮色，
+# 于是顶边成了一条特别宽的彩色边框，而左右下只有 1px。这两个属性正是它的开关：
+DWMWA_BORDER_COLOR = 34     # 四周那 1px 细线
+DWMWA_CAPTION_COLOR = 35    # 顶部 6px 条（高 = 非客户区上边）
+_frame_color = None         # 前端同步过来的顶栏底色；None = 尚未同步
+
+
+def _set_dwm_frame(hexcolor=None):
+    """把顶部非客户区条 + 四周 1px 细线刷成 App 顶栏底色，让四条边视觉一致。
+
+    hexcolor: '#rrggbb' / 'rrggbb'（也接受 3 位缩写）；None 表示沿用已记住的颜色，
+    没记住过就用默认深色。返回是否全部设置成功。
+    """
+    global _frame_color
+    if hexcolor:
+        s = str(hexcolor).strip().lstrip('#')
+        if len(s) == 3:
+            s = ''.join(ch * 2 for ch in s)
+        try:
+            r, g, b = int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
+        except (ValueError, IndexError):
+            return False            # 非法颜色直接拒绝，别污染已记住的值
+        if len(s) != 6 or r > 255 or g > 255 or b > 255:
+            return False
+        _frame_color = '#' + s
+    if os.name != 'nt' or not _hwnd:
+        return False
+    try:
+        s = (_frame_color or '#171717').lstrip('#')
+        r, g, b = int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
+        val = ctypes.c_uint((b << 16) | (g << 8) | r)  # COLORREF = 0x00BBGGRR
+        dwm = ctypes.windll.dwmapi
+        ok = True
+        for attr in (DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR):
+            if dwm.DwmSetWindowAttribute(_hwnd, attr, ctypes.byref(val), ctypes.sizeof(val)) != 0:
+                ok = False
+        return ok
+    except Exception:
+        return False
+
+
 def _on_loaded():
     """页面加载完：先改样式再显示，标题栏不闪现。卡片早已在 webview.start() 前销毁。"""
     _set_window_icon()
     _set_maximized_bounds()
+    _set_dwm_frame()  # 顶部那条"特别宽"的边框：刷成顶栏底色（前端随后会按主题校正）
     if _window:
         _window.show()
 
@@ -254,6 +297,14 @@ class WinApi:
     def close(self):
         if _window:
             _window.destroy()
+
+    def set_frame_color(self, hexcolor):
+        """前端在应用主题时把当前顶栏底色传进来，让顶部非客户区条同步。
+
+        三种主题顶栏底色不同（黑 #0a0a0a / 灰 #161616 / 白 #ffffff），
+        写死颜色会在换主题后露馅，所以由前端算好实际值传过来。
+        """
+        return _set_dwm_frame(hexcolor)
 
     def start_drag(self):
         """原生标题栏拖拽：系统接管移动，自带 Win 手势（左右边缘分屏/拖顶最大化）。
