@@ -388,7 +388,13 @@ class Guardian:
     def _cleanup_orphans(self):
         """No orphan cleanup needed — 大眼X uses direct LLM calls, no external process."""
         pass
-        self._last_restart = now
+
+    def restart_active(self):
+        """Restart the active slot (stop + start)."""
+        if self.active_proc is None:
+            return False
+
+        self._last_restart = time.time()
 
         log_progress("restart_begin", slot=self.active_slot)
         self._stop_slot(self.active_proc, self._script_label("active"))

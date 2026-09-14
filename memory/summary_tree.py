@@ -322,13 +322,20 @@ class SummaryTree:
             )
             conn.commit()
 
-            # Find parent (a node whose child_ids contains this node)
-            parent = conn.execute(
+            # Find parent (a node whose child_ids contains this node).
+            # `LIKE` alone matches substrings (e.g. id=5 hits [15,25]), so use it
+            # only as a cheap filter, then exact-match child_ids in Python.
+            candidates = conn.execute(
                 "SELECT * FROM memory_summary_nodes WHERE child_ids LIKE ?",
                 (f"%{node_id}%",)
-            ).fetchone()
+            ).fetchall()
+            parent = None
+            for row in candidates:
+                cand = dict(row)
+                if str(node_id) in [str(c) for c in json.loads(cand.get("child_ids", "[]"))]:
+                    parent = cand
+                    break
             if parent:
-                parent = dict(parent)
                 parent_child_ids = json.loads(parent.get("child_ids", "[]"))
                 parent_child_hashes = json.loads(parent.get("child_hashes", "[]"))
                 # Update the hash for this child

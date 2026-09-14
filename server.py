@@ -5791,7 +5791,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 # ══════════════════════════════════════════════════════
 # Main
 # ══════════════════════════════════════════════════════
-def create_server(port=PORT):
+def create_server(port=PORT, host="127.0.0.1"):
     db = get_db()
     Handler.topics = TopicManager(db)
     Handler.db = db
@@ -5799,7 +5799,8 @@ def create_server(port=PORT):
     # 轻量叙事触发的节流状态（单线程初始化，避免请求线程竞态建锁）
     Handler._narrative_lock = threading.Lock()
     Handler._last_narrative_ts = 0.0
-    return http.server.ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    # 默认只绑回环：局域网访问需显式 --host 0.0.0.0（暴露时配合守门员/防火墙）
+    return http.server.ThreadingHTTPServer((host, port), Handler)
 
 
 def main():
@@ -5807,6 +5808,8 @@ def main():
     ap = argparse.ArgumentParser(description="大眼X Server")
     ap.add_argument("--port", type=int, default=PORT,
                     help=f"HTTP port (default: {PORT})")
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="Bind address (default: 127.0.0.1; use 0.0.0.0 to expose to LAN)")
     ap.add_argument("--label", default="", help="Instance label")
     args = ap.parse_args()
 
@@ -5895,8 +5898,8 @@ def main():
     threading.Thread(target=_query_balance, daemon=True).start()
 
 
-    server = create_server(args.port)
-    print(f"[大眼X] [网络]  http://0.0.0.0:{args.port}")
+    server = create_server(args.port, args.host)
+    print(f"[大眼X] [网络]  http://{args.host}:{args.port}")
     for ip in get_ips(args.port):
         print(f"[大眼X]    {ip}")
     # ── Register system_status tool ──

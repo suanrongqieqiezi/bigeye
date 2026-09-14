@@ -198,6 +198,23 @@ class WorkMemory:
     def get_blockers(self):
         return self.get_open_entries(entry_type="blocker")
 
+    def get_solved_blockers(self):
+        """Get blockers that were resolved (status='solved').
+
+        get_blockers() only returns status='open' entries, so solved blockers
+        are invisible there. This is used to actually unblock stuck nodes after
+        a roundtrip resolves them.
+        """
+        c = self._conn()
+        try:
+            rows = c.execute(
+                "SELECT * FROM work_memory WHERE task_id=? AND status='solved' AND entry_type='blocker'",
+                (self.task_id,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            c.close()
+
     def get_uncertains(self):
         return self.get_open_entries(entry_type="uncertain")
 

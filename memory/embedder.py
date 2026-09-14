@@ -120,7 +120,7 @@ def _onnx_embed(text: str) -> list[float] | None:
 
 _tfidf_vocab = {}           # word → {df: doc freq, idf: precomputed}
 _tfidf_doc_count = 0
-_tfidf_dim = 256            # fixed output dimension
+_tfidf_dim = EMBEDDING_DIM   # = 512,对齐向量表/零向量维度,避免 fallback 后余弦恒 0
 _tfidf_lock = threading.Lock()
 def _tokenize(text: str) -> list[str]:
     """Simple Chinese/English tokenizer — bigrams for CJK, whitespace for ASCII."""
@@ -169,7 +169,8 @@ def _tfidf_embed(text: str) -> list[float]:
             tf_norm = count / max_tf
             idf = 1.0  # uniform without document stats
             if token in _tfidf_vocab:
-                idf = math.log((_tfidf_doc_count + 1) / (df + 1)) + 1
+                token_df = _tfidf_vocab[token]["df"]
+                idf = math.log((_tfidf_doc_count + 1) / (token_df + 1)) + 1
             vec[idx] += tf_norm * idf
 
     # L2 normalize

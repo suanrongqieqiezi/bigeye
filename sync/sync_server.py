@@ -147,7 +147,7 @@ class SyncMasterDB:
         rows = self.conn.execute(
             f"SELECT * FROM {table} WHERE {key_col} IN ({placeholders})", row_ids
         ).fetchall()
-        cols = [d[0] for d in self.conn.description_for_table(table)]
+        cols = self._columns(table)
         return {str(r[cols.index(key_col)]): dict(zip(cols, r)) for r in rows}
 
     def get_changes_since(self, table, since_ts):
@@ -160,8 +160,16 @@ class SyncMasterDB:
         ).fetchall()
         if not rows:
             return []
-        cols = [d[0] for d in self.conn.description]
+        cols = self._columns(table)
         return [dict(zip(cols, r)) for r in rows]
+
+    def _columns(self, table):
+        """Get column names of a table via PRAGMA table_info.
+
+        NOTE: sqlite3.Connection has no `description` attribute (that's a
+        cursor property); always resolve columns from the schema instead.
+        """
+        return [row[1] for row in self.conn.execute(f"PRAGMA table_info({table})").fetchall()]
 
     def close(self):
         self.conn.close()

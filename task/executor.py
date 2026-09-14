@@ -46,6 +46,7 @@ class TaskExecutor:
         self._lock = threading.Lock()
         self.current_node_id = None
         self._roundtrip_pending = False
+        self.llm_prompt_fn = None
 
     # ── Lifecycle ──────────────────────────────────
 
@@ -265,11 +266,13 @@ class TaskExecutor:
 
         if has_blocker or q_count >= ROUNDTRIP_QUESTION_THRESHOLD or no_progress:
             self._roundtrip_pending = True
-            results = roundtrip_solve(self.wm)
+            results = roundtrip_solve(self.wm, llm_prompt_fn=self.llm_prompt_fn)
             self._roundtrip_pending = False
-            # If blockers were resolved, unblock relevant nodes
+            # If blockers were resolved, unblock relevant nodes.
+            # NOTE: get_blockers() only returns status='open', so we query the
+            # solved blockers explicitly — otherwise blocked nodes never recover.
             if has_blocker:
-                for blocker in self.wm.get_blockers():
+                for blocker in self.wm.get_solved_blockers():
                     if blocker["status"] == "solved":
                         # Try to unblock the blocked node
                         node_id = blocker["node_id"]
@@ -437,6 +440,8 @@ class TaskExecutor:
         Returns: dict with final status, trace, and sediment result.
         """
         # ①② 理解需求 + 制定计划
+        if llm_prompt_fn:
+            self.llm_prompt_fn = llm_prompt_fn
         task = self.init_task(user_request, llm_prompt_fn)
         trace = []
         step = 0
