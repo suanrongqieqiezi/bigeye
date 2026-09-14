@@ -29,6 +29,10 @@
   --radius-sm:9px;
   --radius-md:14px;
   --radius-lg:20px;
+  --panel-head-h:56px;   /* 面板头部统一高度：主区顶栏 / 侧栏头部 / 设置页头部 共用 */
+  --sb-gutter:12px;      /* 侧栏水平内缩单一真源：搜索框 / 新建按钮 / 任务卡片 共用同一左边缘 */
+  --sb-track:6px;        /* 侧栏任务列表滚动条宽度（与 #topicList 的 padding-right 配合，保证卡片左右留白相等） */
+  --sb-ctl-h:32px;       /* 侧栏头部行控件高度：搜索框与新建按钮等高（窄窗 31px） */
 }
 *,*::before,*::after{box-sizing:border-box}
 html,body{touch-action:manipulation;height:100%;overflow:hidden;margin:0;padding:0}
@@ -43,17 +47,54 @@ body{
 #app{display:flex;height:100%;position:relative}
 #balanceBanner.show ~ #app{height:calc(100% - 38px);margin-top:38px}
 /* Sidebar */
-#sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100%;z-index:20;transition:margin-left .3s cubic-bezier(.22,1,.36,1),transform .3s cubic-bezier(.22,1,.36,1);box-shadow:var(--shadow-lg)}
+/* 竖分隔线已改挂主区内容区（见下方 #mainPanel > main/footer），此处不再画右边框 */
+#sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:var(--surface);display:flex;flex-direction:column;height:100%;z-index:20;transition:margin-left .3s cubic-bezier(.22,1,.36,1),transform .3s cubic-bezier(.22,1,.36,1);box-shadow:var(--shadow-lg)}
 #sidebar.dragging{transition:none!important;will-change:transform}
 #sidebar.closed{transform:translateX(calc(-1 * var(--sidebar-w)))}
 @media(min-width:769px){#sidebar.closed{transform:none;margin-left:calc(-1 * var(--sidebar-w))}}
 @media(min-width:769px){#overlay{display:none!important}}
-.sidebar-header{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:var(--surface)}
-.sidebar-header h2{font-size:15px;font-weight:700;letter-spacing:.01em;display:flex;align-items:center;gap:7px;color:var(--text)}
-#btnNew{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04241f;border:none;border-radius:999px;padding:7px 15px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 3px 12px rgba(var(--accent-rgb),.32);transition:transform .18s ease,box-shadow .18s ease,filter .18s ease}
-#btnNew:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(var(--accent-rgb),.42);filter:brightness(1.04)}
-#btnNew:active{transform:translateY(0);filter:brightness(.92)}
-#topicList{flex:1;overflow-y:auto;padding:8px 10px;-webkit-overflow-scrolling:touch}
+/* 头部不再画底边线：下方搜索框自带色块/圆角已足够分区（见方案 C） */
+/* 头部行 = 搜索框 + 新建按钮 并排（原「💡任务」标题已去掉：列表本身即身份，省下的 42px 还给任务列表） */
+.sidebar-header{padding:0 var(--sb-gutter);min-height:var(--panel-head-h);display:flex;align-items:center;gap:8px;flex-shrink:0;background:var(--surface)}
+/* 新建按钮：纯 + 图标（无文案，靠 title/aria-label 提供语义）。宽度受这里控制，故必须 flex-shrink:0 */
+/* 静态 = tonal（青绿 15% 底 + 青绿字形，不发光）；悬停/激活才淡入实心渐变。
+   理由：本 app 里"发光"已被「活的状态」(.run-dot / #sDot) 和「屏幕终点动作」(button.send) 占用语义，
+   静态的次要按钮不该抢。改色时别动 width/height(--sb-ctl-h) 与 SVG 的 19/2.4 —— 那是量出来的比例。 */
+#btnNew{width:var(--sb-ctl-h);height:var(--sb-ctl-h);flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0;position:relative;overflow:hidden;background:rgba(var(--accent-rgb),.15);color:var(--accent);border:none;border-radius:999px;cursor:pointer;box-shadow:none;transition:color .18s ease,transform .18s ease,box-shadow .18s ease,filter .18s ease}
+#btnNew::before{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(135deg,var(--accent),var(--accent2));opacity:0;transition:opacity .18s ease}
+#btnNew svg{display:block;position:relative;z-index:1}
+#btnNew:hover{color:#04241f;transform:translateY(-1px);box-shadow:0 4px 14px rgba(var(--accent-rgb),.34)}
+#btnNew:hover::before{opacity:1}
+#btnNew:active{transform:translateY(0);filter:brightness(.94)}
+#btnNew:focus-visible{outline:2px solid rgba(var(--accent-rgb),.55);outline-offset:2px}
+#topicList{flex:1;overflow-y:auto;padding:8px var(--sb-gutter);padding-right:var(--sb-track);scrollbar-gutter:stable;scrollbar-width:auto;scrollbar-color:auto;-webkit-overflow-scrolling:touch}
+/* 卡片左右留白必须相等：右 = padding-right(--sb-track) + 滚动条(--sb-track) = --sb-gutter，
+   scrollbar-gutter:stable 让"条目少、不出滚动条"时也保留同样宽度，不会突然变宽。 */
+/* ── 侧栏搜索框（任务标题 + 历史对话正文）── */
+#sidebarSearch{position:relative;display:flex;align-items:center;gap:7px;flex:1 1 auto;min-width:0;padding:0 10px;height:var(--sb-ctl-h);background:var(--surface3);border:1px solid var(--border);border-radius:10px;transition:border-color .16s,background .16s}
+#sidebarSearch:focus-within{border-color:rgba(var(--accent-rgb),.45);background:var(--surface2)}
+#sidebarSearch .ss-ico{display:flex;flex-shrink:0;color:var(--tdim);opacity:.85}
+#sidebarSearch input{flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--text);font-size:12.5px;font-family:inherit;padding:0;line-height:1.2}
+#sidebarSearch input::placeholder{color:var(--tdim);opacity:.7}
+#sidebarSearch .ss-clear{display:none;flex-shrink:0;width:18px;height:18px;border:none;border-radius:50%;background:var(--border2);color:var(--text);font-size:10px;line-height:18px;cursor:pointer;align-items:center;justify-content:center;padding:0}
+#sidebarSearch.has-val .ss-clear{display:flex}
+#sidebarSearch .ss-clear:hover{background:rgba(var(--accent-rgb),.3)}
+.ss-status{font-size:10.5px;color:var(--tdim);padding:8px 12px 6px;display:flex;align-items:center;gap:5px}
+.ss-status b{color:var(--accent);font-weight:700}
+.ss-hit-snip{font-size:11.5px;color:var(--tdim);display:flex;gap:6px;align-items:flex-start;line-height:1.45;margin-top:2px}
+.ss-hit-snip .ss-role{flex-shrink:0;font-size:9.5px;padding:0 4px;border-radius:4px;background:var(--border2);color:var(--tdim);line-height:15px;margin-top:1px}
+.ss-hit-snip .ss-role.you{background:rgba(var(--accent-rgb),.18);color:var(--accent)}
+.ss-hit-snip .ss-txt{flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.topic-item .ss-badge{display:inline-block;font-size:9.5px;line-height:14px;padding:0 5px;border-radius:5px;background:rgba(var(--accent-rgb),.16);color:var(--accent);margin-left:6px;vertical-align:1px;font-weight:600;flex-shrink:0}
+#topicList mark{background:rgba(var(--accent-rgb),.22);color:var(--accent);border-radius:3px;padding:0 1px}
+.row.ss-flash .bubble{animation:ssFlash 2.6s ease-out}
+@keyframes ssFlash{0%,55%{box-shadow:0 0 0 2px rgba(var(--accent-rgb),.7),0 0 22px rgba(var(--accent-rgb),.32)}100%{box-shadow:0 0 0 0 rgba(var(--accent-rgb),0)}}
+html[data-theme="white"] #sidebarSearch{background:#f2f4f6;border-color:rgba(0,0,0,.10)}
+html[data-theme="white"] #sidebarSearch:focus-within{background:#fff;border-color:rgba(var(--accent-rgb),.5)}
+html[data-theme="white"] #sidebarSearch .ss-ico{color:#6b7280}
+html[data-theme="white"] #sidebarSearch .ss-clear{background:rgba(0,0,0,.14);color:#111827}
+html[data-theme="white"] .ss-hit-snip .ss-role{background:rgba(0,0,0,.08);color:#4b5563}
+html[data-theme="white"] #topicList mark{background:rgba(15,157,143,.18);color:#0b5f56}
 .topic-item{padding:11px 12px;cursor:pointer;border-radius:var(--radius-md);margin-bottom:3px;transition:background .16s ease,border-color .16s ease;border:1px solid transparent;position:relative}
 .topic-item:hover{background:rgba(255,255,255,.04);border-color:var(--border)}
 .topic-item:active{background:rgba(255,255,255,.06)}
@@ -76,7 +117,14 @@ body{
 .topic-swipe-open .topic-actions{transform:translateX(0)}
 /* Main panel */
 #mainPanel{flex:1;display:flex;flex-direction:column;min-width:0;height:100%;overflow:hidden;position:relative;z-index:10;background:var(--surface);transition:transform .25s cubic-bezier(.4,0,.2,1)}
-header{background:var(--surface);border-bottom:1px solid var(--border);padding:9px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0;min-height:52px}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 16px;display:flex;align-items:center;gap:10px;flex-shrink:0;min-height:var(--panel-head-h)}
+
+/* ── 面板竖分隔线：画在主区内容区（header 以下），不再用 #sidebar 的右边框 ──
+   好处：竖线顶端由主区顶栏高度决定，与侧栏头部高度彻底解耦。
+   以后侧栏头部调 52/56/60 都不会再让 L 形拐角错位。
+   侧栏收起时主区贴到窗口最左，此时隐藏，避免窗口左边留 1px 竖线。 */
+#mainPanel > main,#mainPanel > footer{border-left:1px solid var(--border)}
+#sidebar.closed ~ #mainPanel > main,#sidebar.closed ~ #mainPanel > footer{border-left-color:transparent}
 
 /* 桌面壳窗口控制按钮：仅 body.is-desktop 时显示 */
 .win-ctrls{display:none;align-items:center;gap:2px;margin-left:6px;flex-shrink:0}
@@ -87,7 +135,7 @@ body.is-desktop .win-ctrls{display:flex}
 .win-ctrls #btnWinClose:hover{background:#e81123;color:#fff}
 #btnMenu{background:none;border:none;color:var(--text);font-size:19px;cursor:pointer;padding:6px 9px;line-height:1;flex-shrink:0;-webkit-tap-highlight-color:transparent;display:block;border-radius:var(--radius-sm);transition:background .15s}
 #btnMenu:hover{background:rgba(255,255,255,.07)}
-header h1{font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;letter-spacing:.01em}
+header h1{margin:0;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;letter-spacing:.01em}
 #sDot{width:7px;height:7px;border-radius:50%;background:var(--success);flex-shrink:0;box-shadow:0 0 8px rgba(var(--success-rgb),.55)}
 #sDot.thinking{background:var(--warn);box-shadow:0 0 8px rgba(var(--warn-rgb),.55);animation:dotBreath 1.2s ease-in-out infinite}
 #sDot.warn{background:var(--warn);box-shadow:0 0 8px rgba(var(--warn-rgb),.55)}
@@ -216,9 +264,14 @@ button.send:active{transform:translateY(0);filter:brightness(.92)}
 #overlay.show{pointer-events:auto;opacity:1}
 /* Mobile — sidebar is fixed overlay, main panel fills screen */
 @media(max-width:768px){
+/* 窄窗下侧栏是浮层、会盖住主区左缘，主区那条竖线（x=0）看不见，所以竖线改由侧栏自己画。
+   起点用 --panel-head-h（与头部高度同源）→ 竖线顶端正好落在主区顶栏底边线的水平上。 */
+:root{--sb-ctl-h:31px}
 #sidebar{position:fixed;top:0;left:0;height:100%;z-index:20}
-.sidebar-header{padding:12px 14px}
-header{padding:8px 12px;min-height:48px}
+#sidebar::after{content:'';position:absolute;right:0;top:var(--panel-head-h);bottom:0;width:1px;background:var(--border);pointer-events:none}
+/* .sidebar-header 不再单独覆盖：基类 padding:0 var(--sb-gutter) 已等于 12px */
+header{padding:0 12px}
+#sidebarSettings .sp-header{padding:0 12px}
 header h1{font-size:13.5px}
 main{padding:12px 10px;gap:10px}
 .bubble{font-size:13.5px;padding:9px 12px}
@@ -263,9 +316,9 @@ main::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
 *::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:3px}
 *::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.22)}
 *{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.12) transparent}
-#topicList::-webkit-scrollbar{width:4px}
+#topicList::-webkit-scrollbar{width:var(--sb-track)}
 #topicList::-webkit-scrollbar-track{background:transparent}
-#topicList::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+#topicList::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
 #topicList::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
 /* Markdown rendered content */
 .bubble h1,.bubble h2,.bubble h3,.bubble h4{font-size:15px;font-weight:700;margin:12px 0 7px;line-height:1.35;color:var(--text);border:none}
@@ -322,8 +375,8 @@ main::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
 #sidebarTopics.pushed{transform:translateX(-100%)}
 #sidebarSettings{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;transform:translateX(100%);visibility:hidden;pointer-events:none;transition:transform .25s cubic-bezier(.4,0,.2,1),visibility 0s linear .25s;background:var(--surface2)}
 #sidebarSettings.active{transform:translateX(0);visibility:visible;pointer-events:auto;transition:transform .25s cubic-bezier(.4,0,.2,1),visibility 0s linear 0s}
-#sidebarSettings .sp-header{display:flex;align-items:center;gap:8px;padding:15px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface)}
-#sidebarSettings .sp-header h3{font-size:15px;font-weight:700;flex:1}
+#sidebarSettings .sp-header{display:flex;align-items:center;gap:8px;padding:0 16px;min-height:var(--panel-head-h);flex-shrink:0;background:var(--surface)}
+#sidebarSettings .sp-header h3{margin:0;font-size:15px;font-weight:700;flex:1}
 #sidebarSettings .sp-back{background:none;border:none;color:var(--tdim);font-size:18px;cursor:pointer;padding:6px 10px;border-radius:var(--radius-sm);transition:all .15s;display:flex;align-items:center;justify-content:center}
 #sidebarSettings .sp-back svg{display:block}
 #sidebarSettings .sp-back:hover{color:var(--text);background:rgba(255,255,255,.07)}
@@ -935,8 +988,12 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
   <div id="sidebarContent" data-page-node-id="B26oyz4DuSbT0SFZCyksul">
     <div id="sidebarTopics" data-page-node-id="9eY9lfyj2u9fVmmHeetZZp">
       <div class="sidebar-header win-drag" data-page-node-id="Hx2EEr26JYNn9iSAxwtYHF">
-        <h2 data-page-node-id="h9g6itJEQEzqJ8hfuZUKLh"><span style="color:#fff;display:inline-flex;align-items:center" data-page-node-id="53yqrI5dR4R0t8GByvSnJF"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin-top:1px" data-page-node-id="MabZCYnYUMB6igHSAnd9Uq"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" data-page-node-id="Y0C8PgMwGttlADxVy3u9og"/><line x1="9" y1="21" x2="15" y2="21" data-page-node-id="7qNaviSUR7HohPH6KzUnjK"/><line x1="10" y1="17" x2="14" y2="17" data-page-node-id="iRvhblL5vMdR1s5l0KcOiR"/></svg></span> 任务</h2>
-        <button id="btnNew" onclick="newTopic()" data-page-node-id="jftddBxVlSSe8UQkajBgUt">+ 新建任务</button>
+        <div id="sidebarSearch" data-page-node-id="SsSearchBox01">
+          <span class="ss-ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg></span>
+          <input id="searchInput" type="text" placeholder="搜索对话与任务标题…" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <button class="ss-clear" id="searchClearBtn" type="button" title="清除">✕</button>
+        </div>
+        <button id="btnNew" onclick="newTopic()" title="新建任务" aria-label="新建任务" data-page-node-id="jftddBxVlSSe8UQkajBgUt"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
       </div>
       <div id="topicList" data-page-node-id="R140xBoCHXXs3cefHr2Snw"></div>
       <div class="sidebar-footer" data-page-node-id="ld11hH7QOaKhYvEtOmyZOB">
@@ -1411,6 +1468,7 @@ function initDom(){
   costDisplay=document.getElementById('sidebarCostVal');
   sidebarTokens=document.getElementById('sidebarTokens');
   if(typeof marked!=='undefined') marked.setOptions({breaks:true,gfm:true});
+  ssInit();
 }
 
 function updateBalance(data){
@@ -1620,7 +1678,148 @@ async function syncWorkingDots(){
   } catch(e){}
 }
 
+// ═══ 侧栏搜索：任务标题 + 历史对话正文 ═══
+// 搜索态下 topicList 由 _renderSearchResults 独占渲染，renderTopics 让位（避免轮询重建打断阅读）
+var _searchSeq=0, _searchTimer=null, _searchData=null, _searchMode=false, _searchQ='';
+var searchWrapEl=null, searchInputEl=null, searchClearEl=null;
+
+function ssInit(){
+  searchWrapEl=document.getElementById('sidebarSearch');
+  searchInputEl=document.getElementById('searchInput');
+  searchClearEl=document.getElementById('searchClearBtn');
+  if(!searchInputEl) return;
+  searchInputEl.addEventListener('input', function(){
+    var v=searchInputEl.value;
+    if(searchWrapEl) searchWrapEl.classList.toggle('has-val', !!v);
+    if(_searchTimer){ clearTimeout(_searchTimer); _searchTimer=null; }
+    if(!v.trim()){ ssExit(); return; }
+    _searchTimer=setTimeout(function(){ ssRun(v.trim()); }, 220);
+  });
+  searchInputEl.addEventListener('keydown', function(e){
+    e.stopPropagation();
+    if(e.key==='Escape'){ e.preventDefault(); ssClear(); }
+    else if(e.key==='Enter'){ e.preventDefault(); var v=searchInputEl.value.trim(); if(v) ssRun(v); }
+  });
+  if(searchClearEl) searchClearEl.addEventListener('click', function(){ ssClear(); try{ searchInputEl.focus(); }catch(_e){} });
+}
+
+function ssClear(){
+  if(searchInputEl) searchInputEl.value='';
+  if(searchWrapEl) searchWrapEl.classList.remove('has-val');
+  ssExit();
+}
+function ssExit(){
+  if(_searchTimer){ clearTimeout(_searchTimer); _searchTimer=null; }
+  _searchSeq++;                 // 让在途请求作废
+  _searchMode=false; _searchData=null; _searchQ='';
+  renderTopics();
+}
+function ssStatus(html){ topicList.innerHTML='<div class="ss-status">'+html+'</div>'; }
+
+async function ssRun(q){
+  var seq=++_searchSeq;
+  _searchQ=q; _searchMode=true;
+  ssStatus('搜索中…');
+  try{
+    var r=await fetch('/api/search?q='+encodeURIComponent(q)+'&limit=80');
+    var d=await r.json();
+    if(seq!==_searchSeq) return;   // 已有更新的查询
+    if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status));
+    _searchData=d;
+    _renderSearchResults(d);
+  }catch(e){
+    if(seq!==_searchSeq) return;
+    ssStatus('搜索失败：'+esc(e.message||'未知错误'));
+  }
+}
+
+// 把命中的关键词包成 <mark>（先转义再定位，避免 XSS）
+function ssHighlight(text, q){
+  var s=esc(text||'');
+  if(!q) return s;
+  var eq=esc(q);
+  if(!eq) return s;
+  var low=s.toLowerCase(), lowq=eq.toLowerCase();
+  var idx=low.indexOf(lowq), cur=0, out='';
+  while(idx>=0){
+    out+=s.slice(cur,idx)+'<mark>'+s.slice(idx,idx+eq.length)+'</mark>';
+    cur=idx+eq.length;
+    idx=low.indexOf(lowq, cur);
+  }
+  return out+s.slice(cur);
+}
+
+function _renderSearchResults(data){
+  var q=_searchQ;
+  var hits=(data&&data.hits)||[];
+  topicList.innerHTML='';
+  if(!hits.length){ ssStatus('未找到与 “'+esc(q)+'” 相关的内容'); return; }
+  var head=document.createElement('div');
+  head.className='ss-status';
+  head.innerHTML='命中 <b>'+hits.length+'</b> 个任务';
+  topicList.appendChild(head);
+  for(var i=0;i<hits.length;i++){
+    var h=hits[i];
+    var item=document.createElement('div');
+    item.className='topic-item'+(currentTopic&&currentTopic.id===h.id?' active':'');
+    var badge=h.title_match?'<span class="ss-badge">标题</span>':(h.summary_match?'<span class="ss-badge">摘要</span>':'');
+    var html='<div class="t-title">'+ssHighlight(h.title||'新任务', h.title_match?q:'')+badge+'</div>';
+    html+='<div class="t-preview">'+ssHighlight(h.last_message||'', h.summary_match&&!h.title_match?q:'')+'</div>';
+    var msgs=h.messages||[];
+    for(var j=0;j<msgs.length;j++){
+      var m=msgs[j];
+      html+='<div class="ss-hit-snip"><span class="ss-role'+(m.role==='user'?' you':'')+'">'+(m.role==='user'?'我':'AI')+'</span><span class="ss-txt">'+ssHighlight(m.snippet||'', q)+'</span></div>';
+    }
+    html+='<div class="t-time"><span class="t-time-txt">'+tsTopic(h.updated_at||h.created_at)+'</span></div>';
+    item.innerHTML=html;
+    (function(hit){
+      item.onclick=function(){
+        var first=(hit.messages&&hit.messages.length)?hit.messages[0]:null;
+        ssGoto(hit.id, first?first.id:0);
+      };
+    })(h);
+    topicList.appendChild(item);
+  }
+}
+
+// 打开命中任务并定位到那条消息（消息可能还没被分页加载出来 → 边翻边找）
+async function ssGoto(tid, msgId){
+  if(window.innerWidth<=768) closeSidebar(true);
+  await switchTopic(tid);
+  if(_searchMode && _searchData) _renderSearchResults(_searchData);  // 刷新高亮（当前任务）
+  if(msgId) ssScrollToMsg(msgId, 0);
+}
+function ssScrollToMsg(msgId, tries){
+  var el=chatBox.querySelector('[data-mid="'+msgId+'"]');
+  if(el){
+    try{ el.scrollIntoView({block:'center'}); }catch(e){ try{ el.scrollIntoView(); }catch(e2){} }
+    el.classList.add('ss-flash');
+    (function(node){ setTimeout(function(){ node.classList.remove('ss-flash'); },2700); })(el);
+    return;
+  }
+  if(!allLoaded && tries<40){
+    loadMoreMessages().then(function(){ setTimeout(function(){ ssScrollToMsg(msgId, tries+1); },60); });
+    return;
+  }
+  // 兜底：消息被并进过程泡/已压缩时，按关键词扫当前已渲染的正文块
+  ssFlashByText(_searchQ);
+}
+function ssFlashByText(q){
+  if(!q) return;
+  var rows=chatBox.querySelectorAll('.row');
+  for(var i=0;i<rows.length;i++){
+    if((rows[i].textContent||'').indexOf(q)>=0){
+      var node=rows[i];
+      try{ node.scrollIntoView({block:'center'}); }catch(e){}
+      node.classList.add('ss-flash');
+      (function(n){ setTimeout(function(){ n.classList.remove('ss-flash'); },2700); })(node);
+      return;
+    }
+  }
+}
+
 function renderTopics(){
+  if(_searchMode) return;   // 搜索态：列表由搜索结果接管
   topicList.innerHTML='';
   for(var i=0; i<topics.length; i++){
     var t=topics[i];
@@ -1893,6 +2092,7 @@ function render(){
       var hasThink=m.role==='ai'&&m.thinking&&!m.working&&!m.log;
       if(hasThink) cls+=' has-think';
       d.className=cls;
+      if(m.id) d.setAttribute('data-mid', String(m.id));   // 搜索命中定位用
       var displayText = m.original_text || m.text;
       // 后端为让 AI 看到附件清单注入的 [附件: xxx] 行,展示时去掉(附件块已显示文件名)
       if(m.role==='you'&&m.attachments&&m.attachments.length){ displayText=displayText.replace(/\n?\[附件: [^\]]*\]\s*$/,''); }
@@ -1979,6 +2179,7 @@ async function loadTopics(){
 }
 
 async function newTopic(){
+  if(_searchMode) ssClear();   // 新建任务时退出搜索态，让新任务出现在列表里
   window._creatingTopic=true;  // 互斥标志：阻止 loadTopics 轮询覆盖 currentTopic
   msgOffset=0; allLoaded=false;
   currentTopic=null;
@@ -2874,7 +3075,9 @@ window.addEventListener('pywebviewready',function(){
   document.addEventListener('mousedown',function(e){
     if(e.button!==0||!window.pywebview) return;
     if(!e.target.closest('.win-drag')) return;
-    if(e.target.closest('button,a,input,textarea,select,#topicTitleText')) return;
+    // #sidebarSearch 必须排除：搜索框现在住在 .sidebar-header(win-drag) 里，
+    // 若只排除 input，则拖搜索框的放大镜图标/内边距会误触"移动窗口"。
+    if(e.target.closest('button,a,input,textarea,select,#topicTitleText,#sidebarSearch')) return;
     _winDrag={on:true,x:e.clientX,y:e.clientY,dragged:false};
   },true);
   document.addEventListener('mousemove',function(e){
@@ -8797,7 +9000,6 @@ html[data-theme="white"]{
 }
 /* —— 白底容器上的白色文字转深色 —— */
 html[data-theme="white"] #btnDebug{color:var(--text)}
-html[data-theme="white"] .sidebar-header h2 > span[style*="color:#fff"]{color:var(--text) !important}
 html[data-theme="white"] .bubble strong{color:var(--text)}
 /* 用户气泡：浅绿淡染 + 深绿字（替代黑主题遗留的墨绿大色块） */
 html[data-theme="white"] .row.you .bubble{background:#e3f3ef;color:#0b5f56;border:1px solid rgba(15,157,143,.16);box-shadow:0 1px 3px rgba(15,60,54,.08)}
@@ -8873,14 +9075,16 @@ html[data-theme="white"] .av{box-shadow:0 1px 3px rgba(16,24,40,.10)}
 html[data-theme="white"] .topic-actions button{box-shadow:0 1px 2px rgba(16,24,40,.06)}
 html[data-theme="white"] #btnJump{box-shadow:0 3px 10px rgba(16,24,40,.12)}
 /* ══════ 主按钮：亮一档的青绿 + 白色图标，避开"深绿膏药"感 ══════ */
-html[data-theme="white"] #btnNew,
 html[data-theme="white"] button.send,
 html[data-theme="white"] .key-form .key-submit,
 html[data-theme="white"] .fb-upload-bar button,
 html[data-theme="white"] .pp-footer .pp-set,
 html[data-theme="white"] .sp-btn.primary{background:linear-gradient(135deg,#3fc7b6,#12a294);color:#fff;box-shadow:0 3px 10px rgba(15,157,143,.22)}
-html[data-theme="white"] #btnNew:hover,
 html[data-theme="white"] button.send:hover{box-shadow:0 5px 16px rgba(15,157,143,.30)}
+/* #btnNew 已改为 tonal→filled（静态不发光）：底色跟着 --accent-rgb 走，不用重写；
+   只需把 hover 的字色换成白色、并给 ::before 换用白主题那档偏亮的青绿渐变。 */
+html[data-theme="white"] #btnNew::before{background:linear-gradient(135deg,#3fc7b6,#12a294)}
+html[data-theme="white"] #btnNew:hover{color:#fff;box-shadow:0 5px 16px rgba(15,157,143,.30)}
 html[data-theme="white"] .act-rename{background:linear-gradient(135deg,#3fc7b6,#12a294);color:#fff}
 html[data-theme="white"] .sp-toggle input:checked+.slider{background:linear-gradient(135deg,#3fc7b6,#12a294)}
 /* ══════ 移动端抽屉遮罩：白主题下 55% 黑太重，整片深灰看着像“一大坨阴影” ══════ */

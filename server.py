@@ -2353,6 +2353,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self._json(500, {"error": str(e)})
 
+        # ── 全局搜索：任务标题 + 历史对话正文 ──
+        elif path == "/api/search":
+            try:
+                q = (params.get("q", [""])[0] or "").strip()
+                lim_raw = params.get("limit", ["60"])[0]
+                try:
+                    lim = max(1, min(300, int(lim_raw)))
+                except Exception:
+                    lim = 60
+                hits = self.db.search(q, limit=lim) if q else []
+                self._json(200, {"query": q, "count": len(hits), "hits": hits})
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+
         # ── Working state ──
         elif path == "/api/working":
             tid = params.get("topic_id", [""])[0]

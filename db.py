@@ -256,6 +256,100 @@ class Database:
         rows = self._fetchall("SELECT * FROM topics ORDER BY updated_at DESC")
         return [dict(r) for r in rows]
 
+    # ── 全局搜索：任务标题/摘要 + 历史对话正文 ─────────
+    @staticmethod
+    def _snippet(text, q, radius=46):
+        """截取命中词附近的一段上下文，压掉换行，便于前端单行展示。"""
+        s = " ".join(str(text or "").split())
+        if not s:
+            return ""
+        i = s.lower().find((q or "").lower())
+        if i < 0:
+            return s[: radius * 2] + ("…" if len(s) > radius * 2 else "")
+        a = max(0, i - radius)
+        b = min(len(s), i + len(q) + radius)
+        return ("…" if a > 0 else "") + s[a:b] + ("…" if b < len(s) else "")
+
+    def search(self, query, limit=60, per_topic=4):
+        """跨任务搜索：标题、摘要、user/ai 消息正文。
+
+        返回命中任务列表（按最近活跃排序），每项含 title_match / summary_match
+        标记与最多 per_topic 条消息片段。空查询返回 []。
+        """
+        q = (query or "").strip()
+        if not q:
+            return []
+        like = "%" + q + "%"
+        limit = max(1, min(300, int(limit or 60)))
+        hits = {}
+        order = []
+
+        def _slot(tid, title, updated_at, created_at, last_message):
+            h = hits.get(tid)
+            if h is None:
+                h = {
+                    "id": tid,
+                    "title": title or "新任务",
+                    "last_message": last_message or "",
+                    "updated_at": updated_at or 0,
+                    "created_at": created_at or 0,
+                    "title_match": False,
+                    "summary_match": False,
+                    "messages": [],
+                }
+                hits[tid] = h
+                order.append(tid)
+            return h
+
+        # 1) 标题 / 摘要命中（任务级）
+        try:
+            trows = self._fetchall(
+                "SELECT id, title, last_message, updated_at, created_at FROM topics "
+                "WHERE title LIKE ? OR last_message LIKE ? "
+                "ORDER BY updated_at DESC LIMIT ?",
+                (like, like, limit),
+            )
+        except Exception:
+            trows = []
+        for r in trows:
+            h = _slot(r["id"], r["title"], r["updated_at"], r["created_at"], r["last_message"])
+            if q.lower() in str(r["title"] or "").lower():
+                h["title_match"] = True
+            if q.lower() in str(r["last_message"] or "").lower():
+                h["summary_match"] = True
+
+        # 2) 对话正文命中（排除整理用的 hidden 与工具过程叙述 process）
+        try:
+            mrows = self._fetchall(
+                "SELECT m.id AS mid, m.topic_id AS tid, m.role AS role, m.text AS text, "
+                "       m.ts AS ts, t.title AS title, t.updated_at AS updated_at, "
+                "       t.created_at AS created_at, t.last_message AS last_message "
+                "FROM messages m JOIN topics t ON t.id = m.topic_id "
+                "WHERE m.role IN ('user','ai') AND m.text LIKE ? "
+                "  AND (m.args IS NULL OR (m.args NOT LIKE '%\"hidden\"%' AND m.args NOT LIKE '%\"process\"%')) "
+                "ORDER BY m.ts DESC, m.id DESC LIMIT ?",
+                (like, limit * 8),
+            )
+        except Exception:
+            mrows = []
+        for r in mrows:
+            h = _slot(r["tid"], r["title"], r["updated_at"], r["created_at"], r["last_message"])
+            if len(h["messages"]) >= per_topic:
+                continue
+            ts = r["ts"] or 0
+            if ts and ts < 1e14:
+                ts = ts * 1000
+            h["messages"].append({
+                "id": r["mid"],
+                "role": r["role"],
+                "ts": ts,
+                "snippet": self._snippet(r["text"], q),
+            })
+
+        out = [hits[t] for t in order]
+        out.sort(key=lambda h: h.get("updated_at") or 0, reverse=True)
+        return out[:limit]
+
     def update_topic(self, tid, **kwargs):
         allowed = {"title", "session_path", "mission_path", "last_message", "updated_at"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
