@@ -3,30 +3,62 @@
 AI 调用后 agent 循环暂停，等待用户在前端问题卡片上回答。
 超时（默认5分钟）自动降级为「自行判断」，后台任务不会永远挂起。
 放在折叠分组 interaction，不占常驻 schema。
+
+【多任务归属】（2026-09-16 加固）
+提问归属走任务上下文通道（tools/task_context.py），而不是全局活跃话题指针。
+进一步修掉一个"抢卡片位"的坑：无显式上下文的调用方（脚本/定时任务/后台线程）
+会回落借用全局活跃话题，若该话题的 agent 自己也在提问，两条问题同属一个 tid，
+而前端只渲染 get_pending_question 返回的那一条 —— 后台那条会把真正的提问
+永久挡在后面（前端只看到一个"别人的"问题，自己的永远弹不出来）。
+
+修法：给每条待答问题打 explicit 标记 + 全局自增 seq，取卡片时
+显式上下文的问题优先，同优先级按发起先后 FIFO。
 """
 import threading
 import uuid
 
 from .registry import register_tool
 
-# question_id -> {question_id, topic_id, question, options, event, answer}
+# question_id -> {question_id, topic_id, question, options, event, answer, explicit, seq}
 _PENDING = {}
 _LOCK = threading.Lock()
+_SEQ = 0  # 全局自增序号：同一话题下多个待答问题按发起先后出卡
 
 DEFAULT_TIMEOUT = 300  # 5 分钟
 
 
-def get_pending_question(tid):
-    """供 /api/working 轮询：返回该话题当前等待中的问题，无则 None。"""
+def _next_seq():
+    global _SEQ
     with _LOCK:
-        for q in _PENDING.values():
-            if q.get("topic_id") == tid and not q["event"].is_set():
-                return {
-                    "question_id": q["question_id"],
-                    "question": q["question"],
-                    "options": q["options"],
-                }
-    return None
+        _SEQ += 1
+        return _SEQ
+
+
+def _pending_for(tid):
+    """该话题下所有尚未回答的问题条目。"""
+    with _LOCK:
+        return [q for q in _PENDING.values()
+                if q.get("topic_id") == tid and not q["event"].is_set()]
+
+
+def get_pending_question(tid):
+    """供 /api/working 轮询：返回该话题当前该展示的问题，无则 None。
+
+    【排序规则】显式上下文（agent 循环已绑定本任务）发起的问题优先于
+    无上下文兜底借用全局活跃话题的问题；同级按 seq 先后 FIFO。
+    这样后台提问永远不会抢占某个任务自己的卡片位。
+    """
+    cands = _pending_for(tid)
+    if not cands:
+        return None
+    cands.sort(key=lambda q: (0 if q.get("explicit") else 1, q.get("seq") or 0))
+    q = cands[0]
+    return {
+        "question_id": q["question_id"],
+        "question": q["question"],
+        "options": q["options"],
+        "queued": len(cands) - 1,  # 该话题还有几条在排队（前端可忽略）
+    }
 
 
 def submit_answer(question_id, answer):
@@ -71,11 +103,22 @@ def submit_answer(question_id, answer):
 )
 def ask_user(question: str, options: list = None, timeout_seconds: int = DEFAULT_TIMEOUT):
     from server import set_working
-    from .task_context import get_current_topic
+    from .task_context import get_current_topic, has_explicit_context
 
     # 归属走任务上下文通道：agent 循环已在发起任务所在线程绑定 tid。
     # 旧实现读全局 active 指针，多任务切换时会把提问卡片弹错窗口（已发生事故）。
+    explicit = has_explicit_context()
     tid = get_current_topic() or ""
+    if not explicit:
+        # 不阻断旧行为（脚本/定时任务仍可借用全局活跃话题），但绝不抢显式问题的卡片位，
+        # 并留下日志，便于排查"这张卡片是谁弹的"。
+        print(f"[ask_user] 无显式任务上下文，回落全局活跃话题 tid={tid or '(空)'}"
+              f"；该问题优先级低于所属任务的显式提问（question={question[:40]!r}）")
+    if not tid:
+        # 没有话题 = 前端没有任何轮询通道能渲染这张卡片，只能等超时。
+        print("[ask_user] 警告：无归属话题（全局活跃话题也为空），"
+              "该问题无法在前端展示，只能等超时")
+
     qid = uuid.uuid4().hex[:8]
     entry = {
         "question_id": qid,
@@ -84,6 +127,8 @@ def ask_user(question: str, options: list = None, timeout_seconds: int = DEFAULT
         "options": options or [],
         "event": threading.Event(),
         "answer": None,
+        "explicit": explicit,
+        "seq": _next_seq(),
     }
     with _LOCK:
         _PENDING[qid] = entry

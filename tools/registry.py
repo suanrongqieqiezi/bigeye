@@ -261,6 +261,31 @@ def get_folded_group_defs(group_name):
     return defs
 
 
+def _arg_mismatch_hint(name, args, msg):
+    """参数不匹配时的可执行提示：列出必填参数和实际传入的键。
+
+    2026-09-15 教训：折叠工具参数丢失时，以前直接把
+    "ask_user() missing 1 required positional argument: 'question'" 丢给模型，
+    弱模型看不懂 Python 术语，会原样重试 40 次。
+    """
+    d = get_tool_def_by_name(name) or {}
+    required = (d.get("parameters") or {}).get("required") or []
+    got = sorted((args or {}).keys())
+    missing = [p for p in required if p not in (args or {})]
+    bits = [f"调用 {name} 的参数不匹配：{msg}。"]
+    if required:
+        bits.append(f"该工具必填参数 {required}；")
+    if missing:
+        bits.append(f"你漏了 {missing}；")
+    bits.append(f"你实际传了 {got}。")
+    if name != "execute_advanced_tool":
+        demo = ", ".join(f'"{p}": ...' for p in required)
+        bits.append(
+            f"修正写法：execute_advanced_tool(name=\"{name}\", args={{{demo}}})"
+        )
+    return "".join(bits)
+
+
 def execute_tool(name, args):
     """Execute a tool by name with given args. Returns result dict."""
     # Route MCP tools
@@ -279,6 +304,14 @@ def execute_tool(name, args):
         if isinstance(result, dict) and "error" in result:
             return result
         return {"result": result}
+    except TypeError as e:
+        # 参数不匹配是模型调用姿势问题，不是代码 bug：
+        # 给必填参数清单，别把 Python 术语 + 整屏 traceback 抛给模型。
+        msg = str(e)
+        if "required positional argument" in msg or "unexpected keyword argument" in msg:
+            return {"error": _arg_mismatch_hint(name, args, msg)}
+        traceback.print_exc()
+        return {"error": f"工具执行失败: {e}"}
     except Exception as e:
         traceback.print_exc()
         return {"error": f"工具执行失败: {e}"}

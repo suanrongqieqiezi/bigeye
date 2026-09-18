@@ -487,30 +487,42 @@ class Database:
         )
         self._commit()
 
-    def get_messages(self, topic_id, limit=None, offset=0, skip_hidden=False, skip_process=False):
+    def get_messages(self, topic_id, limit=None, offset=0, skip_hidden=False, skip_process=False,
+                     exclude_thinking=False, after_ts=None):
         # skip_hidden: 过滤 args 含 "hidden" 的消息（organize_context 批量整理的）
         # skip_process: 过滤 args 含 "process" 的 AI 消息（工具轮动作叙述，非最终回复）
         #   过程叙述仍可通过 read_topic_messages 工具直接 SQL 翻阅，只是不进 AI 上下文和前端历史
+        # exclude_thinking: 只回 has_thinking 标记，不回 thinking 正文（正文体积可达数 MB，
+        #   前端首屏/轮询全带上会把"最终答复"拖到最后才出现；改为点开过程泡时按需拉）
+        # after_ts: 只要该时间戳(秒)之后的消息 —— 前端增量刷新用，避免每次全量重传历史
         filters = []
+        fargs = []
         if skip_hidden:
             filters.append("(args NOT LIKE '%\"hidden\"%' OR args IS NULL)")
         if skip_process:
             # 只过滤 AI 角色的过程叙述，tool 角色的 args 也可能含 process 字样但不影响
             filters.append("(role != 'ai' OR args NOT LIKE '%\"process\"%' OR args IS NULL)")
+        if after_ts is not None:
+            try:
+                _ts = float(after_ts)
+                if _ts > 1e12:   # 前端可能传毫秒 → 归一到库内单位(秒)
+                    _ts /= 1000.0
+                filters.append("ts >= ?")
+                fargs.append(_ts)
+            except (TypeError, ValueError):
+                pass
         extra_filter = ("AND " + " AND ".join(filters)) if filters else ""
+        think_col = ("CASE WHEN thinking IS NOT NULL AND thinking != '' THEN 1 ELSE 0 END AS has_thinking"
+                     if exclude_thinking else "thinking")
+        sel = f"SELECT id, topic_id, role, text, args, {think_col}, ts FROM messages WHERE topic_id=? {extra_filter}"
         if limit:
             rows = self._fetchall(
-                f"SELECT id, topic_id, role, text, args, thinking, ts FROM messages "
-                f"WHERE topic_id=? {extra_filter} ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?",
-                (topic_id, limit, offset)
+                sel + " ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?",
+                tuple([topic_id] + fargs + [limit, offset])
             )
             rows.reverse()
         else:
-            rows = self._fetchall(
-                f"SELECT id, topic_id, role, text, args, thinking, ts FROM messages "
-                f"WHERE topic_id=? {extra_filter} ORDER BY ts, id",
-                (topic_id,)
-            )
+            rows = self._fetchall(sel + " ORDER BY ts, id", tuple([topic_id] + fargs))
         result = []
         for r in rows:
             ts = r["ts"]
@@ -524,10 +536,25 @@ class Database:
                 m["args"] = json.loads(r["args"]) if r["args"] else None
             except json.JSONDecodeError:
                 m["args"] = None
-            if r["thinking"]:
+            if exclude_thinking:
+                if r["has_thinking"]:
+                    m["has_thinking"] = True
+            elif r["thinking"]:
                 m["thinking"] = r["thinking"]
             result.append(m)
         return result
+
+    def get_thinking_by_ids(self, topic_id, ids):
+        """按需取指定消息的 thinking 正文（前端展开过程泡时才调）。返回 {id字符串: 正文}"""
+        if not ids:
+            return {}
+        ids = [int(i) for i in ids][:200]
+        ph = ",".join("?" * len(ids))
+        rows = self._fetchall(
+            f"SELECT id, thinking FROM messages WHERE topic_id=? AND id IN ({ph})",
+            tuple([topic_id] + ids)
+        )
+        return {str(r["id"]): (r["thinking"] or "") for r in rows}
 
     def message_count(self, topic_id):
         row = self._fetchone("SELECT COUNT(*) as cnt FROM messages WHERE topic_id=?", (topic_id,))

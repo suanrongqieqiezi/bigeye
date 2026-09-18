@@ -22,8 +22,21 @@ HEALTH = f"http://127.0.0.1:{PORT}/api/health"
 
 _hwnd = None   # 主窗口句柄，供 JS API 拖拽/最大化用
 _window = None  # pywebview 窗口对象
+_pip_window = None  # 画中画独立小窗（原生置顶窗口）
 _splash = {"status": "正在启动", "done": False}  # 启动提示窗共享状态
 _splash_closed = threading.Event()  # 卡片实际销毁信号：主窗口等它再显示，杜绝同屏跳动
+
+
+def _is_web_url(u):
+    """只放行 http/https，别让前端把本地路径/自定义协议塞进来。"""
+    s = str(u or "").strip().lower()
+    return s.startswith("http://") or s.startswith("https://")
+
+
+def _clear_pip_window(*_a):
+    """小窗被用户关掉后清引用，下次调用才能重新建。"""
+    global _pip_window
+    _pip_window = None
 
 
 
@@ -305,6 +318,66 @@ class WinApi:
         写死颜色会在换主题后露馅，所以由前端算好实际值传过来。
         """
         return _set_dwm_frame(hexcolor)
+
+    def open_external(self, url):
+        """用系统默认浏览器打开链接（画中画面板"在浏览器打开"的兜底出口）。"""
+        if not _is_web_url(url):
+            return False
+        try:
+            if os.name == "nt":
+                os.startfile(url)  # noqa: S606 打开的是网址，不是可执行文件
+            else:
+                import webbrowser
+                webbrowser.open(url)
+            return True
+        except Exception:
+            return False
+
+    def open_pip(self, url):
+        """独立小窗（原生画中画）：置顶、可拖动缩放，给"禁止被 iframe 内嵌"的站点用。
+
+        为什么能在这里建窗：pywebview 的 js_api 调用本身跑在子线程里，而 create_window
+        只在"非主线程 + GUI 已启动"时才会立即建窗（源码 __init__.py 里就是这个判断），
+        所以 js_api 里直接调是官方允许的路径，不需要绕 route。
+        已存在小窗就复用它，避免连点叠出一堆窗口。
+        """
+        global _pip_window
+        if not _is_web_url(url):
+            return False
+        try:
+            import webview
+            w = _pip_window
+            if w is not None:
+                try:
+                    w.load_url(url)
+                    w.show()
+                    w.restore()
+                    return True
+                except Exception:
+                    _pip_window = None  # 已被关掉/失效，重开一个
+            try:
+                scr = webview.screens[0]
+                sw, sh = int(scr.width), int(scr.height)
+            except Exception:
+                sw, sh = 1280, 860
+            ww, hh = 520, 620
+            x = max(20, sw - ww - 48)
+            y = max(20, sh - hh - 120)
+            _pip_window = webview.create_window(
+                "画中画", url, width=ww, height=hh, x=x, y=y,
+                on_top=True, resizable=True, min_size=(300, 220),
+                text_select=True,
+            )
+            if _pip_window is None:
+                return False
+            try:
+                _pip_window.events.closed += _clear_pip_window
+            except Exception:
+                pass
+            return True
+        except Exception as e:
+            _splash_log(f"open_pip err: {e!r}")
+            return False
 
     def start_drag(self):
         """原生标题栏拖拽：系统接管移动，自带 Win 手势（左右边缘分屏/拖顶最大化）。

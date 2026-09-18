@@ -19,6 +19,7 @@ import threading
 import http.server
 import urllib.request
 import urllib.parse
+import urllib.error
 import traceback
 import queue
 import ssl
@@ -45,6 +46,7 @@ from llm import LLMConfig, chat_stream, chat_stream_cached, _build_messages, is_
 from tools.registry import get_tool_defs, execute_tool, register_tool
 import loop_detector  # 目标级打转检测（探索类占比高且零落地 → 注入提醒）
 import local_llm  # 本地模型服务探活/按需拉起（Qwen3.8 27B @ llama.cpp）
+import custom_providers  # 第三方模型源：注册/归一化/协议探测（模型设置里无限添加）
 # 打包成 exe 后 ROOT_DIR ≠ 源码目录，必须把真实路径注入进去
 local_llm.configure(config_path=os.path.join(ROOT_DIR, "model_config.json"),
                     data_dir=os.path.join(ROOT_DIR, "data"))
@@ -271,6 +273,15 @@ def _model_context_window(model_id):
     if not model_id:
         return _DEFAULT_CONTEXT_WINDOW
     mid = model_id.lower()
+    # 第三方源：同一个模型名在不同聚合站的窗口可能被改写（或本身是别名），
+    # 用户在设置页填了就信用户 —— 否则上下文压缩阈值会按错的窗口估算
+    try:
+        _cfg = get_model_config()
+        _cp = custom_providers.runtime_config(ROOT_DIR, _cfg.provider)
+        if _cp and _cp.get("ctx_window") and mid == str(_cfg.model or "").lower():
+            return int(_cp["ctx_window"])
+    except Exception:
+        pass
     # 本地 llama.cpp 模型：上下文由 llama-server 的 --ctx-size 决定（本机 24K），
     # 不是默认的 128K。必须用真实值，否则应用按 128K 估算上下文、实际只有 24K
     # → 请求超长被 llama-server 拒绝或头部被截断，表现为"忘了前面说的话"。
@@ -1582,6 +1593,10 @@ def _save_model_config():
             cfg["base_url"] = _model_config.base_url
             cfg["api_key"] = _model_config.api_key
             cfg["max_tokens"] = _model_config.max_tokens
+            # 第三方源可能用 Anthropic 协议或要求额外请求头 —— 不落盘的话
+            # 重启后对话会退回 OpenAI 协议打同一地址，直接 404
+            cfg["protocol"] = getattr(_model_config, "protocol", "openai")
+            cfg["extra_headers"] = getattr(_model_config, "extra_headers", {}) or {}
             # 保存 fallback_chain（含每个 provider 的 api_key），否则前端输入的 key 不持久化
             cfg["fallback_chain"] = _model_config.fallback_chain
         with open(path, "w", encoding="utf-8") as f:
@@ -1654,13 +1669,27 @@ def _fetch_provider_models(provider: str, base_url: str, api_key: str) -> list[d
 
 
 def _get_provider_key(cfg, provider: str) -> str:
-    """获取指定 provider 的 api_key：主 config 优先，否则查 fallback_chain。"""
+    """获取指定 provider 的 api_key：主 config 优先 → 自定义源 → fallback_chain。"""
     if cfg.provider == provider:
         return cfg.api_key
+    try:
+        rt = custom_providers.runtime_config(ROOT_DIR, provider)
+        if rt and rt.get("api_key"):
+            return rt["api_key"]
+    except Exception:
+        pass
     for item in cfg.fallback_chain:
         if item.get("provider") == provider:
             return item.get("api_key", "")
     return ""
+
+
+def _custom_provider(provider: str):
+    """取一个第三方源的运行时配置（不存在返回 None）。"""
+    try:
+        return custom_providers.runtime_config(ROOT_DIR, provider)
+    except Exception:
+        return None
 
 
 # ── 视觉（图片输入）能力判定与回退 ──────────────────
@@ -1678,6 +1707,12 @@ def _vision_capable(cfg) -> bool:
             return True
     except Exception:
         pass
+    # 第三方源：以设置页里的「支持图片输入」开关为准。勾了就直接认，
+    # 否则按模型名判（上面已判过）——不能一律回退到 DeepSeek，
+    # 那会把用户的图偷偷发到别的厂商。
+    cp = _custom_provider(str(getattr(cfg, "provider", "")))
+    if cp is not None:
+        return bool(cp.get("vision"))
     if str(getattr(cfg, "provider", "")) in ("llamacpp", "ollama"):
         try:
             return bool(local_llm.supports_vision())
@@ -1916,6 +1951,42 @@ def _build_model_list(cfg) -> list[dict]:
         "current": cfg.provider == "openrouter" and cfg.model == "openrouter/auto",
     })
 
+    # ── 第三方源（用户在设置页自己添加的任意兼容端点，数量不限）──
+    # 放在最后：内置源开箱可用，第三方属于进阶配置。
+    # 每个源的模型单独成组（前端用 group 字段显示源的显示名）。
+    try:
+        for cp in custom_providers.load_all(ROOT_DIR):
+            if not cp.get("enabled", True):
+                continue
+            proto_label = "Anthropic" if cp["protocol"] == "anthropic" else "OpenAI 兼容"
+            has_key = bool(cp["api_key"])
+            listed_current = False
+
+            def _row(mid, disp=""):
+                return {
+                    "provider": cp["id"],
+                    "id": mid,
+                    "name": disp or mid,
+                    "desc": f"{cp['name']} · {proto_label}",
+                    "available": has_key,
+                    "custom": True,
+                    "group": cp["name"],
+                    "protocol": cp["protocol"],
+                    "vision": bool(cp.get("vision")) or _model_vision_flag(cp["id"], mid),
+                    "current": cfg.provider == cp["id"] and cfg.model == mid,
+                }
+
+            for m in cp["models"]:
+                row = _row(m["id"], m.get("name") or "")
+                listed_current = listed_current or row["current"]
+                result.append(row)
+            # 正在用这个源、但模型已不在清单里（用户改过配置/在别处切过）
+            # → 补一条，否则"当前模型"卡片有名字、列表里却找不到它
+            if cfg.provider == cp["id"] and not listed_current:
+                result.append(_row(cfg.model, f"{cfg.model} (当前)"))
+    except Exception as e:
+        print(f"[models] custom providers failed: {e}")
+
     return result
 def get_ips(port):
     ips = []
@@ -2151,43 +2222,37 @@ _balance_cache_lock = threading.Lock()
 _total_spent_cny = 0.0
 _last_balance_cny = 0.0
 _balance_provider = None  # 余额基线所属供应商；切换供应商时重置基线不累计消费
+_balance_currency = ""    # 基线币种：非人民币源的余额差不能混进 CNY 消费口径
 
 
 def _balance_now():
-    """实时查询当前供应商余额（无缓存），返回 float 或 None（失败时）。"""
+    """实时查询当前供应商余额（无缓存）。返回 (余额 float|None, 币种, 来源)。
+
+    统一走 custom_providers.query_balance：内置源（DeepSeek / 智谱 / OpenRouter…）
+    与用户自己加的第三方源吃**同一套厂商适配器**，所以切到第三方源后顶栏余额
+    也能正常显示，不必为每家再写一段。
+
+    depth 用 "relay" 而不是 "full"：这个函数由后台每 120s 轮询一次，
+    full 那层（宽松识别）会对站点打二十几个请求 —— 对自研站点太不礼貌。
+    relay 能覆盖 one-api 系（第三方站的绝大多数）且最多 4 个请求。
+    """
     try:
         cfg = get_model_config()
         api_key = cfg.api_key
         if not api_key:
-            return None
-        if cfg.provider == "zhipu":
-            # 智谱：控制台内部接口，API key 直接鉴权（实测 200）
-            req = urllib.request.Request(
-                "https://open.bigmodel.cn/api/biz/account/query-customer-account-report")
-            req.add_header("Authorization", "Bearer " + api_key)
-            rr = urllib.request.urlopen(req, timeout=10,
-                                        context=None if _VERIFY_SSL else _UNVERIFIED_SSL_CTX)
-            data = json.loads(rr.read())
-            if data and data.get("success") and isinstance(data.get("data"), dict):
-                try:
-                    return float(data["data"].get("balance", "0"))
-                except (ValueError, TypeError):
-                    return None
-        else:
-            req = urllib.request.Request("https://api.deepseek.com/user/balance")
-            req.add_header("Authorization", "Bearer " + api_key)
-            rr = urllib.request.urlopen(req, timeout=10,
-                                        context=None if _VERIFY_SSL else _UNVERIFIED_SSL_CTX)
-            data = json.loads(rr.read())
-            if data and data.get("is_available"):
-                info = data.get("balance_infos", [{}])[0]
-                try:
-                    return float(info.get("total_balance", "0"))
-                except (ValueError, TypeError):
-                    return None
+            return None, "", ""
+        r = custom_providers.query_balance(
+            cfg.base_url or "", api_key,
+            getattr(cfg, "protocol", "openai") or "openai",
+            getattr(cfg, "extra_headers", None),
+            timeout=10, depth="relay")
+        if r.get("ok") and r.get("remaining") is not None:
+            return float(r["remaining"]), (r.get("currency") or ""), (r.get("provider") or "")
+        if r.get("error"):
+            print(f"[balance] {cfg.provider}: {r['error']}｜{(r.get('advice') or '')[:60]}")
     except Exception as e:
         print(f"[balance] query failed: {e}")
-    return None
+    return None, "", ""
 
 
 def _query_balance(force=False):
@@ -2198,33 +2263,42 @@ def _query_balance(force=False):
         if not force and _balance_cache[0] and now - _balance_cache[0] < 120:
             return _balance_cache[1]
     balance_data = None
-    now_bal = _balance_now()
+    now_bal, cur_code, src = _balance_now()
+    cur_code = (cur_code or "").upper()
     if now_bal is not None:
-        balance_data = {"is_available": True, "balance_infos": [{"total_balance": str(now_bal)}]}
+        balance_data = {
+            "is_available": True,
+            "balance_infos": [{"total_balance": str(now_bal),
+                               "currency": cur_code or "CNY"}],
+            "currency": cur_code or "CNY",
+            "provider": src,
+        }
     with _balance_cache_lock:
         _balance_cache = (now, balance_data)
     if balance_data and balance_data.get("is_available"):
-        info = balance_data.get("balance_infos", [{}])[0]
-        try:
-            now_bal = float(info.get("total_balance", "0"))
-        except (ValueError, TypeError):
-            now_bal = 0.0
-        global _balance_provider
+        now_bal = float(now_bal)
+        global _balance_provider, _balance_currency
         cur_provider = get_model_config().provider
-        if _balance_provider != cur_provider:
-            # 供应商切换（或首次启动）：两池资金独立，重置基线，不把差额误算成消费
-            _balance_provider = cur_provider
+        is_cny = cur_code in ("CNY", "RMB")
+        if _balance_provider != cur_provider or _balance_currency != cur_code:
+            # 供应商/币种切换（或首次启动）：两池资金独立，重置基线，不把差额误算成消费
+            _balance_provider, _balance_currency = cur_provider, cur_code
             _last_balance_cny = now_bal
-        elif _last_balance_cny == 0:
+        elif not is_cny:
+            # 非人民币源（one-api 系多为 USD）：币种不同，余额差直接并进 CNY 口径
+            # 只会把消费统计搞乱，所以这里只跟基线、不累计
             _last_balance_cny = now_bal
-        if now_bal < _last_balance_cny:
-            _delta = _last_balance_cny - now_bal
-            # 防抖：单次跳变 >¥10 视为 API 异常/充值前基线错误，不累计（历史 679 垃圾数据根源）
-            if _delta <= 10:
-                _total_spent_cny += _delta
-            else:
-                print(f"[balance] ignore abnormal drop ¥{_delta:.2f}")
-        _last_balance_cny = now_bal
+        else:
+            if _last_balance_cny == 0:
+                _last_balance_cny = now_bal
+            if now_bal < _last_balance_cny:
+                _delta = _last_balance_cny - now_bal
+                # 防抖：单次跳变 >¥10 视为 API 异常/充值前基线错误，不累计（历史 679 垃圾数据根源）
+                if _delta <= 10:
+                    _total_spent_cny += _delta
+                else:
+                    print(f"[balance] ignore abnormal drop ¥{_delta:.2f}")
+            _last_balance_cny = now_bal
         try:
             db = get_db()
             db.set_meta("total_spent_cny", str(_total_spent_cny))
@@ -2232,6 +2306,180 @@ def _query_balance(force=False):
         except Exception:
             pass
     return balance_data
+
+
+def _invalidate_balance():
+    """切源 / 改源 / 删源之后必须清余额缓存。
+
+    缓存是按时间（120s）算的，但余额本身跟 provider 走：不清的话，
+    用户切到第三方源后顶栏会一直显示**旧源**的余额（最长 120 秒），
+    看起来就像新源的钱被算错了。顺手起个后台线程立刻查一次，
+    让顶栏马上换成新源的数（或换成"—"）。
+    """
+    global _balance_cache, _balance_provider, _balance_currency
+    with _balance_cache_lock:
+        _balance_cache = (0, None)
+    _balance_provider = None
+    _balance_currency = ""
+    try:
+        threading.Thread(target=_query_balance, kwargs={"force": True}, daemon=True).start()
+    except Exception as e:
+        print(f"[balance] invalidate query failed: {e}")
+
+
+# ══════════════════════════════════════════════════════
+# 网页画中画（Web PiP）：内嵌可行性预检 + 代理取回 + 外部浏览器
+# ══════════════════════════════════════════════════════
+_PIP_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+           "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+
+
+def _pip_host_is_internal(host):
+    """字面 IP 是否属于本机/内网/保留段（防 SSRF）。"""
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(host)
+    except ValueError:
+        return False  # 不是 IP，交给 DNS 解析后再判
+    return (a.is_private or a.is_loopback or a.is_link_local or a.is_reserved
+            or a.is_multicast or a.is_unspecified)
+
+
+def _pip_safe_url(url, resolve=True):
+    """校验外链：只允许 http/https；resolve=True 时连解析结果也必须是公网地址。
+
+    返回 (ok, reason)。代理端点必须 resolve=True——否则等于把本机 9890、内网服务
+    甚至云元数据地址开放给任何能访问前端的人。
+    """
+    try:
+        p = urllib.parse.urlparse(url or "")
+    except Exception:
+        return False, "地址无法解析"
+    if p.scheme not in ("http", "https"):
+        return False, "只支持 http/https 链接"
+    host = p.hostname
+    if not host:
+        return False, "缺少主机名"
+    if _pip_host_is_internal(host):
+        return False, "内网/本机地址不允许走代理"
+    if resolve:
+        try:
+            infos = socket.getaddrinfo(host, p.port or (443 if p.scheme == "https" else 80),
+                                       proto=socket.IPPROTO_TCP)
+        except Exception:
+            return False, "域名解析失败"
+        for info in infos:
+            if _pip_host_is_internal(info[4][0]):
+                return False, "该域名解析到内网地址，已拦截"
+    return True, ""
+
+
+class _PipRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """代理取回时逐跳校验重定向目标，避免 302 到 127.0.0.1 绕过 SSRF 检查。"""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        ok, why = _pip_safe_url(newurl)
+        if not ok:
+            raise urllib.error.HTTPError(newurl, code, "redirect blocked: %s" % why, headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_PIP_OPENER = urllib.request.build_opener(_PipRedirectHandler)
+
+
+def _pip_frame_policy(url):
+    """该站点能否被 iframe 内嵌：读响应头里的 X-Frame-Options / CSP frame-ancestors。
+
+    只做预检，不做拦截判定——预检拿不到响应（被反爬挡了）时返回 reachable=False，
+    交给前端照常有 iframe 试一次，避免"预检失败 = 直接不给看"。
+    """
+    hdrs, final_url, reachable, err = {}, url, False, ""
+    for method in ("HEAD", "GET"):
+        try:
+            req = urllib.request.Request(url, method=method, headers={
+                "User-Agent": _PIP_UA, "Accept-Language": "zh-CN,zh;q=0.9",
+                "Accept-Encoding": "identity", "Range": "bytes=0-1",
+            })
+            with _PIP_OPENER.open(req, timeout=8) as r:
+                hdrs = {k.lower(): v for k, v in r.headers.items()}
+                final_url, reachable = r.geturl(), True
+                break
+        except urllib.error.HTTPError as e:
+            # 403/405 等也算"站点活着"，响应头同样有效
+            hdrs = {k.lower(): v for k, v in (e.headers or {}).items()}
+            final_url, reachable = e.geturl() or url, True
+            break
+        except Exception as e:
+            err = str(e)
+            continue
+    xfo = (hdrs.get("x-frame-options") or "").strip()
+    csp = hdrs.get("content-security-policy") or ""
+    blocked, reason = False, ""
+    if xfo:
+        v = xfo.split(",")[0].strip().upper()
+        if v.startswith("DENY") or v.startswith("SAMEORIGIN") or v.startswith("ALLOW-FROM"):
+            blocked, reason = True, "X-Frame-Options: %s" % xfo
+    m = re.search(r"frame-ancestors([^;]*)", csp, re.I)
+    if m:
+        fa = m.group(1).strip()
+        if fa and "*" not in fa:
+            blocked, reason = True, "CSP frame-ancestors %s" % (fa or "'none'")
+    return {"ok": True, "reachable": reachable, "blocked": blocked, "reason": reason,
+            "final_url": final_url, "error": err}
+
+
+def _pip_proxy_build(url):
+    """取回页面并加工成"可内嵌"的 HTML：注入 <base> 修正相对路径、
+    去掉页面自带的 CSP meta、把站内链接改成回到画中画里打开。
+
+    返回 (content_type, bytes) 或抛异常。非 HTML（图片/PDF 等）原样透传。
+    """
+    req = urllib.request.Request(url, headers={
+        "User-Agent": _PIP_UA, "Accept-Language": "zh-CN,zh;q=0.9",
+        "Accept-Encoding": "identity", "Referer": url,
+    })
+    with _PIP_OPENER.open(req, timeout=20) as r:
+        ctype = (r.headers.get("Content-Type") or "text/html").lower()
+        raw = r.read(3 * 1024 * 1024 + 1)
+        final_url = r.geturl()
+    if len(raw) > 3 * 1024 * 1024:
+        raise ValueError("页面超过 3MB，已放弃代理加载")
+    if "html" not in ctype:
+        return ctype, raw
+    # 编码：优先响应头 charset，其次 meta charset，最后按 UTF-8 容错解
+    cs = "utf-8"
+    m = re.search(r"charset=([\w\-]+)", ctype)
+    if m:
+        cs = m.group(1)
+    else:
+        m2 = re.search(rb'charset=["\']?([\w\-]+)', raw[:4096], re.I)
+        if m2:
+            cs = m2.group(1).decode("ascii", "replace")
+    try:
+        html = raw.decode(cs, "replace")
+    except LookupError:
+        html = raw.decode("utf-8", "replace")
+    # 页面自带的 CSP meta 会把外链资源再拦一次，移除；iframe 相关头由"我们"决定（本就不转发）
+    html = re.sub(r'<meta[^>]+http-equiv=["\']?Content-Security-Policy["\']?[^>]*>', "", html, flags=re.I)
+    base_tag = '<base href="%s">' % urllib.parse.urljoin(final_url, "/")
+    inject = base_tag + (
+        "<script>(function(){"
+        "document.addEventListener('click',function(e){"
+        "var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;"
+        "var h=a.getAttribute('href')||'';if(!h||h.charAt(0)==='#')return;"
+        "try{var u=new URL(h,location.href).href;"
+        "if(!/^https?:/i.test(u))return;"
+        "e.preventDefault();parent.postMessage({__wp_nav:u},'*');}catch(_){}} ,true);"
+        "})();</script>")
+    if re.search(r"<head[^>]*>", html, re.I):
+        html = re.sub(r"(<head[^>]*>)", lambda mm: mm.group(1) + inject, html, count=1, flags=re.I)
+    elif re.search(r"<html[^>]*>", html, re.I):
+        html = re.sub(r"(<html[^>]*>)", lambda mm: mm.group(1) + inject, html, count=1, flags=re.I)
+    else:
+        html = inject + html
+    return "text/html; charset=utf-8", html.encode("utf-8", "replace")
+
+
 # ══════════════════════════════════════════════════════
 # HTTP Handler
 # ══════════════════════════════════════════════════════
@@ -2399,12 +2647,41 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 limit_raw = params.get("limit", [None])[0]
                 limit = int(limit_raw) if limit_raw is not None else None
                 offset = int(params.get("offset", ["0"])[0])
+                # exclude_thinking=1: 只回 has_thinking 标记，不回思考正文。
+                # 单个长任务的 thinking 累计可达几 MB，若随首屏/轮询一起传，
+                # "最终答复"要等整包下载完才渲染（用户感知：卡很久然后突然全冒出来）。
+                # 正文改由 /api/message-thinking 在前端点开过程泡时按需拉取。
+                _excl = str(params.get("exclude_thinking", ["0"])[0]).lower() in ("1", "true", "yes")
+                # after_ts: 增量刷新（只取该时刻之后的消息），避免每次全量重传历史
+                _after = params.get("after_ts", [None])[0]
 
-                msgs = self.db.get_messages(tid, limit=limit, offset=offset, skip_hidden=False, skip_process=True)
+                msgs = self.db.get_messages(tid, limit=limit, offset=offset, skip_hidden=False,
+                                            skip_process=True, exclude_thinking=_excl, after_ts=_after)
                 # Attach original_text for compressed messages so frontend can show real content
                 if msgs:
                     _attach_compressed_originals(tid, msgs)
-                self._json(200, {"messages": msgs or []})
+                payload = {"messages": msgs or []}
+                # 前端据 md.working 判断本任务是否还在跑（用于清理陈旧的错误标记），
+                # 旧实现没回这个字段，前端一直在读 undefined
+                if tid:
+                    try:
+                        w = get_working(tid)
+                        if isinstance(w, dict):
+                            payload["working"] = w
+                    except Exception:
+                        pass
+                self._json(200, payload)
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+
+        # ── 按需拉思考正文（过程泡展开时才调，首屏不传）──
+        elif path == "/api/message-thinking":
+            try:
+                tid = params.get("topic_id", [""])[0]
+                raw_ids = params.get("ids", [""])[0]
+                ids = [int(x) for x in str(raw_ids).split(",") if x.strip().lstrip("-").isdigit()]
+                self._json(200, {"topic_id": tid,
+                                 "thinking": self.db.get_thinking_by_ids(tid, ids) if tid else {}})
             except Exception as e:
                 self._json(500, {"error": str(e)})
         elif path == "/api/models":
@@ -2421,6 +2698,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             cfg = get_model_config()
             self._json(200, {"fallback_chain": cfg.fallback_chain,
                              "current": cfg.to_dict()})
+
+        # ── 第三方模型源（自定义兼容端点，数量不限）──
+        elif path == "/api/custom-providers":
+            try:
+                self._json(200, {
+                    "providers": custom_providers.public_list(ROOT_DIR),
+                    "builtin_ids": sorted(custom_providers.BUILTIN_IDS),
+                    "protocols": list(custom_providers.PROTOCOLS),
+                })
+            except Exception as e:
+                self._json(500, {"error": str(e), "providers": []})
 
         # ── 本地模型服务状态（llama.cpp / Ollama）──
         # 供前端：①切换前预检 ②拉起后轮询进度 ③设置页状态灯
@@ -2474,10 +2762,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if bd and bd.get("is_available"):
                 info = bd.get("balance_infos", [{}])[0]
                 self._json(200, {
-                    "currency": info.get("currency", "CNY"),
+                    "currency": info.get("currency") or bd.get("currency") or "CNY",
                     "total_balance": info.get("total_balance", "0.00"),
                     "granted_balance": info.get("granted_balance", "0.00"),
                     "topped_up_balance": info.get("topped_up_balance", "0.00"),
+                    "provider": bd.get("provider", ""),
                 })
             else:
                 self._json(200, {"total_balance": "0.00", "currency": "CNY", "error": "unavailable"})
@@ -3164,6 +3453,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self._json(500, {"error": str(e)})
 
+        # ── 网页画中画：内嵌可行性预检 ──
+        # 对话里点外链时先问一句"这站能不能被 iframe 内嵌"，省得帧里白屏半天
+        elif path == "/api/url-check":
+            try:
+                target = (params.get("url", [""])[0] or "").strip()
+                ok, why = _pip_safe_url(target, resolve=False)
+                if not ok:
+                    self._json(400, {"ok": False, "blocked": False, "error": why})
+                    return
+                info = _pip_frame_policy(target)
+                info["url"] = target
+                self._json(200, info)
+            except Exception as e:
+                self._json(500, {"ok": False, "blocked": False, "error": str(e)})
+
+        # ── 网页画中画：代理取回（给禁止内嵌的站点用）──
+        elif path == "/api/web-proxy":
+            try:
+                target = (params.get("url", [""])[0] or "").strip()
+                ok, why = _pip_safe_url(target, resolve=True)
+                if not ok:
+                    self._json(403, {"error": why})
+                    return
+                ctype, body = _pip_proxy_build(target)
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Cache-Control", "no-store")
+                # 故意不转发 X-Frame-Options / CSP：内嵌与否由本应用自己决定
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                self._json(502, {"error": "代理加载失败：%s" % e})
+
         # ── Static files ──
         elif path == "/":
             self._serve_static("/index.html")
@@ -3434,15 +3757,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     except Exception as e:
                         print(f"[switch-model] local probe failed: {e}")
                 base_url = provider_urls.get(provider, "")
+                # 第三方源：地址/协议/额外请求头都取自设置页里的登记，
+                # 不能走上面那张写死的字典（否则自定义模型一切就断线）
+                cp = _custom_provider(provider)
+                protocol, extra_headers, custom_key = "openai", {}, ""
+                if cp:
+                    base_url = cp["base_url"]
+                    protocol = cp["protocol"]
+                    extra_headers = cp["extra_headers"] or {}
+                    custom_key = cp["api_key"] or ""
+                elif not base_url:
+                    self._json(200, {"success": False,
+                                     "error": f"未知模型源 {provider}（可能已被删除）"})
+                    return
                 with _config_lock:
                     old_cfg = get_model_config()
                     # 切换 provider 时，从 fallback_chain 取对应 provider 的 api_key
                     # 否则切换到 deepseek 后 api_key 还是 ollama 的，导致 401
-                    new_key = _get_provider_key(old_cfg, provider)
+                    new_key = custom_key or _get_provider_key(old_cfg, provider)
                     _model_config = old_cfg.clone_with(
                         provider=provider, model=model_id,
-                        base_url=base_url, api_key=new_key)
+                        base_url=base_url, api_key=new_key,
+                        protocol=protocol, extra_headers=extra_headers)
                 _save_model_config()
+                # 换源了：余额缓存必须作废，否则顶栏还是上一个源的数字
+                _invalidate_balance()
                 # 上下文窗口随模型变化（本地模型按 --ctx-size，不是默认 128K）
                 try:
                     _load_compress_config()
@@ -3509,6 +3848,179 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(200 if r.get("ok") else 500, r)
             except Exception as e:
                 self._json(500, {"ok": False, "error": str(e)})
+
+        # ── 第三方模型源：查余额 / 额度 ──
+        elif path == "/api/custom-providers/balance":
+            try:
+                pid = str(data.get("id") or "").strip()
+                saved = custom_providers.get(ROOT_DIR, pid) if pid else None
+                base_url = str(data.get("api_base") or data.get("base_url") or "").strip()
+                api_key = str(data.get("api_key") or "")
+                protocol = str(data.get("protocol") or "").lower()
+                if saved:
+                    base_url = base_url or saved.get("api_base") or saved.get("base_url") or ""
+                    protocol = protocol or saved.get("protocol") or "openai"
+                    # 前端列表里只有脱敏 key：脱敏或空都回退到文件里的真 key，
+                    # 否则「查余额」永远返回鉴权失败
+                    if not api_key or "•" in api_key:
+                        api_key = saved.get("api_key") or ""
+                elif data.get("provider"):
+                    # 内置 provider 也走同一套适配器（只需 host 对上，路径由适配器补）
+                    builtin_urls = {
+                        "deepseek": "https://api.deepseek.com",
+                        "zhipu": "https://open.bigmodel.cn/api/paas/v4",
+                        "openrouter": "https://openrouter.ai/api/v1",
+                    }
+                    prov = str(data["provider"])
+                    cfg = get_model_config()
+                    base_url = base_url or builtin_urls.get(prov) or (
+                        cfg.base_url if cfg.provider == prov else "")
+                    protocol = protocol or "openai"
+                    if not api_key or "•" in api_key:
+                        api_key = _get_provider_key(cfg, prov)
+                if not base_url:
+                    self._json(400, {"ok": False, "error": "缺少 Base URL"})
+                    return
+                depth = str(data.get("depth") or "full").lower()
+                if depth not in ("vendor", "relay", "full"):
+                    depth = "full"
+                r = custom_providers.query_balance(
+                    base_url, api_key, protocol or "openai",
+                    data.get("headers") or None,
+                    timeout=int(data.get("timeout") or 10),
+                    depth=depth)
+                r["manual"] = (saved or {}).get("balance_manual") or {}
+                self._json(200, r)
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e), "tried": []})
+
+        # ── 第三方模型源：测试连接 / 拉模型（不落盘，供「测试连接」按钮）──
+        elif path == "/api/custom-providers/probe":
+            try:
+                raw_key = str(data.get("api_key") or "")
+                # 已保存的源在前端只显示脱敏 key：这时必须用文件里的真 key 去探，
+                # 否则"测试连接"永远失败，用户以为是地址填错了
+                if data.get("id") and ("•" in raw_key or not raw_key):
+                    saved = custom_providers.get(ROOT_DIR, data.get("id"))
+                    if saved:
+                        raw_key = saved.get("api_key") or ""
+                r = custom_providers.probe(
+                    data.get("base_url", ""),
+                    raw_key,
+                    data.get("protocol", "auto"),
+                    data.get("headers") or None,
+                    timeout=int(data.get("timeout") or 15),
+                    probe_chat=bool(data.get("probe_chat", True)),
+                    model=data.get("model", ""),
+                )
+                self._json(200, r)
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e), "tried": []})
+
+        # ── 第三方模型源：新增 / 修改 / 删除 ──
+        elif path == "/api/custom-providers":
+            try:
+                action = str(data.get("action") or "save").lower()
+                if action == "delete":
+                    pid = data.get("id", "")
+                    cur = get_model_config()
+                    was_current = bool(cur and cur.provider == pid)
+                    ok = custom_providers.remove(ROOT_DIR, pid)
+                    if was_current:
+                        # 删掉的正是当前在用的源：必须回落，否则下一条消息
+                        # 会打到已经失效的地址上（用户只会看到一堆连接错误）
+                        with _config_lock:
+                            _model_config = cur.clone_with(
+                                provider="deepseek", model="deepseek-v4-flash",
+                                base_url="https://api.deepseek.com",
+                                api_key=_get_provider_key(cur, "deepseek"),
+                                protocol="openai", extra_headers={})
+                        _save_model_config()
+                        _invalidate_balance()   # 已回落，余额基线也要跟着换
+                        try:
+                            _load_compress_config()
+                        except Exception:
+                            pass
+                    self._json(200, {"success": ok,
+                                     "switched_back": was_current,
+                                     "error": "" if ok else "未找到该模型源"})
+                    return
+                base_url = str(data.get("api_base") or data.get("base_url") or "").strip()
+                if not base_url:
+                    self._json(400, {"success": False, "error": "请填写 Base URL"})
+                    return
+                key = str(data.get("api_key") or "")
+                if data.get("clear_key"):
+                    # 显式清空：前端输入框不回显密钥，"空"默认理解为"不改"，
+                    # 想删就得靠这个标记（否则删不掉）
+                    key = ""
+                elif data.get("id") and ("•" in key or not key):
+                    old = custom_providers.get(ROOT_DIR, data.get("id")) or {}
+                    key = old.get("api_key") or ""
+                protocol = str(data.get("protocol") or "openai").lower()
+                resolved = None
+                # 保存前把地址"校正确认"一遍：用户把 https://站点/openai 少写一层 /v1
+                # 时，归一化看不出来，只有真发一次请求才知道哪个根是通的。
+                # 不校正的话就会出现"测试通过、一发消息 404"这种最气人的状态。
+                if not data.get("api_base"):
+                    _first = (data.get("models") or [None])[0]
+                    _pmodel = _first.get("id", "") if isinstance(_first, dict) else ""
+                    try:
+                        resolved = custom_providers.probe(
+                            base_url, key,
+                            protocol if protocol in custom_providers.PROTOCOLS else "auto",
+                            data.get("headers") or None,
+                            timeout=8, probe_chat=True, model=_pmodel)
+                        if resolved and resolved.get("ok") and resolved.get("api_base"):
+                            base_url = resolved["api_base"]
+                            if protocol not in custom_providers.PROTOCOLS or protocol == "auto":
+                                protocol = resolved.get("protocol") or "openai"
+                    except Exception as e:
+                        print(f"[custom-providers] resolve base failed, keep raw: {e}")
+                item = {
+                    "id": (str(data.get("id") or "").strip() or None),
+                    "name": str(data.get("name") or "").strip(),
+                    "base_url": base_url,
+                    "protocol": protocol,
+                    "api_key": key,
+                    "headers": data.get("headers") or {},
+                    "models": data.get("models"),   # None = 保留原有清单
+                    "vision": bool(data.get("vision", False)),
+                    "enabled": bool(data.get("enabled", True)),
+                    "ctx_window": int(data.get("ctx_window") or 0),
+                    "note": str(data.get("note") or ""),
+                    # None = 保留原有的手填余额；传 {} 才是"清空手填"
+                    "balance_manual": data.get("balance_manual"),
+                }
+                saved, created = custom_providers.upsert(ROOT_DIR, item)
+                # 改的正好是"当前正在用的源" → 立刻同步到内存配置，
+                # 不然要等重启才生效（用户会觉得"改了没用"）
+                cur = get_model_config()
+                if cur and cur.provider == saved["id"]:
+                    with _config_lock:
+                        _model_config = cur.clone_with(
+                            base_url=saved["api_base"] or base_url,
+                            api_key=saved["api_key"] or cur.api_key,
+                            protocol=saved["protocol"],
+                            extra_headers=saved["headers"] or {})
+                    _save_model_config()
+                    # 改的正是当前在用的源（地址/密钥/协议可能都变了）→ 余额重查
+                    _invalidate_balance()
+                pub = next((p for p in custom_providers.public_list(ROOT_DIR)
+                            if p["id"] == saved["id"]), None)
+                self._json(200, {
+                    "success": True, "created": created,
+                    "provider": pub,
+                    "base_url": saved["base_url"],
+                    "api_base": saved["api_base"],
+                    "protocol": saved["protocol"],
+                    # 校正结果回报给前端：地址被改过 / 校正失败都能提示用户
+                    "resolved_ok": bool(resolved and resolved.get("ok")),
+                    "resolve_error": ("" if (resolved is None or resolved.get("ok"))
+                                      else resolved.get("error", "")),
+                })
+            except Exception as e:
+                self._json(500, {"success": False, "error": str(e)})
 
         # ── Model key (save) ──
         elif path == "/api/model-key":
@@ -3825,6 +4337,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(200, {"success": True, "path": filepath})
             except Exception as e:
                 self._json(500, {"error": str(e)})
+
+        # ── 网页画中画：用系统默认浏览器打开（面板兜底出口）──
+        elif path == "/api/open-external":
+            try:
+                target = (data.get("url") or "").strip()
+                # 这里不解析 DNS：只是把地址交给本机浏览器，用户自己点的链接
+                ok, why = _pip_safe_url(target, resolve=False)
+                if not ok:
+                    self._json(400, {"success": False, "error": why})
+                    return
+                if os.name == "nt":
+                    os.startfile(target)  # noqa: S606 打开网址，不执行文件
+                elif sys.platform == "darwin":
+                    import subprocess as _sp
+                    _sp.Popen(["open", target])
+                else:
+                    import webbrowser
+                    webbrowser.open(target)
+                self._json(200, {"success": True})
+            except Exception as e:
+                self._json(500, {"success": False, "error": str(e)})
 
         # ── Workspace ──
         elif path == "/api/workspace":

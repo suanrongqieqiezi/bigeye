@@ -52,13 +52,17 @@ class LLMConfig:
     """Per-provider config, loaded from model_config.json."""
     def __init__(self, provider="deepseek", model="deepseek-chat",
                  base_url="https://api.deepseek.com", api_key="",
-                 max_tokens=8192, fallback_chain=None):
+                 max_tokens=8192, fallback_chain=None,
+                 protocol="openai", extra_headers=None):
         self.provider = provider
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         self.max_tokens = max_tokens
         self.fallback_chain = fallback_chain or []
+        # 第三方源：协议（openai / anthropic）与该站点要求的额外请求头
+        self.protocol = (protocol or "openai").lower()
+        self.extra_headers = dict(extra_headers or {})
 
     @classmethod
     def from_config(cls, path="model_config.json"):
@@ -72,9 +76,24 @@ class LLMConfig:
         api_key = cfg.get("api_key", "")
         max_tokens = cfg.get("max_tokens", 8192)
         fallback = cfg.get("fallback_chain", [])
+        protocol = cfg.get("protocol", "openai")
+        extra_headers = cfg.get("extra_headers") or {}
+        # 当前 provider 是第三方源时，以 custom_providers 里的登记值为准 ——
+        # 用户在设置页改完地址/协议，即使没重新切换模型也应该立刻生效
+        try:
+            import custom_providers as _cp
+            rt = _cp.runtime_config(os.path.dirname(os.path.abspath(path)), provider)
+            if rt:
+                base_url = rt["base_url"] or base_url
+                api_key = rt["api_key"] or api_key
+                protocol = rt["protocol"] or protocol
+                extra_headers = rt["extra_headers"] or extra_headers
+        except Exception:
+            pass
         return cls(provider=provider, model=model, base_url=base_url,
                    api_key=api_key, max_tokens=max_tokens,
-                   fallback_chain=fallback)
+                   fallback_chain=fallback, protocol=protocol,
+                   extra_headers=extra_headers)
 
     def to_dict(self):
         return {
@@ -82,6 +101,7 @@ class LLMConfig:
             "model": self.model,
             "base_url": self.base_url,
             "max_tokens": self.max_tokens,
+            "protocol": self.protocol,
         }
 
     def clone_with(self, **kwargs):
@@ -120,7 +140,9 @@ _IMAGE_MIME = {
 
 # 显式声明支持图片的模型（模型名不含 "vision" 但原生多模态）。
 # GLM-5.3-Flash 是智谱原生多模态模型，通过 OpenAI 兼容接口收图。
-_VISION_MODEL_PREFIXES = ("glm-5.3-flash",)
+# deepseek-flash: 2026-09 实测通过 —— 直接发 image_url 块返回 HTTP 200 且描述准确，
+# 与 deepseek-v4-flash-vision-exp 结论一致；此前被名字白名单漏判为纯文本模型。
+_VISION_MODEL_PREFIXES = ("glm-5.3-flash", "deepseek-flash")
 
 
 def image_mime_type(path):
@@ -367,12 +389,421 @@ def _log_raw_response(log_group, raw_sse_text, duration_ms, status_code=200,
         pass
 
 
+def _repair_truncated_json(raw, back=600):
+    """尝试修复被截断的 tool_call 参数 JSON（流中断时常见）。
+
+    以前 json.loads 失败直接兜底成 {}，会让内层工具收到空参数，
+    报出 "missing 1 required positional argument" 这种查不到根因的错。
+    这里从尾部往回退，找最大的、补齐括号后能解析的前缀。
+    """
+    s = (raw or "").rstrip()
+    if not s:
+        return None
+    lo = max(1, len(s) - back)
+    for i in range(len(s), lo, -1):
+        chunk = s[:i].rstrip().rstrip(",")
+        opens = chunk.count("{") - chunk.count("}")
+        if opens < 0:
+            continue
+        try:
+            return json.loads(chunk + "}" * opens)
+        except Exception:
+            continue
+    return None
+
+
+# ══════════════════════════════════════════════════════
+# Anthropic Messages 协议适配（第三方源用 protocol="anthropic"）
+# ══════════════════════════════════════════════════════
+# 为什么需要：不少第三方站点（含 tokenrhythm 这类聚合站）同时提供
+# /v1/chat/completions 与 /v1/messages，也有只给 Anthropic 协议的 Claude
+# 中转。只支持 OpenAI 协议会把后一半站点排除在外。
+# 这里把内部的 OpenAI 形态消息/工具双向转换，事件产出与 OpenAI 路径
+# 完全一致（thinking_delta / text_delta / tool_call / done / error），
+# 上层（server.py 的对话循环）不需要知道用的是哪个协议。
+
+_ANTHROPIC_VERSION = "2023-06-01"
+
+
+def _content_to_text(content):
+    """把任意 content（字符串 / OpenAI 多模态数组）压成纯文本。"""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for b in content:
+            if isinstance(b, dict):
+                if b.get("type") == "text":
+                    parts.append(b.get("text") or "")
+                elif b.get("type") == "image_url":
+                    parts.append("[图片]")
+                else:
+                    parts.append(str(b.get("text") or ""))
+            else:
+                parts.append(str(b))
+        return "\n".join(p for p in parts if p)
+    return str(content)
+
+
+def _to_anthropic_blocks(content):
+    """OpenAI content → Anthropic content blocks（顺带处理 data:URL 图片）。"""
+    if content is None:
+        return [{"type": "text", "text": ""}]
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    if isinstance(content, list):
+        out = []
+        for b in content:
+            if not isinstance(b, dict):
+                out.append({"type": "text", "text": str(b)})
+                continue
+            t = b.get("type")
+            if t == "text":
+                out.append({"type": "text", "text": b.get("text", "")})
+            elif t == "image_url":
+                url = str((b.get("image_url") or {}).get("url") or "")
+                if url.startswith("data:") and "," in url:
+                    head, b64 = url.split(",", 1)
+                    media = (head[5:].split(";")[0] or "image/png").strip()
+                    out.append({"type": "image",
+                                "source": {"type": "base64", "media_type": media, "data": b64}})
+                elif url:
+                    out.append({"type": "image", "source": {"type": "url", "url": url}})
+            else:
+                out.append({"type": "text", "text": str(b.get("text") or "")})
+        return out or [{"type": "text", "text": ""}]
+    return [{"type": "text", "text": str(content)}]
+
+
+def _to_anthropic_messages(messages):
+    """内部消息 → (system 文本列表, Anthropic messages)。
+
+    - system / developer → 顶层 system（Anthropic 不认 role=system）
+    - assistant.tool_calls → tool_use 内容块
+    - role=tool → user 消息里的 tool_result 块
+    - 相邻同角色必须合并：Anthropic 要求 user / assistant 严格交替
+    """
+    system_parts = []
+    out = []
+    for m in messages:
+        role = m.get("role")
+        if role in ("system", "developer"):
+            txt = _content_to_text(m.get("content"))
+            if txt:
+                system_parts.append(txt)
+            continue
+        if role == "tool":
+            out.append({"role": "user", "content": [{
+                "type": "tool_result",
+                "tool_use_id": m.get("tool_call_id") or "",
+                "content": _content_to_text(m.get("content")) or "(空结果)",
+            }]})
+            continue
+        if role == "assistant":
+            blocks = []
+            txt = _content_to_text(m.get("content"))
+            if txt:
+                blocks.append({"type": "text", "text": txt})
+            for tc in (m.get("tool_calls") or []):
+                fn = tc.get("function") or {}
+                raw_args = fn.get("arguments") or "{}"
+                try:
+                    inp = json.loads(raw_args)
+                except Exception:
+                    inp = {"_raw": raw_args}
+                if not isinstance(inp, dict):
+                    inp = {"_raw": inp}
+                blocks.append({
+                    "type": "tool_use",
+                    "id": tc.get("id") or f"call_{len(blocks)}",
+                    "name": fn.get("name") or "unknown",
+                    "input": inp,
+                })
+            if not blocks:
+                blocks = [{"type": "text", "text": " "}]
+            out.append({"role": "assistant", "content": blocks})
+            continue
+        out.append({"role": "user", "content": _to_anthropic_blocks(m.get("content"))})
+
+    merged = []
+    for m in out:
+        if merged and merged[-1]["role"] == m["role"]:
+            a = merged[-1]["content"]
+            b = m["content"]
+            if not isinstance(a, list):
+                a = [{"type": "text", "text": str(a)}]
+            if not isinstance(b, list):
+                b = [{"type": "text", "text": str(b)}]
+            merged[-1]["content"] = a + b
+        else:
+            merged.append({"role": m["role"], "content": m["content"]})
+    if not merged:
+        merged = [{"role": "user", "content": [{"type": "text", "text": "(空)"}]}]
+    if merged[0]["role"] == "assistant":
+        merged.insert(0, {"role": "user", "content": [{"type": "text", "text": "(对话继续)"}]})
+    return system_parts, merged
+
+
+def _to_anthropic_tools(tool_specs):
+    """OpenAI tools → Anthropic tools（schema 已由 _build_tools 压缩过）。"""
+    if not tool_specs:
+        return None
+    out = []
+    for t in tool_specs:
+        fn = t.get("function") or {}
+        name = fn.get("name") or ""
+        if not name:
+            continue
+        out.append({
+            "name": name,
+            "description": fn.get("description") or "",
+            "input_schema": fn.get("parameters") or {"type": "object", "properties": {}},
+        })
+    return out or None
+
+
+def _norm_usage_anthropic(usage):
+    """Anthropic usage → 内部 usage（两种键名都给，上层谁读都不落空）。"""
+    if not isinstance(usage, dict):
+        return {}
+    inp = int(usage.get("input_tokens") or 0)
+    out = int(usage.get("output_tokens") or 0)
+    if not inp and not out:
+        return {}
+    return {
+        "prompt_tokens": inp, "completion_tokens": out, "total_tokens": inp + out,
+        "input_tokens": inp, "output_tokens": out,
+    }
+
+
+def _chat_stream_anthropic(config, messages, tools=None, cancel_event=None, verify_ssl=True):
+    """走 Anthropic /v1/messages 的流式对话（事件与 OpenAI 路径同构）。"""
+    url = f"{config.base_url}/messages"
+    safe_key = config.api_key
+    try:
+        safe_key.encode("latin-1")
+    except UnicodeEncodeError:
+        print(f"[llm] WARNING: api_key 含非 ASCII 字符，已忽略 (provider={config.provider})")
+        safe_key = ""
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "anthropic-version": _ANTHROPIC_VERSION,
+    }
+    if safe_key:
+        # 官方 Anthropic 认 x-api-key，多数中转站认 Bearer —— 两个都发最省事
+        headers["Authorization"] = f"Bearer {safe_key}"
+        headers["x-api-key"] = safe_key
+    for k, v in (getattr(config, "extra_headers", None) or {}).items():
+        if k:
+            headers[str(k)] = str(v)
+
+    clean_messages = []
+    for m in messages:
+        clean_messages.append({k: v for k, v in m.items() if not k.startswith("_")})
+    system_parts, amsgs = _to_anthropic_messages(clean_messages)
+
+    body = {
+        "model": config.model,
+        "messages": amsgs,
+        "max_tokens": config.max_tokens,
+        "stream": True,
+    }
+    if system_parts:
+        body["system"] = "\n\n".join(system_parts)
+    atools = _to_anthropic_tools(_build_tools(tools))
+    if atools:
+        body["tools"] = atools
+
+    log_group = _log_raw_request(url, body, config)
+    t0 = time.time()
+    raw_sse_chunks = []
+
+    req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"),
+                                 headers=headers, method="POST")
+    ssl_ctx = None if verify_ssl else _UNVERIFIED_SSL_CTX
+    resp = None
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            resp = urllib.request.urlopen(req, timeout=120, context=ssl_ctx)
+            break
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8", errors="replace")
+            _log_raw_response(log_group, f"HTTP {e.code}: {error_body}",
+                              duration_ms=(time.time() - t0) * 1000, status_code=e.code)
+            yield {"type": EVENT_ERROR, "error": f"HTTP {e.code}: {error_body}"}
+            return
+        except Exception as e:
+            if attempt < max_attempts - 1 and is_transient_conn_error(e):
+                wait = 1.5 * (attempt + 1)
+                print(f"[llm] anthropic transient error (attempt {attempt + 1}/{max_attempts}), retry in {wait}s: {e}")
+                time.sleep(wait)
+                continue
+            _log_raw_response(log_group, str(e),
+                              duration_ms=(time.time() - t0) * 1000, status_code=0)
+            yield {"type": EVENT_ERROR, "error": str(e)}
+            return
+
+    tool_buf = {}          # index -> {"id","name","args"}
+    full_text = ""
+    full_thinking = ""
+    usage = {}
+    stop_reason = ""
+    done_yielded = False
+    saw_terminator = False
+
+    try:
+        for raw_line in resp:
+            if cancel_event and cancel_event.is_set():
+                resp.close()
+                _log_raw_response(log_group, "cancelled",
+                                  duration_ms=(time.time() - t0) * 1000, status_code=0)
+                yield {"type": EVENT_ERROR, "error": "cancelled"}
+                return
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line or line.startswith(":"):
+                continue
+            # Anthropic 既有 "event: xxx" 也有 "data: {...}"，只要 data
+            if line.startswith("event:"):
+                continue
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            raw_sse_chunks.append(data)
+            if not data or data == "[DONE]":
+                saw_terminator = True
+                continue
+            try:
+                obj = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+
+            etype = obj.get("type") or ""
+
+            if etype == "message_start":
+                for k, v in _norm_usage_anthropic((obj.get("message") or {}).get("usage")).items():
+                    if v:
+                        usage[k] = v
+                continue
+            if etype == "message_delta":
+                # message_delta 只带 output_tokens；若无条件 update 会把
+                # message_start 里的 input_tokens 冲成 0（计费会少算输入）
+                for k, v in _norm_usage_anthropic(obj.get("usage")).items():
+                    if v:
+                        usage[k] = v
+                stop_reason = (obj.get("delta") or {}).get("stop_reason") or stop_reason
+                continue
+            if etype == "message_stop":
+                saw_terminator = True
+                continue
+            if etype == "content_block_start":
+                cb = obj.get("content_block") or {}
+                idx = obj.get("index", 0)
+                if cb.get("type") == "tool_use":
+                    tool_buf[idx] = {"id": cb.get("id") or f"call_{idx}",
+                                     "name": cb.get("name") or "", "args": ""}
+                elif cb.get("type") == "text" and cb.get("text"):
+                    full_text += cb["text"]
+                    yield {"type": EVENT_TEXT_DELTA, "delta": cb["text"]}
+                elif cb.get("type") == "thinking" and cb.get("thinking"):
+                    full_thinking += cb["thinking"]
+                    yield {"type": EVENT_THINKING_DELTA, "delta": cb["thinking"]}
+                continue
+            if etype == "content_block_delta":
+                d = obj.get("delta") or {}
+                dt = d.get("type") or ""
+                if dt == "text_delta" and d.get("text"):
+                    full_text += d["text"]
+                    yield {"type": EVENT_TEXT_DELTA, "delta": d["text"]}
+                elif dt in ("thinking_delta", "signature_delta"):
+                    # signature_delta 是思维链签名，不是内容，别当正文吐出去
+                    if dt == "thinking_delta" and d.get("thinking"):
+                        full_thinking += d["thinking"]
+                        yield {"type": EVENT_THINKING_DELTA, "delta": d["thinking"]}
+                elif dt == "input_json_delta":
+                    idx = obj.get("index", 0)
+                    slot = tool_buf.setdefault(idx, {"id": f"call_{idx}", "name": "", "args": ""})
+                    slot["args"] += d.get("partial_json") or ""
+                continue
+            if etype == "error":
+                err = obj.get("error") or {}
+                msg = err.get("message") or json.dumps(err, ensure_ascii=False)
+                _log_raw_response(log_group, "ANTHROPIC ERROR: " + str(msg),
+                                  duration_ms=(time.time() - t0) * 1000, status_code=200)
+                yield {"type": EVENT_ERROR, "error": f"{err.get('type', 'error')}: {msg}"}
+                return
+            if etype == "ping":
+                continue
+    except Exception as e:
+        _log_raw_response(log_group,
+                          f"STREAM ERROR: {str(e)}\nRAW: {raw_sse_chunks[-1] if raw_sse_chunks else ''}",
+                          duration_ms=(time.time() - t0) * 1000, status_code=200)
+        yield {"type": EVENT_ERROR, "error": str(e)}
+        return
+
+    if stop_reason == "tool_use" or tool_buf:
+        # 注意：这里**不**置 done_yielded —— 与 OpenAI 路径一致，工具调用之后
+        # 仍要补一个 DONE 事件收尾，否则上层拿不到本轮结束信号（会一直等）。
+        saw_terminator = True
+        for idx in sorted(tool_buf.keys()):
+            tc = tool_buf[idx]
+            try:
+                args = json.loads(tc["args"]) if tc["args"] else {}
+            except json.JSONDecodeError as je:
+                repaired = _repair_truncated_json(tc["args"] or "")
+                args = repaired if repaired is not None else {}
+                print(f"[llm] (anthropic) tool_call 参数不是合法JSON 工具={tc['name']!r} "
+                      f"err={je} 修复={'成功' if repaired is not None else '失败'} "
+                      f"原文={(tc['args'] or '')[:300]!r}", flush=True)
+            yield {
+                "type": EVENT_TOOL_CALL,
+                "tool_call_id": tc["id"],
+                "tool_name": tc["name"],
+                "arguments": args,
+            }
+        tool_buf.clear()
+
+    if not done_yielded:
+        if usage:
+            # total 自己算：Anthropic 的 message_delta 会单独报 output_tokens，
+            # 加出来的 total 才和 input+output 自洽（计费台账要靠它）
+            usage["total_tokens"] = (int(usage.get("prompt_tokens") or 0)
+                                     + int(usage.get("completion_tokens") or 0))
+        if stop_reason == "max_tokens":
+            finish = "length"
+        elif stop_reason in ("end_turn", "stop_sequence", "tool_use", ""):
+            # tool_use 在 OpenAI 路径里等同于正常收尾（工具调用已单独产出），
+            # 这里保持同名字，避免上层出现只在 Anthropic 下才有的 finish_reason
+            finish = "stop" if saw_terminator else "interrupted"
+        else:
+            finish = stop_reason
+        yield {"type": EVENT_DONE, "finish_reason": finish,
+               "full_text": full_text, "full_thinking": full_thinking,
+               "usage": usage}
+
+    raw_body = "\n".join(raw_sse_chunks) if raw_sse_chunks else ""
+    _log_raw_response(log_group, raw_body,
+                      duration_ms=(time.time() - t0) * 1000, status_code=200,
+                      input_tokens=usage.get("prompt_tokens", 0),
+                      output_tokens=usage.get("completion_tokens", 0))
+
+
 def chat_stream(config, messages, tools=None, cancel_event=None, verify_ssl=True):
     """
     Stream a chat completion from the LLM API.
     Yields dicts: {"type": EVENT_THINKING_DELTA|TEXT_DELTA|TOOL_CALL|DONE|ERROR, ...}
     verify_ssl: True=校验证书(默认安全), False=跳过校验(用于 VPN/抓包等证书注入环境)
     """
+    # 第三方源可以是 OpenAI 兼容或 Anthropic 原生 —— 按配置分流，
+    # 两条路径产出的事件完全一致，上层无感。
+    if str(getattr(config, "protocol", "openai") or "openai").lower() == "anthropic":
+        yield from _chat_stream_anthropic(config, messages, tools=tools,
+                                          cancel_event=cancel_event, verify_ssl=verify_ssl)
+        return
+
     url = f"{config.base_url}/chat/completions"
     # 防御：api_key 含非 ASCII 字符时清空，避免 latin-1 编码崩溃
     safe_key = config.api_key
@@ -385,6 +816,10 @@ def chat_stream(config, messages, tools=None, cancel_event=None, verify_ssl=True
         "Content-Type": "application/json",
         "Authorization": f"Bearer {safe_key}",
     }
+    # 第三方站点的自定义请求头（有的要求特定 Referer / 渠道标识）
+    for k, v in (getattr(config, "extra_headers", None) or {}).items():
+        if k:
+            headers[str(k)] = str(v)
     # Strip internal-only fields from messages before sending to API
     clean_messages = []
     for m in messages:
@@ -521,8 +956,18 @@ def chat_stream(config, messages, tools=None, cancel_event=None, verify_ssl=True
                     tc = tool_calls_buffer[idx]
                     try:
                         args = json.loads(tc["args"]) if tc["args"] else {}
-                    except json.JSONDecodeError:
-                        args = {}
+                    except json.JSONDecodeError as je:
+                        # 不能静默吞掉：参数被截断/畸形时会给工具传空参，
+                        # 症状是内层工具报 "missing ... positional argument"，根因却看不到。
+                        raw = tc["args"] or ""
+                        repaired = _repair_truncated_json(raw)
+                        args = repaired if repaired is not None else {}
+                        print(
+                            f"[llm] tool_call 参数不是合法JSON 工具={tc['name']!r} "
+                            f"err={je} 修复={'成功' if repaired is not None else '失败'} "
+                            f"原文={raw[:300]!r}",
+                            flush=True,
+                        )
                     yield {
                         "type": EVENT_TOOL_CALL,
                         "tool_call_id": tc["id"],

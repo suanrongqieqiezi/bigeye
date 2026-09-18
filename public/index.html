@@ -29,7 +29,7 @@
   --radius-sm:9px;
   --radius-md:14px;
   --radius-lg:20px;
-  --panel-head-h:56px;   /* 面板头部统一高度：主区顶栏 / 侧栏头部 / 设置页头部 共用 */
+  --panel-head-h:45px;   /* 面板头部统一高度：主区顶栏 / 侧栏头部 / 设置页头部 共用（原 56px，2026-09-18 收窄 ~20%） */
   --sb-gutter:12px;      /* 侧栏水平内缩单一真源：搜索框 / 新建按钮 / 任务卡片 共用同一左边缘 */
   --sb-track:6px;        /* 侧栏任务列表滚动条宽度（与 #topicList 的 padding-right 配合，保证卡片左右留白相等） */
   --sb-ctl-h:32px;       /* 侧栏头部行控件高度：搜索框与新建按钮等高（窄窗 31px） */
@@ -529,9 +529,9 @@ main::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
 }
 /* File browser panel */
 #fileBrowser{position:fixed;top:0;left:0;bottom:0;right:0;background:var(--surface);z-index:5;display:none;flex-direction:column;overflow:hidden}
-.fb-header{display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0}
+.fb-header{display:flex;align-items:center;gap:8px;padding:7px 15px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0}
 .fb-header>span:first-child{font-size:14px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fb-header button{background:var(--surface3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius-sm);padding:7px 11px;font-size:12px;cursor:pointer;transition:all .15s;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;gap:5px}
+.fb-header button{background:var(--surface3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius-sm);padding:6px 11px;font-size:12px;cursor:pointer;transition:all .15s;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;gap:5px}
 .fb-header button svg{width:14px;height:14px;display:block;flex-shrink:0}
 .fb-header button:hover{background:rgba(var(--accent-rgb),.1);border-color:rgba(var(--accent-rgb),.45);color:var(--accent)}
 .fb-header button:active{filter:brightness(.92)}
@@ -965,6 +965,9 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
 .proc-ask .ask-input-row{display:flex;gap:6px}
 .proc-ask .ask-input-row input{flex:1;min-width:0;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:inherit;font-size:13px}
 .w-inter-line{color:var(--tdim);opacity:.8;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word;margin:1px 0}
+/* 思考正文懒加载：占位态与加载态（见 _ensureProcThinking） */
+.proc-body .w-think-ph{padding:3px 0;color:var(--tdim);font-style:normal}
+.proc-body .w-think-loading{display:flex;align-items:center;gap:6px;padding:4px 0;color:var(--tdim);font-style:normal}
 .proc-box code{background:rgba(255,255,255,.09);padding:1px 5px;border-radius:4px;font-size:10.5px;word-break:break-all;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .row.proc-live .proc-box{background:var(--surface2);border-color:rgba(255,255,255,.16);opacity:1;color:var(--text);font-size:12px;max-height:88px;animation:neonGlow 14s linear infinite;filter:none}
 .row.proc-live .proc-box.proc-asking{max-height:440px}
@@ -972,13 +975,43 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
 /* live 展开态固定高度：内容增长只触发 body 内部滚动，box 高度恒定不跳 */
 /* .proc-live-dot 黄点已去掉 */
 .proc-live-dot{display:none}
-/* ── 上滑加载:顶部提示行(呼吸点)——存在即说明"上面还有更早的消息" ── */
-.load-more-row{display:flex;align-items:center;justify-content:center;gap:8px;padding:6px 0 2px;color:var(--tdim);font-size:10.5px;opacity:.75;flex-shrink:0;user-select:none}
+/* ── 上滑加载:顶部提示行(呼吸点)——存在即说明"上面还有更早的消息" ──
+   旧版只是个静态 div：内容没撑出滚动条时"上滑"根本产生不了 scroll 事件，
+   提示永远兑现不了（用户看到的"显示上滑加载，但怎么滑都不动"）。现在它同时是按钮，
+   点一下就能加载，并把"已加载 N 条"显示出来，让加载有可见的进度。 */
+.load-more-row{display:flex;align-items:center;justify-content:center;gap:8px;padding:7px 0 3px;color:var(--tdim);font-size:10.5px;opacity:.8;flex-shrink:0;user-select:none;
+  cursor:pointer;-webkit-tap-highlight-color:transparent;transition:color .15s,opacity .15s;border-radius:8px}
+.load-more-row:hover{color:var(--text);opacity:1}
+.load-more-row.loading{color:var(--accent);opacity:1;cursor:default;pointer-events:none}
+.lm-cnt{opacity:.6;font-variant-numeric:tabular-nums}
+.load-more-row.loading .lm-cnt{display:none}
 .lm-dots{display:inline-flex;gap:4px}
-.lm-dots i{width:4px;height:4px;border-radius:50%;background:var(--tdim);animation:lmPulse 1.2s ease-in-out infinite}
+.lm-dots i{width:4px;height:4px;border-radius:50%;background:currentColor;animation:lmPulse 1.2s ease-in-out infinite}
 .lm-dots i:nth-child(2){animation-delay:.15s}
 .lm-dots i:nth-child(3){animation-delay:.3s}
 @keyframes lmPulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+/* ── 加载提示胶囊 ──
+   解决"不知道拉完没有"：远程/跨域访问时历史消息可能传好几秒，旧界面全程无任何反馈，
+   于是内容"卡很久然后突然全冒出来"。这里给明确的进行中(spinner+已耗时)与完成(已加载)信号。
+   挂在 #mainPanel 上（它已是 position:relative），不放在 chatBox 里——render() 会重建 chatBox。 */
+#loadHint{position:absolute;left:50%;top:70px;transform:translate(-50%,-6px);z-index:6;
+  display:flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;
+  background:var(--surface2);border:1px solid var(--border);color:var(--tdim);
+  font-size:11.5px;line-height:1;white-space:nowrap;pointer-events:none;
+  opacity:0;visibility:hidden;transition:opacity .18s ease,transform .18s ease,visibility .18s;
+  box-shadow:0 5px 18px -8px rgba(0,0,0,.5)}
+#loadHint.show{opacity:1;visibility:visible;transform:translate(-50%,0)}
+#loadHint .lh-spin{width:11px;height:11px;border-radius:50%;flex-shrink:0;
+  border:1.6px solid rgba(var(--accent-rgb),.25);border-top-color:var(--accent);
+  animation:lhSpin .7s linear infinite}
+@keyframes lhSpin{to{transform:rotate(360deg)}}
+#loadHint .lh-time{font-variant-numeric:tabular-nums;opacity:.65}
+/* 等得久了(>1.2s)才点亮强调色，短请求不闪眼 */
+#loadHint.slow{border-color:rgba(var(--accent-rgb),.4);color:var(--text)}
+/* 完成态：圆点停转并变实心，明确告诉用户"好了"，再淡出 */
+#loadHint.done{border-color:rgba(var(--accent-rgb),.5);color:var(--accent)}
+#loadHint.done .lh-spin{animation:none;border-color:var(--accent);border-top-color:var(--accent)}
+html[data-theme="white"] #loadHint{box-shadow:0 5px 18px -8px rgba(0,0,0,.16)}
 /* 触顶上拉的物理回弹(带轻微过冲) */
 .pull-rebound{transition:transform .38s cubic-bezier(.2,1.4,.36,1)!important}
 @media(prefers-reduced-motion:reduce){
@@ -998,6 +1031,87 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
 .send.stopping{background:linear-gradient(135deg,#ff6a5f,var(--danger));color:#fff;box-shadow:0 3px 12px rgba(var(--danger-rgb),.32)}
 .send.stopping:hover{box-shadow:0 6px 18px rgba(var(--danger-rgb),.45);filter:brightness(1.04)}
 .send.stopping:active{filter:brightness(.92)}
+/* ══════ 第三方模型源：模型设置里的自定义兼容端点 ══════ */
+.cp-row{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border)}
+.cp-row:last-child{border-bottom:none}
+.cp-row-main{flex:1;min-width:0}
+.cp-name{font-size:13px;color:var(--text);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cp-url{font-size:10.5px;color:var(--tdim);font-family:ui-monospace,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
+.cp-badge{font-size:9.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--border2);color:var(--tdim);white-space:nowrap}
+.cp-badge.proto{color:var(--accent);border-color:rgba(var(--accent-rgb),.4);background:rgba(var(--accent-rgb),.08)}
+.cp-badge.warn{color:var(--warn);border-color:rgba(var(--warn-rgb),.4)}
+/* 余额徽标：可点（刷新），三种状态各自有颜色，别让"查不到"看起来像"余额为 0" */
+.cp-badge.bal{cursor:pointer;color:var(--text);border-color:rgba(var(--accent-rgb),.35);background:rgba(var(--accent-rgb),.06)}
+.cp-badge.bal:hover{border-color:rgba(var(--accent-rgb),.65)}
+.cp-badge.bal.none{color:var(--tdim);border-color:var(--border2);background:none}
+.cp-badge.bal.err{color:var(--warn);border-color:rgba(var(--warn-rgb),.4);background:none}
+.cp-bal-box{margin-top:12px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--surface2);border:1px solid var(--border2)}
+.cp-bal-big{font-size:18px;font-weight:700;color:var(--accent);margin-top:7px;line-height:1.2}
+.cp-bal-kv{font-size:11px;color:var(--tdim);margin-top:4px;line-height:1.6;word-break:break-all}
+.cp-bal-note{font-size:11px;color:var(--warn);margin-top:5px;line-height:1.55}
+.cp-form{display:flex;flex-direction:column;gap:6px}
+.cp-form label{font-size:10.5px;color:var(--tdim);font-weight:700;letter-spacing:.03em;margin-top:4px}
+.cp-inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cp-presets{display:flex;flex-wrap:wrap;gap:6px}
+.cp-chips{display:flex;flex-wrap:wrap;gap:6px;max-height:200px;overflow-y:auto;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg)}
+.cp-chips::-webkit-scrollbar{width:4px}
+.cp-chips::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:2px}
+.cp-chip{font-size:11px;padding:4px 9px;border-radius:999px;border:1px solid var(--border2);background:var(--surface3);color:var(--tdim);cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:all .12s}
+.cp-chip:hover{border-color:rgba(var(--accent-rgb),.4)}
+.cp-chip.on{background:rgba(var(--accent-rgb),.14);border-color:rgba(var(--accent-rgb),.55);color:var(--text);font-weight:600}
+.cp-result{margin-top:11px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface2);padding:10px 11px;font-size:11.5px;line-height:1.62;color:var(--text)}
+.cp-result.ok{border-color:rgba(var(--success-rgb),.4)}
+.cp-result.err{border-color:rgba(var(--danger-rgb),.4)}
+.cp-result .cp-rt{font-weight:700;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cp-result .cp-rs{color:var(--tdim);margin-top:3px}
+.cp-tried{display:flex;flex-direction:column;gap:4px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border2)}
+.cp-try{font-size:10.5px;color:var(--tdim);font-family:ui-monospace,Consolas,monospace;word-break:break-all}
+.cp-try b{color:var(--text);font-weight:700}
+.cp-empty{font-size:12px;color:var(--tdim);padding:12px 14px;text-align:center;border:1px dashed var(--border2);border-radius:var(--radius-sm)}
+/* ══════ 网页画中画（PiP）：对话里的外链在悬浮小窗里打开 ══════
+   层级 9990：压得住所有面板/气泡，又低于通用对话框(20000)，弹窗不会被盖住。
+   body 级独立节点，不放 #sidebar / #fileBrowser 里 —— 那两处有 transform/will-change，
+   会让 position:fixed 改以它们为参照，小窗就会跟着抽屉一起动。 */
+#webPip{position:fixed;z-index:9990;display:none;flex-direction:column;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);overflow:hidden}
+#webPip.wp-dragging,#webPip.wp-resizing{box-shadow:var(--shadow-lg),0 0 0 1px var(--accent)}
+.wp-head{display:flex;align-items:center;gap:8px;height:34px;flex-shrink:0;padding:0 5px 0 10px;background:var(--surface3);cursor:move;user-select:none;touch-action:none}
+.wp-fav{width:14px;height:14px;border-radius:3px;flex-shrink:0;opacity:.9}
+.wp-meta{flex:1;min-width:0;line-height:1.15}
+.wp-title{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wp-host{font-size:10px;color:var(--tdim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wp-acts{display:flex;align-items:center;gap:1px;flex-shrink:0}
+.wp-btn{width:25px;height:25px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:var(--tdim);border-radius:7px;cursor:pointer;font-size:13px;line-height:1;padding:0}
+.wp-btn:hover{background:var(--hover);color:var(--text)}
+.wp-btn.on{color:var(--accent);background:rgba(var(--accent-rgb),.12)}
+.wp-x:hover{background:rgba(var(--danger-rgb),.16);color:var(--danger)}
+.wp-body{position:relative;flex:1;min-height:0;background:#fff}
+#wpFrame{position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff;display:none}
+#wpFrame.show{display:block}
+.wp-note{position:absolute;left:0;right:0;top:0;z-index:2;display:none;padding:3px 8px;text-align:center;font-size:10.5px;background:rgba(var(--warn-rgb),.18);color:var(--warn)}
+.wp-note.show{display:block}
+.wp-state{position:absolute;inset:0;z-index:1;display:none;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:20px;text-align:center;background:var(--surface2);color:var(--tdim);font-size:12px}
+.wp-state.show{display:flex}
+.wp-state b{color:var(--text);font-weight:600;font-size:12.5px}
+.wp-state .wp-k{font-size:11px;line-height:1.55;opacity:.9;word-break:break-all;max-width:100%}
+.wp-spin{width:22px;height:22px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:wpSpin .8s linear infinite}
+@keyframes wpSpin{to{transform:rotate(360deg)}}
+.wp-acts2{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:2px}
+.wp-act{border:1px solid var(--border2);background:var(--surface3);color:var(--text);border-radius:8px;padding:5px 11px;font-size:11.5px;cursor:pointer;transition:all .15s}
+.wp-act:hover{border-color:var(--accent);color:var(--accent)}
+.wp-act.pri{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04241f;font-weight:600}
+.wp-resize{position:absolute;right:0;bottom:0;z-index:3;width:18px;height:18px;cursor:nwse-resize;touch-action:none}
+.wp-resize::after{content:'';position:absolute;right:4px;bottom:4px;width:8px;height:8px;border-right:2px solid var(--tdim);border-bottom:2px solid var(--tdim);opacity:.55}
+/* 最小化胶囊：常驻右下角，点开还原 */
+#wpChip{position:fixed;z-index:9990;right:16px;bottom:14px;display:none;align-items:center;gap:7px;max-width:240px;padding:5px 7px 5px 10px;background:var(--surface3);border:1px solid var(--border2);border-radius:999px;box-shadow:var(--shadow-md);cursor:pointer;font-size:11.5px;color:var(--text)}
+#wpChip:hover{border-color:var(--accent)}
+#wpChip img{width:14px;height:14px;border-radius:3px;flex-shrink:0}
+#wpChip .wp-chip-t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#wpChip .wp-chip-x{color:var(--tdim);font-size:12px;padding:0 3px;flex-shrink:0}
+#wpChip .wp-chip-x:hover{color:var(--danger)}
+@media(max-width:768px){
+  #webPip{border-radius:var(--radius-sm)}
+  .wp-head{height:32px}
+}
 </style><script src="vendor/marked.min.js"></script><script src="vendor/purify.min.js"></script><script src="vendor/mermaid.min.js"></script><script src="vendor/dagre.min.js"></script><script src="vendor/x6.js"></script></head>
 <body data-page-node-id="2j3ydcDtZUTmZFe1ff9j7N">
 <div id="balanceBanner" data-page-node-id="9Esx1e7W6Dhrr4a2v8gMHp"><span class="bal-text" data-page-node-id="qjhHUCkZBlREFx6aZvETm9"></span><button class="bal-btn" onclick="showDonationModal()" data-page-node-id="RwHdGpDNjdSMOmqQECkSFJ">❤ 支持</button></div>
@@ -1079,6 +1193,7 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
     <button id="btnWinClose" title="关闭" data-page-node-id="Y2huSXXhy19Nw4uZuTumbH"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" data-page-node-id="h7V24sani2FC0zNM05iGXs"><path d="M2 2l8 8M10 2l-8 8" data-page-node-id="dadzOJwCnRmnaqYcjI31xe"/></svg></button>
   </span>
 </header>
+<div id="loadHint" data-page-node-id="LoadHintCapsule01"><span class="lh-spin"></span><span class="lh-txt">正在加载…</span><span class="lh-time"></span></div>
 <main id="chatBox" data-page-node-id="DxizxaMlb1wAwfI51LAr7C"></main>
 <button id="btnJump" onclick="jumpBottom()" title="回到底部" data-page-node-id="suot2KpdKZwotcUDgWBAm3"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="9uaf8d8N7ip3FrrEm8kxOK"><path d="M12 4v11" data-page-node-id="IEHeiNEtrPJVDy8cCV3xWy"/><path d="m7 11 5 5 5-5" data-page-node-id="7Su29ETinw6TZ8Ib9taZEB"/><path d="M6 20h12" data-page-node-id="H2HtDKmUeFTWUmV0WFwvct"/></svg></button>
 <footer data-page-node-id="HCHcKJDyDuJ4GjQiJqU2kp"><div id="attachPreview" style="display:none;flex-wrap:wrap;gap:4px;padding:4px 8px;background:var(--surface2);border-top:1px solid var(--border)" data-page-node-id="yhOv5DMFkpuyyAh58krcBG"></div><div class="input-row" data-page-node-id="SrZNQIQvUw3jq3L6WJVMwW"><input type="file" id="fileInput" multiple style="display:none" onchange="onFileSelect(this)" data-page-node-id="CqWIYwKndzTfTL9tgFzdBT"><button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="添加附件" data-page-node-id="RJwZ0SRzpcwJt1ugersOTE"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="iuiDCKfmIlScUkrGpd0opv"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" data-page-node-id="bOzZUrTJtPrw3JGDMyiyep"/></svg></button><textarea id="msgInput" rows="1" placeholder="输入消息…" onkeydown="onKey(event)"></textarea><button class="send" id="btnSend" onclick="toggleSend()" title="发送" data-page-node-id="983AB8HRgBx90LPUBkVEHF"><svg class="ico-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="3y7v19Me6vEKpjfi6DT2M3"><path d="M12 19V5" data-page-node-id="K4uPQwgfuDxBYFCEELQ4HB"/><path d="m6 11 6-6 6 6" data-page-node-id="Wb9lgQ6gY5qCtazXxWs7Zx"/></svg><svg class="ico-stop" viewBox="0 0 24 24" data-page-node-id="OIoaAyHWyka0aqXAr7TBuw"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" data-page-node-id="DkbLuNJzVJeirdWFyNCB9E"/></svg></button></div></footer>
@@ -1415,8 +1530,23 @@ var CACHE_FRESH_MS=60000; // 60 秒内缓存视为新鲜,跳过全量服务端�
 var _memCache=new Map(); // tid -> {messages, msgOffset, allLoaded, ts}
 function saveMemCache(tid){ if(!tid) return; _memCache.set(tid,{messages:messages.slice(),msgOffset:msgOffset,allLoaded:allLoaded,scrollTop:chatBox.scrollTop,ts:Date.now()}); }
 function loadMemCache(tid){ return _memCache.get(tid)||null; }
+// localStorage 缓存瘦身：思考正文不写进磁盘缓存。它是懒加载来的、单个长任务可达几 MB，
+// 写进去会顶爆 5MB 配额 —— 一旦配额满，所有话题的缓存集体静默写入失败，
+// 于是每次切任务都变成"全量重拉"，让人以为是加载慢。只留 mid，下次展开时按 id 重新取。
+function _slimForCache(list){
+  return (list||[]).map(function(m){
+    if(!m||m.type!=='proc'||!m.steps) return m;
+    var has=false;
+    for(var i=0;i<m.steps.length;i++){ var s=m.steps[i]; if(s&&s.kind==='think'&&s.text){ has=true; break; } }
+    if(!has) return m;
+    return Object.assign({},m,{steps:m.steps.map(function(s){
+      if(s&&s.kind==='think'&&s.text) return {kind:'think',mid:s.mid,ts:s.ts};
+      return s;
+    })});
+  });
+}
 // topics 列表只存一份(旧版每个任务缓存里都冗余一份,加速撑爆 5MB 配额)
-function saveCache(tid){ try { var id=tid||(currentTopic?currentTopic.id:null); if(!id) return; var payload=JSON.stringify({topicId:id,messages:(typeof dedupeMsgs==='function'?dedupeMsgs(messages):messages),ts:Date.now(),msgOffset:msgOffset,allLoaded:allLoaded,scrollTop:chatBox.scrollTop}); try { localStorage.setItem(LS_KEY+'_'+id,payload); } catch(e1){ try { // 配额满:清掉其他话题的持久缓存(内存缓存不受影响),保住当前话题,否则切任务永远全量重拉
+function saveCache(tid){ try { var id=tid||(currentTopic?currentTopic.id:null); if(!id) return; var payload=JSON.stringify({topicId:id,messages:_slimForCache(typeof dedupeMsgs==='function'?dedupeMsgs(messages):messages),ts:Date.now(),msgOffset:msgOffset,allLoaded:allLoaded,scrollTop:chatBox.scrollTop}); try { localStorage.setItem(LS_KEY+'_'+id,payload); } catch(e1){ try { // 配额满:清掉其他话题的持久缓存(内存缓存不受影响),保住当前话题,否则切任务永远全量重拉
   for(var qi=localStorage.length-1;qi>=0;qi--){ var qk=localStorage.key(qi); if(qk&&qk.indexOf(LS_KEY)===0&&qk!==LS_KEY+'_'+id) localStorage.removeItem(qk); } localStorage.setItem(LS_KEY+'_'+id,payload); } catch(e2){} } localStorage.setItem(LS_KEY+'_topics',JSON.stringify(topics)); localStorage.setItem(LS_KEY+'_active',id); saveMemCache(id); } catch(e){} }
 // ── 输入框草稿自动保存（独立前缀，避开 pruneCache 按 LS_KEY 清理）──
 var DRAFT_KEY_PREFIX='omp_draft_';
@@ -1514,12 +1644,19 @@ function updateBalance(data){
     return;
   }
   var bal = parseFloat(data.total_balance) || 0;
-  var cur = data.currency || 'CNY';
+  var cur = (data.currency || 'CNY').toUpperCase();
+  // 币种符号跟随后端：第三方源里 one-api 系大多记 USD，硬编码 ¥ 会显示成
+  // "¥37.65"这种看着像人民币、其实是美元的假象
+  var sym = (cur === 'USD' || cur === 'USDT') ? '$' : (cur === 'EUR' ? '€' : '¥');
+  var isCny = (cur === 'CNY' || cur === 'RMB');
+  var loWarn = isCny ? 1 : 0.15, hiWarn = isCny ? 10 : 1.5;   // 阈值也按币种给
   if(bal <= 0) { setBal('余额 ', '—'); balanceDisplay.style.color = 'var(--tdim)'; return; }
-  setBal('余额 ', '¥' + bal.toFixed(2));
-  balanceDisplay.title = '充值: ¥' + (parseFloat(data.topped_up_balance)||0).toFixed(2) + ' | 赠送: ¥' + (parseFloat(data.granted_balance)||0).toFixed(2);
-  if(bal < 1) balanceDisplay.style.color = '#f85149';
-  else if(bal < 10) balanceDisplay.style.color = 'var(--warn)';
+  setBal('余额 ', sym + bal.toFixed(2));
+  balanceDisplay.title = (data.provider ? '厂商: ' + data.provider + ' | ' : '')
+    + '充值: ' + sym + (parseFloat(data.topped_up_balance)||0).toFixed(2)
+    + ' | 赠送: ' + sym + (parseFloat(data.granted_balance)||0).toFixed(2);
+  if(bal < loWarn) balanceDisplay.style.color = '#f85149';
+  else if(bal < hiWarn) balanceDisplay.style.color = 'var(--warn)';
   else balanceDisplay.style.color = 'var(--accent)';
 }
 
@@ -1582,23 +1719,28 @@ function updateBalanceBanner(data){
   // Only show banner for CNY balance type (not accumulated_cost)
   if(data.note === 'accumulated_cost'){ balanceBanner.classList.remove('show','warn-low','warn-crit'); return; }
   var bal = parseFloat(data.total_balance) || 0;
-  var cur = data.currency || 'CNY';
+  var cur = (data.currency || 'CNY').toUpperCase();
+  // 原来 USD 时符号会变成空字符串（"余额不足 10"看不出币种），阈值也照搬 ¥10/¥50。
+  // 第三方源里 one-api 系多是 USD，所以符号和阈值都按币种走。
+  var sym = (cur === 'USD' || cur === 'USDT') ? '$' : (cur === 'EUR' ? '€' : '¥');
+  var isCny = (cur === 'CNY' || cur === 'RMB');
+  var crit = isCny ? 10 : 1.5, low = isCny ? 50 : 8;
   var textEl = balanceBanner.querySelector('.bal-text');
   if(bal <= 0){
     // Zero or negative balance — critical
     balanceBanner.classList.add('show','warn-crit');
     balanceBanner.classList.remove('warn-low');
-    if(textEl) textEl.textContent = '⚠️ 余额已耗尽，请充值支持 ' + (cur==='CNY'?'¥':'') + bal.toFixed(2);
-  } else if(bal < 10){
-    // Critical: less than ¥10
+    if(textEl) textEl.textContent = '⚠️ 余额已耗尽，请充值支持 ' + sym + bal.toFixed(2);
+  } else if(bal < crit){
+    // Critical
     balanceBanner.classList.add('show','warn-crit');
     balanceBanner.classList.remove('warn-low');
-    if(textEl) textEl.textContent = '⚠️ 余额不足 ¥10，即将停止服务（剩余 ' + (cur==='CNY'?'¥':'') + bal.toFixed(2) + '）';
-  } else if(bal < 50){
-    // Warning: less than ¥50
+    if(textEl) textEl.textContent = '⚠️ 余额不足 ' + sym + crit + '，即将停止服务（剩余 ' + sym + bal.toFixed(2) + '）';
+  } else if(bal < low){
+    // Warning
     balanceBanner.classList.add('show','warn-low');
     balanceBanner.classList.remove('warn-crit');
-    if(textEl) textEl.textContent = '⚡ 余额偏低（剩余 ' + (cur==='CNY'?'¥':'') + bal.toFixed(2) + '），请考虑支持';
+    if(textEl) textEl.textContent = '⚡ 余额偏低（剩余 ' + sym + bal.toFixed(2) + '），请考虑支持';
   } else {
     balanceBanner.classList.remove('show','warn-low','warn-crit');
   }
@@ -2080,7 +2222,9 @@ function smoothBubbleResize(el,apply,onDone){
 // 旧逻辑会连续整页重建 DOM,riseIn/入场动画重演造成气泡"原地跳几次"
 var _lastRenderSig='';
 function _renderSig(){
-  var s=(currentTopic?currentTopic.id:'~')+'|'+(allLoaded?1:0)+'|'+(userAvatar?userAvatar.length:0)+'|'+messages.length;
+  // 带上 msgOffset：加载更早的历史时，工具密集的任务折叠后可见行可能一条都不多，
+  // 但顶部提示行的"已加载 N 条"要跟着变，否则用户看不出加载在推进。
+  var s=(currentTopic?currentTopic.id:'~')+'|'+(allLoaded?1:0)+'|'+msgOffset+'|'+(userAvatar?userAvatar.length:0)+'|'+messages.length;
   for(var i=0;i<messages.length;i++){
     var m=messages[i];
     s+='\n'+(m.type||m.role||'')+'|'+(m.ts||0)+'|'+((m.text&&m.text.length)||0)+'|'+(m.open?1:0)+'|'+(m.live?1:0)+'|'+(m.error?1:0)+'|'+((m.attachments&&m.attachments.length)||0)+'|'+((m.thinking&&m.thinking.length)||0);
@@ -2093,6 +2237,15 @@ function _renderSig(){
   return s;
 }
 function render(){
+  // uid 是"DOM 与 messages 对账"的唯一钥匙：过程泡的 data-uid 由重建时 mid(m) 分配，
+  // toggleProc/updateProcDom 又靠它反查 messages。而 loadMessages/loadNewMessages 会整体
+  // 替换 messages（新对象还没 uid）——若此时内容签名恰好与上一批一致，下面的短路会直接
+  // return，DOM 上留的仍是上一批对象的 data-uid，点击时就查不到对应消息
+  // （表现为：过程泡点不开、思考懒加载不触发）。所以有未分配 uid 的过程泡就强制重建。
+  for(var _ur=0;_ur<messages.length;_ur++){
+    var _um=messages[_ur];
+    if(_um&&_um.type==='proc'&&!_um.uid){ _lastRenderSig=''; break; }
+  }
   var _sig=_renderSig();
   if(_sig===_lastRenderSig) return; // 内容未变:不重建、不动滚动、不重演动画
   _lastRenderSig=_sig;
@@ -2121,8 +2274,15 @@ function render(){
   var _frag=document.createDocumentFragment(); // 批量插入:整页一次布局,切换任务更顺
   if(!allLoaded&&messages.length){
     var _lmr=document.createElement('div');
-    _lmr.className='load-more-row';
-    _lmr.innerHTML='<span class="lm-dots"><i></i><i></i><i></i></span><span class="lm-txt">上滑加载更早的消息</span>';
+    _lmr.className='load-more-row'+(_loadingMore?' loading':'');
+    _lmr.setAttribute('role','button');
+    _lmr.setAttribute('tabindex','0');
+    _lmr.setAttribute('aria-label','加载更早的消息');
+    // 内容不足一屏时"上滑"产生不了 scroll 事件 → 这一行必须同时是个按钮。
+    // 未加载完时把"已加载 N 条"显示出来：工具密集的任务里一页折叠后可能一行都不多，
+    // 没有计数就完全看不出加载在推进（用户说的"他好像只是不显示出来"）。
+    _lmr.innerHTML=_loadMoreRowHTML();
+    _lmr.onclick=function(){ loadMoreMessages(); };
     _frag.appendChild(_lmr);
   }
   for(var i=0;i<messages.length;){
@@ -2218,6 +2378,8 @@ function render(){
   }
   updateJumpBtn();
   } catch(e){ _lastRenderSig=''; chatBox.innerHTML='<div class="empty"><div>渲染出错，请刷新页面</div></div>'; }
+  // 展开态的过程泡若思考正文还没拉（缓存恢复、上次就开着），在这里补齐
+  try { _hydrateOpenProcs(); } catch(e2) {}
 }
 
 async function loadTopics(){
@@ -2256,6 +2418,13 @@ async function newTopic(){
   currentTopic=null;
   messages=[];
   topicTitle.textContent='新任务';
+  // ⚠️ 必须和 switchTopic 一样停掉上一个任务的工作轮询。
+  // 否则那个轮询（tid 还是旧任务）会在自己的 await 返回后继续往下走，把旧任务的
+  // 实时过程泡 push 进刚刚被清空的 messages —— 用户看到的就是"别的任务的思考气泡
+  // 跑到新任务里来了"，切走再切回来才恢复正常（切回来时走 switchTopic，才会停掉它）。
+  if(workingPoll){ clearInterval(workingPoll); workingPoll=null; }
+  workingDot.classList.remove('pulse');
+  _setBtnSending();   // 新任务没在跑，按钮回到发送态
   if(window.innerWidth<=768) closeSidebar(true);
   // Create topic synchronously — no temp ID, no race with doSend
   try {
@@ -2329,16 +2498,38 @@ async function switchTopic(tid){
         var swRes=await loadMessages(tid, msgLimit, 0);
         if(_seq!==switchSeq) return;
         if(swRes){
-          // 静默刷新:内容没变(条数+末条时间戳/文本一致)就不重渲,
-          // 否则每次切回哪怕无新消息也整页重建,看起来像"重新加载了一遍"
+          var _page=swRes.messages||[];
+          var _pageRaw=swRes.rawCount||_page.length;
           var _unchanged=false;
-          if(swRes.messages&&swRes.messages.length&&swRes.messages.length===messages.length){
-            var _la=messages[messages.length-1], _lb=swRes.messages[swRes.messages.length-1];
-            if(_la&&_lb&&_la.ts===_lb.ts&&String(_la.text||'').length===String(_lb.text||'').length) _unchanged=true;
+          // ⚠️ 关键：缓存里的历史可能比这一页深得多（比如上次已经翻过十几页）。
+          // 旧实现无条件 messages=swRes.messages，等于把用户"刚才还在看的历史"整段丢掉，
+          // 屏幕上只剩最后一页 —— 表现就是"刚才我都看到有之前的内容了，他好像只是不显示出来"。
+          // 现在：缓存更深时只把这一页并进来（按页首时间戳切掉重叠部分），游标保持不变。
+          if(messages.length && msgOffset>_pageRaw && _page.length){
+            var _cut=_page[0].ts||0;
+            var _keep=[];
+            for(var _ki=0;_ki<messages.length;_ki++){
+              if((messages[_ki].ts||0)<_cut) _keep.push(messages[_ki]);
+            }
+            var _rowsBefore=messages.length;
+            var _lastBefore=messages[messages.length-1];
+            messages=groupProcess(_keep.concat(_page));
+            for(var _mi=0;_mi<messages.length;_mi++) messages[_mi]._seen=true;
+            var _lastAfter=messages[messages.length-1];
+            if(messages.length===_rowsBefore&&_lastBefore&&_lastAfter&&_lastBefore.ts===_lastAfter.ts&&
+               String(_lastBefore.text||'').length===String(_lastAfter.text||'').length) _unchanged=true;
+            // msgOffset / allLoaded 保持缓存值不动：深度没变
+          } else {
+            // 静默刷新:内容没变(条数+末条时间戳/文本一致)就不重渲,
+            // 否则每次切回哪怕无新消息也整页重建,看起来像"重新加载了一遍"
+            if(_page.length&&_page.length===messages.length){
+              var _la=messages[messages.length-1], _lb=_page[_page.length-1];
+              if(_la&&_lb&&_la.ts===_lb.ts&&String(_la.text||'').length===String(_lb.text||'').length) _unchanged=true;
+            }
+            messages=_page;
+            msgOffset=_pageRaw;
+            allLoaded=(_pageRaw<msgLimit);
           }
-          messages=swRes.messages||[];
-          msgOffset=swRes.rawCount||messages.length;
-          allLoaded=(msgOffset<msgLimit);
           if(!_unchanged){ render(); chatStick=chatNearBottom(); }
         }
         // 服务端数据可能比缓存多，恢复位置前先保存一次新数据，再恢复
@@ -2367,7 +2558,7 @@ async function switchTopic(tid){
     }
   }
   try { var bc=new BroadcastChannel('dayan'); bc.postMessage({type:'msg',tid:tid}); bc.close(); } catch(e){}
-  } finally { window._switching=false; }
+  } finally { window._switching=false; if(_seq===switchSeq) _scheduleAutoFill(); }
 }
 
 var msgOffset=0, msgLimit=30, allLoaded=false;
@@ -2394,59 +2585,115 @@ function dedupeMsgs(list){
   }
   return out;
 }
+// ══ 加载提示（spinner + 已耗时 / 完成信号）══════════════════════════════
+// 并发计数：切任务、增量同步、思考懒加载可能同时在跑，谁最后结束谁才收起，
+// 否则先回来的那个会把提示关掉，另一个还在传却看不见。
+var _loadN=0, _loadT0=0, _loadTimer=null;
+function _loadHintEl(){ return document.getElementById('loadHint'); }
+function _loadBegin(txt){
+  _loadN++;
+  var el=_loadHintEl(); if(!el) return;
+  if(_loadN>1) return;                        // 已在显示中，只累加计数
+  el.classList.remove('done','slow');
+  var t=el.querySelector('.lh-txt'); if(t&&txt) t.textContent=txt;
+  var te=el.querySelector('.lh-time'); if(te) te.textContent='0.0s';
+  // 紧贴内容区顶部：header 高度随窗口/平台变化，用实测值而不是写死
+  var hd=document.querySelector('#mainPanel > header');
+  if(hd) el.style.top=(hd.offsetHeight+10)+'px';
+  el.classList.add('show');
+  _loadT0=Date.now();
+  if(_loadTimer) clearInterval(_loadTimer);
+  _loadTimer=setInterval(function(){
+    var e=_loadHintEl(); if(!e) return;
+    var s=(Date.now()-_loadT0)/1000;
+    var t2=e.querySelector('.lh-time'); if(t2) t2.textContent=s.toFixed(1)+'s';
+    if(s>1.2) e.classList.add('slow');
+  },100);
+}
+function _loadEnd(){
+  _loadN=Math.max(0,_loadN-1);
+  if(_loadN>0) return;
+  var el=_loadHintEl(); if(!el) return;
+  if(_loadTimer){ clearInterval(_loadTimer); _loadTimer=null; }
+  // 等了 0.7s 以上才值得给"已加载"这个完成信号（短请求一闪反而晃眼）
+  if(_loadT0&&Date.now()-_loadT0>700){
+    var t=el.querySelector('.lh-txt'); if(t) t.textContent='已加载';
+    var te=el.querySelector('.lh-time'); if(te) te.textContent='';
+    el.classList.remove('slow'); el.classList.add('done');
+    var stamp=_loadT0;
+    setTimeout(function(){
+      var e2=_loadHintEl();
+      if(e2&&_loadN===0&&_loadT0===stamp){ e2.classList.remove('show','done'); }
+    },260);
+  } else {
+    el.classList.remove('show','slow');
+  }
+}
+// 服务端消息 → 前端消息模型。loadMessages(全量/分页) 与 loadNewMessages(增量) 共用同一套解析，
+// 避免两处各写一份、日后改一处漏一处（历史上 dedupe/错误标记清理就吃过这个亏）。
+function _mapServerMsgs(msgs, stillWorking){
+  var fresh=[];
+  msgs=msgs||[];
+  for(var i=0;i<msgs.length;i++){
+    var m=msgs[i];
+    var ts=m.timestamp?new Date(m.timestamp).getTime()/1000:Date.now()/1000;
+    if(m.type==='tool'||m.role==='tool'){
+      // 服务端工具消息 name 常缺失、text 是结果 JSON:名字与结果分离,别把结果当名字塞进摘要
+      var tnm=m.name||'', tout=m.text||'';
+      if(!tnm||/^\s*[\{\[]/.test(tnm)||tnm.length>40){
+        if(!tout) tout=tnm;
+        tnm=(m.args&&(m.args.name||m.args.tool))||'';
+      } else if(tout===tnm){ tout=''; }
+      fresh.push({type:'tool',name:tnm,out:tout,args:m.args,ts:ts});
+    } else {
+      var text=m.text||'';
+      if(!text&&m.content){ for(var j=0;j<m.content.length;j++){ if(m.content[j].type==='text') text+=m.content[j].text; } }
+      // 有思考内容但文本为空的 AI 消息保留,否则上翻历史时纯思考消息被过滤,只看到零星 AI 回复
+      if(!text&&!m.thinking&&!m.has_thinking) continue;
+      var role=m.role==='user'?'you':'ai';
+      var err=(m.args&&m.args.error)?true:false;
+      var atts=(m.args&&m.args.attachments)?m.args.attachments:[];
+      // thinking 一律懒加载：正文不随消息传（首屏能省下数 MB），只带 has_thinking 标记 + id，
+      // 点开过程泡时才经 /api/message-thinking 单独取（见 _ensureProcThinking）。
+      fresh.push({role:role,text:text,ts:ts,id:m.id,thinking:'',has_thinking:!!(m.has_thinking||m.thinking),error:err,error_msg:err?(m.args.error_msg||'系统错误'):null,attachments:atts,original_text:m.original_text||''});
+    }
+  }
+  fresh.sort(function(a,b){ return (a.ts||0)-(b.ts||0); });
+  // Dedupe consecutive AI messages where later one contains earlier (server stores each turn + final combined)
+  for(var di=0;di<fresh.length;di++){
+    var t1=(fresh[di].text||'').replace(/\s/g,'');
+    if(fresh[di].role!=='ai'||t1.length<20) continue;
+    for(var dj=di+1;dj<fresh.length;dj++){
+      if(fresh[dj].role==='ai'&&fresh[dj].text&&fresh[dj].text.replace(/\s/g,'').indexOf(t1)!==-1){
+        fresh.splice(di,1); di--; break;
+      }
+    }
+  }
+  // 清理陈旧的错误标记
+  for(var fi=0;fi<fresh.length;fi++){
+    if(fresh[fi].role==='you'&&fresh[fi].error){
+      var answered=false;
+      for(var fj=fi+1;fj<fresh.length;fj++){ if(fresh[fj].role==='ai'){ answered=true; break; } }
+      if(answered||(stillWorking&&fi===fresh.length-1)){ fresh[fi].error=false; fresh[fi].error_msg=null; }
+    }
+  }
+  return fresh;
+}
 async function loadMessages(tid, limit, offset){
+  _loadBegin(messages.length?'正在同步…':'正在加载对话…');
   try {
     var url='/api/messages?topic_id='+tid;
     if(limit) url+='&limit='+limit+'&offset='+(offset||0);
-    url+='&exclude_thinking=1'; // 不拉取完整 thinking,展开时单独拉(大幅减少传输量)
+    // 后端真按此参数跳过 thinking 正文（正文可达数 MB）；点开过程泡时才用
+    // /api/message-thinking 按 id 单独取。注：旧代码也发了这个参数，但后端从未实现，
+    // 等于白拉——"要等好久才突然全冒出来"的主因之一。
+    url+='&exclude_thinking=1';
     var mr=await fetch(url);
     var md=await mr.json();
-    var fresh=[];
-    var msgs=md.messages||[];
-    for(var i=0;i<msgs.length;i++){
-      var m=msgs[i];
-      var ts=m.timestamp?new Date(m.timestamp).getTime()/1000:Date.now()/1000;
-      if(m.type==='tool'||m.role==='tool'){
-        // 服务端工具消息 name 常缺失、text 是结果 JSON:名字与结果分离,别把结果当名字塞进摘要
-        var tnm=m.name||'', tout=m.text||'';
-        if(!tnm||/^\s*[\{\[]/.test(tnm)||tnm.length>40){
-          if(!tout) tout=tnm;
-          tnm=(m.args&&(m.args.name||m.args.tool))||'';
-        } else if(tout===tnm){ tout=''; }
-        fresh.push({type:'tool',name:tnm,out:tout,args:m.args,ts:ts});
-      } else {
-        var text=m.text||'';
-        if(!text&&m.content){ for(var j=0;j<m.content.length;j++){ if(m.content[j].type==='text') text+=m.content[j].text; } }
-        if(!text&&!m.thinking) continue; // 有思考内容但文本为空的 AI 消息保留,否则上翻历史时纯思考消息被过滤,只看到零星 AI 回复
-        var role=m.role==='user'?'you':'ai';
-        var err=(m.args&&m.args.error)?true:false;
-        var atts=(m.args&&m.args.attachments)?m.args.attachments:[];
-        // thinking 只在非分页(全量)加载时保留(兼容旧路径);分页加载时已用 exclude_thinking=1 跳过
-        var _think = m.thinking||'';
-        if(limit) _think=''; // 分页模式一律舍弃 thinking,展开时单独拉取
-        fresh.push({role:role,text:text,ts:ts,thinking:_think,error:err,error_msg:err?(m.args.error_msg||'系统错误'):null,attachments:atts,original_text:m.original_text||''});
-      }
-    }
-    fresh.sort(function(a,b){ return (a.ts||0)-(b.ts||0); });
-    // Dedupe consecutive AI messages where later one contains earlier (server stores each turn + final combined)
-    for(var di=0;di<fresh.length;di++){
-      var t1=(fresh[di].text||'').replace(/\s/g,'');
-      if(fresh[di].role!=='ai'||t1.length<20) continue;
-      for(var dj=di+1;dj<fresh.length;dj++){
-        if(fresh[dj].role==='ai'&&fresh[dj].text&&fresh[dj].text.replace(/\s/g,'').indexOf(t1)!==-1){
-          fresh.splice(di,1); di--; break;
-        }
-      }
-    }
-    // 清理陈旧的错误标记
-    var stillWorking=md.working&&md.working.status&&md.working.status!=='idle';
-    for(var fi=0;fi<fresh.length;fi++){
-      if(fresh[fi].role==='you'&&fresh[fi].error){
-        var answered=false;
-        for(var fj=fi+1;fj<fresh.length;fj++){ if(fresh[fj].role==='ai'){ answered=true; break; } }
-        if(answered||(stillWorking&&fi===fresh.length-1)){ fresh[fi].error=false; fresh[fi].error_msg=null; }
-      }
-    }
+    var _raw=md.messages||[];
+    // 解析统一走 _mapServerMsgs；md.working 现由后端一并返回（旧实现只回 messages，
+    // 前端却一直在读 md.working，导致"陈旧错误标记清理"这段其实从未生效）
+    var fresh=_mapServerMsgs(md.messages, md.working&&md.working.status&&md.working.status!=='idle');
     // 过程折叠:把中间轮文本/工具调用归并进过程泡,思考挪入其中
     fresh=groupProcess(fresh);
     // 入场动画标记
@@ -2462,8 +2709,8 @@ async function loadMessages(tid, limit, offset){
     }
     if(unseenCnt>6){ for(var ui2=0;ui2<fresh.length;ui2++) fresh[ui2]._seen=true; }
     if(limit){
-      if(msgs.length<limit) allLoaded=true;
-      return {messages: fresh, working: md.working, rawCount: msgs.length};
+      if(_raw.length<limit) allLoaded=true;
+      return {messages: fresh, working: md.working, rawCount: _raw.length};
     }
     if(currentTopic&&currentTopic.id===tid){
       messages=fresh;
@@ -2474,36 +2721,151 @@ async function loadMessages(tid, limit, offset){
     }
     return {messages: fresh, working: md.working};
   }catch(e){ return null; } // 失败一律 null:让消费端能区分"空列表"与"拉取失败",失败绝不覆盖本地消息
+  finally { _loadEnd(); }
+}
+
+// ══ 增量刷新：只取"本地最新一条之后"的新消息并追加合并 ══════════════════════
+// 为什么需要它：旧实现在 6 处关键路径上调用 loadMessages(tid)（不带 limit = 全量），
+// 注释写着"避免分页状态被破坏导致只剩最后一条+无法上滑"——用一次 26MB 的全量传输
+// 换取分页正确性。长任务（实测 8787 条 / 26MB）下，发送后、轮询发现新消息、
+// 熄屏回来、跨 tab 同步都会触发，于是"回复"要等整包下完才出现。
+// 这里改为：只拉 ts>=本地最后一条 之后的增量（实测同场景约 0.2MB），
+// 并且**只追加不替换**，天然不碰翻页游标，从根上避开那个取舍。
+async function loadNewMessages(tid){
+  tid=tid||(currentTopic?currentTopic.id:null);
+  if(!tid) return null;
+  // 本地没有内容（首次进来）→ 退化为初始分页加载，拿最近一批
+  if(!messages.length){
+    var r0=await loadMessages(tid, _initialBatchSize, 0);
+    if(r0&&currentTopic&&currentTopic.id===tid){
+      messages=r0.messages||[];
+      msgOffset=r0.rawCount||messages.length;
+      allLoaded=(msgOffset<_initialBatchSize);
+      for(var z=0;z<messages.length;z++) messages[z]._seen=true;
+    }
+    return r0;
+  }
+  _loadBegin('正在同步…');
+  try {
+    // 取全部消息里**最大**的 ts，而不是"最后一条的 ts"：
+    // 末尾可能是过程泡，它的 ts 是整块过程的起始时刻（早于块内的真实末条），
+    // 拿它当基准会让增量窗口凭空变大、进而把已在本地的东西也算成"新增"。
+    var lastTs=0;
+    for(var i=0;i<messages.length;i++){
+      var _t=(messages[i]&&messages[i].ts)||0;
+      if(_t>lastTs) lastTs=_t;
+    }
+    var url='/api/messages?topic_id='+encodeURIComponent(tid)+'&exclude_thinking=1';
+    // 回退 5s：本地"刚发出的用户消息"用的是本机时钟，与服务端落库时刻有亚秒级偏差，
+    // 卡在边界上会漏掉紧随其后的第一条 AI 消息。多拉回来的重复项由 dedupeMsgs 去掉，
+    // 且下面的 newCount 用严格大于统计，重复项不会被计进翻页游标。
+    if(lastTs) url+='&after_ts='+(lastTs-5);
+    var mr=await fetch(url);
+    var md=await mr.json();
+    if(!currentTopic||currentTopic.id!==tid) return null;
+    var raw=md.messages||[];
+    var incoming=_mapServerMsgs(raw, md.working&&md.working.status&&md.working.status!=='idle');
+    if(!incoming.length) return {messages:[], working:md.working, rawCount:0};
+    // 入场动画：以合并前的 key 集合为基准，已有内容不重播（proc 泡按 steps 数签名，重组后 key 不变）
+    var beforeKeys={};
+    for(var k=0;k<messages.length;k++) beforeKeys[_seenKey(messages[k])]=true;
+    var merged=groupProcess(dedupeMsgs(messages.concat(incoming)));
+    var unseen=0;
+    for(var q=0;q<merged.length;q++){
+      if(beforeKeys[_seenKey(merged[q])]) merged[q]._seen=true;
+      else unseen++;
+    }
+    if(unseen>6){ for(var q2=0;q2<merged.length;q2++) merged[q2]._seen=true; }
+    messages=merged;
+    // 翻页游标同步（不变量：msgOffset = 已从末尾加载的原始条数）——只累加**真正新增**的条数。
+    // 直接加 raw.length 是错的：after_ts 回退窗口会把末尾已有消息重复带回，
+    // 它们被 dedupeMsgs 去掉了、末尾并没有前移，却每轮都让游标虚增，
+    // 累积久了翻页就会按过大的 offset 跳着取，漏掉历史消息。
+    var newCount=0;
+    for(var r2=0;r2<raw.length;r2++){
+      var rts=raw[r2].timestamp?raw[r2].timestamp/1000:0;
+      if(rts>lastTs+0.001) newCount++;
+    }
+    msgOffset+=newCount;
+    return {messages:incoming, working:md.working, rawCount:newCount};
+  }catch(e){ return null; }
+  finally { _loadEnd(); }
 }
 
 var _loadingMore=false;
 var _initialBatchSize=50;
+// 补历史时每页条数比首屏大：一页 30 条在工具密集的任务里折叠后往往连一行都不多，
+// 用户滑十几次屏幕都没变化，等于白滑。（首屏仍走 30/50，保证打开就快。）
+var _LM_PAGE=80;
+var _LM_PAGES=12;        // 单次手势最多连拉页数
+var _LM_CHARS=600000;    // 单次手势最多拉回的正文字符量(≈1.8MB)，防止一条消息特别大时一次拉爆
+function _msgChars(m){ return ((m.text||'').length+(m.name||'').length); }
+// 提示行的两种形态（render 与加载收尾共用同一份标记，避免两处写法漂移）
+function _loadMoreRowHTML(){
+  var dots='<span class="lm-dots"><i></i><i></i><i></i></span>';
+  return _loadingMore
+    ? dots+'<span class="lm-txt">正在加载更早的消息…</span>'
+    : dots+'<span class="lm-txt">上滑或点击加载更早的消息</span><span class="lm-cnt">已加载 '+msgOffset+' 条</span>';
+}
+// 行内状态收尾：循环结束的那一次 render 发生在 _loadingMore 仍为 true 时，
+// 所以要单独把提示行改回"可点"并补上最新计数（loading 态里没有 .lm-cnt 节点，
+// 只改文本是补不回来的，必须整段重写）。
+function _syncLoadMoreRow(){
+  var r=chatBox.querySelector('.load-more-row'); if(!r) return;
+  r.classList.remove('loading');
+  r.innerHTML=_loadMoreRowHTML();
+}
 async function loadMoreMessages(){
   if(allLoaded||!currentTopic||_loadingMore) return;
   _loadingMore=true;
+  // 外层提示包住整个循环：内部每页的 loadMessages 各自 _loadBegin/_loadEnd，
+  // 有外层计数在时它们只累加不收起，于是整段加载只有一个提示、秒数连续（不会一闪一闪）
+  _loadBegin('正在加载更早的消息…');
   try {
-  var tid=currentTopic.id;
-  // 前插历史消息会让现有内容往下移,记录高度,重建后偏移修正
-  var prevHeight=chatBox.scrollHeight;
-  var result=await loadMessages(tid, msgLimit, msgOffset);
-  if(!currentTopic||currentTopic.id!==tid) return;
-  if(!result) return;
-  var fresh=result.messages||[];
-  if(!fresh.length){ allLoaded=true; return; }
-  messages=groupProcess(dedupeMsgs(fresh.concat(messages)));
-  for(var si2=0;si2<messages.length;si2++) messages[si2]._seen=true;
-  msgOffset+=result.rawCount||fresh.length;
-  // render 前读取用户实际位置(await 期间可能自己滚过),统一按"当前位置+新增高度"补偿:
-  // 旧逻辑用户滚动过就不补偿 → innerHTML 重建后 scrollTop=0 → 整页跳顶,还会级联触发顶部加载
-  var _curScroll=chatBox.scrollTop;
-  window._skipRenderScroll=true;
-  render();
-  window._skipRenderScroll=false;
-  var addedHeight=chatBox.scrollHeight-prevHeight;
-  if(chatStick) chatBox.scrollTop=chatBox.scrollHeight;
-  else chatBox.scrollTop=_curScroll+addedHeight;
-  } finally { _loadingMore=false; }
+    var tid=currentTopic.id;
+    var chars=0;
+    for(var pg=0; pg<_LM_PAGES; pg++){
+      // 前插历史消息会让现有内容往下移,记录高度,重建后偏移修正
+      var prevHeight=chatBox.scrollHeight;
+      var prevRows=messages.length;
+      var result=await loadMessages(tid, _LM_PAGE, msgOffset);
+      if(!currentTopic||currentTopic.id!==tid) return;
+      if(!result) return;
+      var fresh=result.messages||[];
+      if(!fresh.length){ allLoaded=true; break; }
+      for(var c1=0;c1<fresh.length;c1++){
+        chars+=_msgChars(fresh[c1]);
+        var _st=fresh[c1].steps||[];
+        for(var c2=0;c2<_st.length;c2++) chars+=(((_st[c2].text||'').length)+((_st[c2].out||'').length));
+      }
+      messages=groupProcess(dedupeMsgs(fresh.concat(messages)));
+      for(var si2=0;si2<messages.length;si2++) messages[si2]._seen=true;
+      msgOffset+=result.rawCount||fresh.length;
+      // render 前读取用户实际位置(await 期间可能自己滚过),统一按"当前位置+新增高度"补偿:
+      // 旧逻辑用户滚动过就不补偿 → innerHTML 重建后 scrollTop=0 → 整页跳顶,还会级联触发顶部加载
+      var _curScroll=chatBox.scrollTop;
+      window._skipRenderScroll=true;
+      render();
+      window._skipRenderScroll=false;
+      var addedHeight=chatBox.scrollHeight-prevHeight;
+      if(chatStick) chatBox.scrollTop=chatBox.scrollHeight;
+      else chatBox.scrollTop=_curScroll+addedHeight;
+      if(allLoaded) break;
+      if(messages.length-prevRows>=2) break;   // 这一页已经多出可见内容：收手，把剩下的交给下一次
+      if(chars>=_LM_CHARS) break;              // 数据量够一次手势了
+    }
+  } finally { _loadingMore=false; _loadEnd(); if(allLoaded) render(); else _syncLoadMoreRow(); }
 }
+
+// 内容没撑出滚动条时，"上滑"这个手势根本产生不了 scroll 事件 → 顶部那行提示永远兑现不了
+// （用户看到的就是"显示上滑加载，但怎么滑都不动，也不会自己加载，切一下任务才会加载一下"）。
+// 打开/切到任务后主动补一次；每次手势都有上限，剩下的交给那一行点击。
+function _maybeAutoFill(){
+  if(allLoaded||_loadingMore||!currentTopic||!messages.length) return;
+  if(chatBox.scrollHeight>chatBox.clientHeight+40) return;
+  loadMoreMessages();
+}
+function _scheduleAutoFill(){ setTimeout(_maybeAutoFill,80); }
 
 function setupScrollLoad(){
   if(!chatBox._scrollBound){
@@ -2546,10 +2908,18 @@ function setupScrollLoad(){
         chatBox.classList.add('pull-rebound');
         chatBox.style.transform='';
         setTimeout(function(){ chatBox.classList.remove('pull-rebound'); },420);
+        // 在顶端继续上拉 = 用户明确在要更早的消息。旧实现只做了个回弹动画就结束了，
+        // "上滑了但什么都没发生"；这里真的去加载。
+        if(!allLoaded) loadMoreMessages();
       }
     };
     chatBox.addEventListener('touchend',_pullEnd,{passive:true});
     chatBox.addEventListener('touchcancel',_pullEnd,{passive:true});
+    // 窗口变矮/转屏后，原本刚够一屏的内容可能又不满一屏（此时同样没有滚动事件）→ 再补一次
+    window.addEventListener('resize',function(){
+      if(window._afT) clearTimeout(window._afT);
+      window._afT=setTimeout(_maybeAutoFill,300);
+    });
   }
 }
 
@@ -2569,11 +2939,13 @@ function applyWorkingData(w, wd){
   w.turn=(wd.turn!=null)?wd.turn:null;
   w.remaining=(wd.remaining!=null)?wd.remaining:null;
   w.thinking=wd.thinking||'';          // 上层：reasoning_content 实时思考
-  w.inter=wd.intermediate||'';          // 下层：已确认的工具轮动作叙述（换行累积）
+  w.inter=_splitInterMark(wd.intermediate||'');  // 下层：已确认的工具轮动作叙述（换行累积）
   w.resp=wd.response||'';               // 下层底部：当前轮模型打字（工具轮=动作，最终轮=答案）
   w.tools=(wd.tool_calls||[]).map(function(t){return t.name;});
   // ── 阻塞式提问卡片（ask_user 等待中）──
   renderAskUserCard(wd.pending_question||null);
+  // 供 doSend 判断：agent 正阻塞等回答 → 可释放 /api/chat 连接（见 doSend 内注释）
+  w.pendingQ = !!wd.pending_question;
   // ── 思维导图实时更新：检测 AI 改图后自动重渲染 ──
   if (wd.mindmap_updated_at != null) {
     if (typeof _mmLastMmUpdated === 'undefined') window._mmLastMmUpdated = 0;
@@ -2647,14 +3019,33 @@ function submitAskUserAnswer(optIdx){
     else alert(d.error || '提交失败');
   }).catch(function(e){ alert('提交失败: ' + e.message); });
 }
+// ── 过程叙述里夹带的"账本标记" ──
+// server.py 的 _append_intermediate() 在过程叙述攒满 _INTERMEDIATE_MAX(8000字) 时会贴一个
+// 内部标记 "…[中间输出过长已截断]…"。它说的是"这块叙述面板到顶了，后面的动作不再记进来"，
+// 跟"这一行显示被截断"是两件事；而且它被直接粘在叙述尾巴上，导致摘要行取"最后一行"时
+// 把它当正文显示出来 —— 用户读成"这行坏了/出错了"，反复来问。
+// 这里把它拆成独立一行：正文里当说明读，摘要行则跳过它、回到上一条真实叙述。
+var _INTER_NOTE='…[过程叙述已达上限，后续动作不再计入此面板]';
+var _INTER_MARK_RE=/\s*…?\[中间输出过长已截断\]…?/g;
+function _splitInterMark(s){
+  return String(s||'').replace(_INTER_MARK_RE,'\n'+_INTER_NOTE);
+}
 // 收起态的一行摘要（已去掉"第N轮"显示）
 function procSummary(m){
   if(m.live){
     var tail='';
     if(m.resp) tail='✍ '+m.resp.slice(-24).replace(/\s+/g,' ');          // 当前轮打字优先
     else if(m.inter){                                                     // 已确认动作叙述
-      var ls=m.inter.split('\n').filter(function(x){return x.trim();});
-      if(ls.length) tail='→ '+ls[ls.length-1].slice(-24).replace(/\s+/g,' ');
+      // 取最后一条"真实叙述"：跳过空行与上面的账本标记行。
+      // 不再切 24 字——整行交给 .proc-sum 的 CSS ellipsis，按容器宽度自然出"…"，
+      // 有空白就显示完（原来切 24 字，右边留一大片空还显得像被截断了）。
+      var ls=m.inter.split('\n');
+      for(var li=ls.length-1;li>=0;li--){
+        var t=ls[li].replace(_INTER_MARK_RE,' ').replace(/\s+/g,' ').trim();
+        if(!t||t===_INTER_NOTE) continue;
+        tail='→ '+(t.length>240? t.slice(0,240) : t);
+        break;
+      }
     }
     else if(m.tools&&m.tools.length) tail='🔧 '+m.tools[m.tools.length-1];
     else if(m.thinking) tail='💭 '+m.thinking.slice(-24).replace(/\s+/g,' ');
@@ -2687,7 +3078,12 @@ function procBodyHTML(m){
   var st=m.steps||[];
   for(var j=0;j<st.length;j++){
     var s=st[j];
-    if(s.kind==='think'){ var t2=s.text||''; if(t2.length>2000) t2=t2.slice(0,2000)+'…'; h+='<div class="w-think md">'+fmtThink(t2)+'</div>'; }
+    if(s.kind==='think'){
+      // 思考正文懒加载：带 mid 但无 text = 还没拉（首屏不传正文，省下数 MB）。
+      // 展开这个面板时 _ensureProcThinking 会自动补，这里是它的过渡占位。
+      if(!s.text&&s.mid){ h+='<div class="w-think md w-think-ph">💭 思考过程 · 展开时加载</div>'; continue; }
+      var t2=s.text||''; if(t2.length>2000) t2=t2.slice(0,2000)+'…'; h+='<div class="w-think md">'+fmtThink(t2)+'</div>';
+    }
     else if(s.kind==='tool'){
       s=_fixToolStep(s);
       h+='<div class="w-tool-call">🔧 '+esc(s.name||'工具调用')+(s.args?' <code>'+esc(JSON.stringify(s.args).slice(0,120))+'</code>':'')+'</div>';
@@ -2813,6 +3209,7 @@ function toggleProc(uid){
       syncLiveThinkBody(body,m);
     } else if(body&&m){
       body.innerHTML=procBodyHTML(m);
+      _ensureProcThinking(m, body);   // 思考正文懒加载：展开这一刻才去取
     }
     box.classList.add('open');
     if(m&&m.live&&body){
@@ -2836,6 +3233,51 @@ function toggleProc(uid){
       body.scrollTop=body.scrollHeight; // 瞬间到底，避免 transition 期间 maxScroll 不准
     } else if(body){
       body.scrollTop=0;
+    }
+  }
+}
+// ══ 思考正文懒加载 ═══════════════════════════════════════════════════
+// 消息接口不再随包回 thinking 正文（单个长任务的 thinking 累计几 MB，
+// 一起传会让"最终答复"等到整包下完才渲染），只回 has_thinking 标记 + 消息 id。
+// 用户展开过程泡时，才按 id 去 /api/message-thinking 把这几个思考取回来。
+// 多个待取 id 合并成一次请求；取回后写回 steps 并重渲染 body。
+function _pendingThinkMids(m){
+  var out=[], st=(m&&m.steps)||[];
+  for(var i=0;i<st.length;i++){
+    if(st[i].kind==='think'&&!st[i].text&&st[i].mid) out.push(st[i].mid);
+  }
+  return out;
+}
+async function _ensureProcThinking(m, body){
+  var mids=_pendingThinkMids(m);
+  if(!mids.length||!m||m._thinkLoading) return;
+  m._thinkLoading=true;
+  if(body) body.innerHTML='<div class="w-think md w-think-loading"><span class="lh-spin"></span>正在加载思考过程…</div>';
+  var tid=currentTopic?currentTopic.id:'';
+  try{
+    var r=await fetch('/api/message-thinking?topic_id='+encodeURIComponent(tid)+'&ids='+mids.join(','));
+    var d=await r.json();
+    var th=(d&&d.thinking)||{};
+    for(var i=0;i<mids.length;i++){
+      if(typeof th[String(mids[i])]!=='string') continue;
+      var st=m.steps||[];
+      for(var j=0;j<st.length;j++){
+        if(st[j].kind==='think'&&st[j].mid===mids[i]) st[j].text=th[String(mids[i])];
+      }
+    }
+  }catch(e){}
+  m._thinkLoading=false;
+  // 展开期间可能已切任务/重渲，body 不在文档里就别写回，避免误改新任务的 DOM
+  if(body&&document.body.contains(body)){ body.innerHTML=procBodyHTML(m); body.scrollTop=0; }
+}
+// 从缓存/历史恢复时，若某个过程泡本就是展开态且思考还没拉，补齐它（点开才拉的原则不破，
+// 因为只有"用户上次就展开着"的才会命中）
+function _hydrateOpenProcs(){
+  for(var i=0;i<messages.length;i++){
+    var m=messages[i];
+    if(m&&m.type==='proc'&&m.open&&!m.live&&!m._thinkLoading&&_pendingThinkMids(m).length){
+      var el=chatBox.querySelector('.row.proc[data-uid="'+m.uid+'"]');
+      _ensureProcThinking(m, el?el.querySelector('.proc-body'):null);
     }
   }
 }
@@ -2913,13 +3355,14 @@ function groupProcess(list){
         if(list[j].role==='ai'||list[j].type==='tool'||(list[j].type==='proc'&&!list[j].live)){ isFinal=false; break; }
       }
       if(!isFinal){
-        if(m.thinking) buf.push({kind:'think',text:m.thinking,ts:m.ts});
+        // 带 mid 的 think 步骤 = 思考正文尚未拉取，展开过程泡时按 id 补（见 _ensureProcThinking）
+        if(m.thinking||m.has_thinking) buf.push({kind:'think',text:m.thinking||'',mid:m.id,ts:m.ts});
         buf.push({kind:'inter',text:m.text,ts:m.ts});  // 非最终 ai 文本=工具轮动作叙述，归中间过程下层
         continue;
       }
-      if(m.thinking){
-        buf.unshift({kind:'think',text:m.thinking,ts:m.ts});
-        m=Object.assign({},m,{thinking:''});
+      if(m.thinking||m.has_thinking){
+        buf.unshift({kind:'think',text:m.thinking||'',mid:m.id,ts:m.ts});
+        m=Object.assign({},m,{thinking:'',has_thinking:false});
       }
       flush(m);
       continue;
@@ -2977,7 +3420,8 @@ function recoverPendingReply(tid, wMsg){
   // /api/chat 连接断了，但 agent 还在后台执行。
   // 不标记重发，改为轮询工作状态；agent 完成后拉取服务端已持久化的最终回复。
   if(recoverPoll){ clearInterval(recoverPoll); recoverPoll=null; }
-  setSt('warn','连接中断，后台仍在处理…');
+  var _wasReleased=!!wMsg._releasedForAnswer; wMsg._releasedForAnswer=false;
+  setSt('warn', _wasReleased ? '等待你确认…（已释放连接，不再占用其它任务）' : '连接中断，后台仍在处理…');
   var fails=0, polls=0, MAX_POLLS=600;
   recoverPoll=setInterval(async function(){
     if(!currentTopic||currentTopic.id!==tid){
@@ -3308,9 +3752,23 @@ async function _doSendInner(){
   },500);
 
   // No timeout — backend waits for agent_end indefinitely
+  // 但「等待用户回答」期间 agent 不产生任何数据，这条连接纯占并发槽位：
+  // 同源 HTTP/1.1 并发上限约 6，多个任务同时挂起提问就会把轮询请求挤掉，
+  // 表现为「一个任务弹出提问后，其它任务的问题弹不出来」。
+  // 此时主动释放连接，改由轮询接管；服务端 agent 不受影响（结果照常收尾入库）。
+  var chatAbort=new AbortController();
+  var abortWatch=setInterval(function(){
+    if(!wMsg.working){ clearInterval(abortWatch); abortWatch=null; return; }
+    if(wMsg.pendingQ){
+      clearInterval(abortWatch); abortWatch=null;
+      wMsg._releasedForAnswer=true;
+      try{ chatAbort.abort(); }catch(er){}
+    }
+  },700);
   try {
-    var r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,topic_id:currentTopic?currentTopic.id:'',attachments:atts})});
+    var r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,topic_id:currentTopic?currentTopic.id:'',attachments:atts}),signal:chatAbort.signal});
     var data=await r.json();
+    if(abortWatch){ clearInterval(abortWatch); abortWatch=null; }
     // 插话：后端已把消息注入运行中的循环（不起第二个并行循环）。
     // 移除本次发送新建的过程泡，原循环的过程泡继续实时刷新；用户气泡保留。
     if(data && data.status==='injected'){
@@ -3352,7 +3810,7 @@ async function _doSendInner(){
       var _steps=[];
       if(data.thinking) _steps.push({kind:'think',text:data.thinking});
       if(data.intermediate){  // 工具轮动作叙述，按行拆成 inter 步骤（下层）
-        var _il=data.intermediate.split('\n');
+        var _il=_splitInterMark(data.intermediate).split('\n');
         for(var q=0;q<_il.length;q++){ if(_il[q].trim()) _steps.push({kind:'inter',text:_il[q]}); }
       }
       if(data.tool_calls){
@@ -3404,6 +3862,24 @@ async function _doSendInner(){
       topicTitle.textContent=currentTopic?currentTopic.title:'任务';
     }
   } catch(e){
+    if(abortWatch){ clearInterval(abortWatch); abortWatch=null; }
+    if(e && e.name==='AbortError'){
+      // 主动释放连接（等待回答中）：agent 仍在后台跑，改轮询等待，回答后结果照常落地
+      if(sendPoll){ clearInterval(sendPoll); sendPoll=null; }
+      if(workingPoll){ clearInterval(workingPoll); workingPoll=null; }
+      if(!currentTopic||currentTopic.id!==sendTid){
+        wMsg.working=false;
+        workingDot.classList.remove('pulse');
+        return;
+      }
+      if(await checkAgentActive(sendTid)){
+        recoverPendingReply(sendTid, wMsg);
+      }else{
+        wMsg.working=false; wMsg.live=false;
+        if(await loadNewMessages(sendTid)){ if(currentTopic&&currentTopic.id===sendTid){ render(); saveCache(); } }
+      }
+      return;
+    }
     if(!currentTopic||currentTopic.id!==sendTid){
       wMsg.working=false;
       clearInterval(sendPoll); sendPoll=null;
@@ -4154,6 +4630,272 @@ function renderXfer(){
   }
   list.innerHTML=html;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// 网页画中画（Web PiP）
+//   病因：对话里点外链 = 主窗口直接导航过去。窗口是无边框的、也没有后退键，
+//        于是打开一篇网页就把整个 App"覆盖"了，除了重启没别的办法回来。
+//   治法：全局拦下跨域 http(s) 链接 → 不导航主窗口 → 悬浮小窗里加载。
+//   三层加载策略：① iframe 直连（多数站点不设 X-Frame-Options）
+//                ② 代理模式（后端取回并丢掉 XFO/CSP，站点禁止内嵌时用）
+//                ③ 独立小窗 / 系统浏览器（脚本重的站点连代理也救不了时的出口）
+// ═══════════════════════════════════════════════════════════════════
+var WP_LS='dg_pip_geom_v1';
+// 直连帧：页面本身是别的源，碰不到我们的 DOM；关键是**不给 allow-top-navigation**，
+// 万一页面里有人写 top.location=... 也翻不出去，App 不会被顶掉。
+var WP_SANDBOX_DIRECT='allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads';
+// 代理帧：内容是我们自己域下发的，必须去掉 allow-same-origin 变成不透明源，
+// 否则被代理的页面能读 App 的 DOM / localStorage（加密密钥就存在那儿）。
+var WP_SANDBOX_PROXY='allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads';
+var WP_MIN_W=280, WP_MIN_H=190, WP_LOAD_MS=12000;
+var wpCur={url:'',host:'',proxy:false,phase:'idle',seq:0,_t0:0,_tick:null,_to:null};
+
+function wpIsWeb(u){ return /^https?:\/\//i.test(String(u||'')); }
+function wpHostOf(u){ try{ return new URL(u).host; }catch(e){ return String(u||''); } }
+function wpOriginOf(u){ try{ return new URL(u).origin; }catch(e){ return ''; } }
+function wpPathOf(u){
+  try{ var o=new URL(u); var p=(o.pathname||'/')+(o.search||''); return p.length>1?p:'/'; }catch(e){ return '/'; }
+}
+function wpEl(id){ return document.getElementById(id); }
+
+// 顶栏信息：域名 + 路径（跨域拿不到对方 <title>，就用"域名/路径"代替，够定位了）
+function wpSetHead(url){
+  var host=wpHostOf(url), fav=wpOriginOf(url)+'/favicon.ico';
+  if(wpEl('wpTitle')) wpEl('wpTitle').textContent=host;
+  if(wpEl('wpHost')) wpEl('wpHost').textContent=wpPathOf(url);
+  var f=wpEl('wpFav'); if(f){ f.style.visibility='visible'; f.src=fav; }
+  var cf=wpEl('wpChipFav'); if(cf) cf.src=fav;
+  if(wpEl('wpChipT')) wpEl('wpChipT').textContent=host;
+}
+
+function wpGeom(){
+  // 默认尺寸跟视口走：桌面 520×582 左右；手机窄屏按比例收，留出边上一条 App 的可见区，
+  // 免得"画中画"在手机上直接等于全屏。用户拖过/缩过之后一律以存下来的为准。
+  var vw=window.innerWidth, vh=window.innerHeight;
+  var d={w:Math.min(520,Math.max(320,Math.round(vw*0.82))),
+         h:Math.min(600,Math.max(260,Math.round(vh*0.72))),x:null,y:null};
+  try{
+    var g=JSON.parse(localStorage.getItem(WP_LS)||'{}')||{};
+    for(var k in g){ if(g.hasOwnProperty(k)&&g[k]!==null&&g[k]!==undefined) d[k]=g[k]; }
+  }catch(e){}
+  return d;
+}
+function wpSaveGeom(p){ try{ var g=wpGeom(); for(var k in p) g[k]=p[k]; localStorage.setItem(WP_LS,JSON.stringify(g)); }catch(e){} }
+function wpClamp(g){
+  var vw=window.innerWidth, vh=window.innerHeight;
+  g.w=Math.max(WP_MIN_W,Math.min(g.w||520,vw-16));
+  g.h=Math.max(WP_MIN_H,Math.min(g.h||600,vh-16));
+  if(g.x===null||g.x===undefined) g.x=vw-g.w-18;
+  if(g.y===null||g.y===undefined) g.y=vh-g.h-18;
+  g.x=Math.max(6,Math.min(g.x,vw-g.w-6));
+  g.y=Math.max(6,Math.min(g.y,vh-g.h-6));
+  return g;
+}
+function wpApplyGeom(){
+  var b=wpEl('webPip'); if(!b) return;
+  var g=wpClamp(wpGeom());
+  b.style.width=g.w+'px'; b.style.height=g.h+'px';
+  b.style.left=Math.round(g.x)+'px'; b.style.top=Math.round(g.y)+'px';
+}
+
+// 拖动 / 缩放 / 代理页里点链接回传 / 窗口尺寸变化
+function wpInitPip(){
+  var b=wpEl('webPip'), head=wpEl('wpHead'), grip=wpEl('wpResize'), fr=wpEl('wpFrame');
+  if(!b||!head||!grip||b._wpInit) return;
+  b._wpInit=1;
+  var st=null;
+  function down(mode,ev){
+    var r=b.getBoundingClientRect();
+    if(mode==='move') st={mode:mode,dx:ev.clientX-r.left,dy:ev.clientY-r.top};
+    else st={mode:mode,w0:r.width,h0:r.height,x0:ev.clientX,y0:ev.clientY};
+    b.classList.add(mode==='move'?'wp-dragging':'wp-resizing');
+    try{ ev.target.setPointerCapture(ev.pointerId); }catch(e){}
+    ev.preventDefault();
+  }
+  head.addEventListener('pointerdown',function(ev){
+    if(ev.target&&ev.target.closest&&ev.target.closest('.wp-btn')) return;
+    down('move',ev);
+  });
+  grip.addEventListener('pointerdown',function(ev){ ev.stopPropagation(); down('size',ev); });
+  window.addEventListener('pointermove',function(ev){
+    if(!st) return;
+    var g=wpGeom();
+    if(st.mode==='move'){ g.x=ev.clientX-st.dx; g.y=ev.clientY-st.dy; }
+    else { g.w=st.w0+(ev.clientX-st.x0); g.h=st.h0+(ev.clientY-st.y0); }
+    var c=wpClamp(g);
+    b.style.width=c.w+'px'; b.style.height=c.h+'px';
+    b.style.left=Math.round(c.x)+'px'; b.style.top=Math.round(c.y)+'px';
+  });
+  window.addEventListener('pointerup',function(){
+    if(!st) return;
+    var r=b.getBoundingClientRect();
+    wpSaveGeom({w:Math.round(r.width),h:Math.round(r.height),x:Math.round(r.left),y:Math.round(r.top)});
+    st=null; b.classList.remove('wp-dragging'); b.classList.remove('wp-resizing');
+  });
+  window.addEventListener('resize',function(){ if(b.style.display!=='none'&&!st) wpApplyGeom(); });
+  window.addEventListener('message',function(ev){
+    var d=ev&&ev.data;
+    if(!d||typeof d!=='object'||!d.__wp_nav||!wpIsWeb(d.__wp_nav)) return;
+    if(!fr||ev.source!==fr.contentWindow) return;   // 只认小窗里那帧发来的
+    if(wpCur.phase!=='idle') wpLoad(d.__wp_nav,wpCur.proxy);
+  });
+}
+
+function wpTick(){
+  var el=wpEl('wpElapsed');
+  if(el) el.textContent=((Date.now()-wpCur._t0)/1000).toFixed(1)+' s';
+}
+function wpStopTimers(){
+  if(wpCur._tick){ clearInterval(wpCur._tick); wpCur._tick=null; }
+  if(wpCur._to){ clearTimeout(wpCur._to); wpCur._to=null; }
+}
+function wpShowState(kind,arg){
+  var st=wpEl('wpState'), fr=wpEl('wpFrame');
+  if(!st||!fr) return;
+  wpCur.phase=kind;
+  if(kind==='page'){ st.classList.remove('show'); st.innerHTML=''; fr.classList.add('show'); return; }
+  fr.classList.remove('show');
+  var host=esc(wpCur.host||'');
+  if(kind==='checking'){
+    st.innerHTML='<div class="wp-spin"></div><div>正在检查 <b>'+host+'</b></div><div class="wp-k">确认该站点能否直接内嵌…</div>';
+  }else if(kind==='loading'){
+    st.innerHTML='<div class="wp-spin"></div><div>正在加载 <b>'+host+'</b></div><div class="wp-k">已用 <span id="wpElapsed">0.0 s</span></div>';
+    wpCur._t0=Date.now(); wpTick();
+    wpCur._tick=setInterval(wpTick,200);
+  }else if(kind==='blocked'){
+    st.innerHTML='<div style="font-size:20px">🚧</div><div><b>该站点禁止被内嵌</b></div>'
+      +'<div class="wp-k">'+(arg?esc(arg):'对方响应头带了 X-Frame-Options / CSP frame-ancestors')+'</div>'
+      +'<div class="wp-acts2">'
+      +'<button class="wp-act pri" onclick="wpAct(\'proxy\')">用代理加载</button>'
+      +'<button class="wp-act" onclick="wpAct(\'window\')">独立小窗</button>'
+      +'<button class="wp-act" onclick="wpAct(\'browser\')">浏览器打开</button>'
+      +'</div>';
+  }else if(kind==='note'){
+    st.innerHTML='<div style="font-size:20px">🔗</div><div><b>'+esc((arg&&arg.title)||'提示')+'</b></div>'
+      +'<div class="wp-k">'+esc((arg&&arg.msg)||'')+'</div>'
+      +'<div class="wp-acts2">'
+      +'<button class="wp-act" onclick="wpAct(\'window\')">独立小窗</button>'
+      +'<button class="wp-act" onclick="wpAct(\'retry\')">回到网页</button>'
+      +'</div>';
+  }else if(kind==='fail'){
+    st.innerHTML='<div style="font-size:20px">⚠️</div><div><b>没能加载出来</b></div>'
+      +'<div class="wp-k">'+host+' 可能在拦爬虫，或者这个页面需要登录态</div>'
+      +'<div class="wp-acts2">'
+      +'<button class="wp-act" onclick="wpAct(\'retry\')">重试</button>'
+      +'<button class="wp-act pri" onclick="wpAct(\'proxy\')">用代理加载</button>'
+      +'<button class="wp-act" onclick="wpAct(\'window\')">独立小窗</button>'
+      +'<button class="wp-act" onclick="wpAct(\'browser\')">浏览器打开</button>'
+      +'</div>';
+  }
+  st.classList.add('show');
+}
+
+// 真正把 URL 塞进帧（direct = 直连；proxy = 走后端代理）
+function wpLoad(url,useProxy){
+  var fr=wpEl('wpFrame');
+  if(!fr) return;
+  var seq=++wpCur.seq;
+  wpStopTimers();
+  wpCur.url=url; wpCur.host=wpHostOf(url); wpCur.proxy=!!useProxy;
+  wpSetHead(url);
+  if(wpEl('wpProxyBtn')) wpEl('wpProxyBtn').classList.toggle('on',wpCur.proxy);
+  if(wpEl('wpNote')) wpEl('wpNote').classList.toggle('show',wpCur.proxy);
+  wpShowState('loading');
+  fr.removeAttribute('src');   // 强制重载同一 URL 时也重新发起
+  fr.setAttribute('sandbox',wpCur.proxy?WP_SANDBOX_PROXY:WP_SANDBOX_DIRECT);
+  fr.src=wpCur.proxy?('/api/web-proxy?url='+encodeURIComponent(url)):url;
+  fr.onload=function(){ if(seq!==wpCur.seq) return; wpStopTimers(); wpShowState('page'); };
+  wpCur._to=setTimeout(function(){
+    if(seq!==wpCur.seq||wpCur.phase!=='loading') return;
+    wpStopTimers(); wpShowState('fail');
+  },WP_LOAD_MS);
+}
+
+// 入口：打开（或复用）画中画小窗
+function openWebPip(url,opts){
+  opts=opts||{};
+  if(!wpIsWeb(url)) return false;
+  var b=wpEl('webPip');
+  if(!b) return false;
+  wpInitPip();
+  wpCur.url=url; wpCur.host=wpHostOf(url);
+  if(wpEl('wpChip')) wpEl('wpChip').style.display='none';
+  b.style.display='flex';
+  wpApplyGeom();
+  wpSetHead(url);
+  if(opts.proxy){ wpLoad(url,true); return true; }
+  // 预检：站点是否禁止内嵌。省得在帧里白屏十几秒才发现是被拒。
+  wpStopTimers();
+  wpShowState('checking');
+  fetch('/api/url-check?url='+encodeURIComponent(url))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(wpCur.url!==url) return;                 // 已被别的链接顶掉
+      if(d&&d.ok&&d.blocked){ wpShowState('blocked',d.reason||''); return; }
+      wpLoad(url,false);
+    })
+    .catch(function(){ if(wpCur.url===url) wpLoad(url,false); });
+  return true;
+}
+
+function wpMinimize(on){
+  var b=wpEl('webPip'), c=wpEl('wpChip');
+  if(!b||!c) return;
+  if(on){ b.style.display='none'; c.style.display='flex'; }
+  else { c.style.display='none'; b.style.display='flex'; wpApplyGeom(); }
+}
+function closeWebPip(){
+  var b=wpEl('webPip'), c=wpEl('wpChip'), fr=wpEl('wpFrame'), st=wpEl('wpState');
+  wpStopTimers();
+  wpCur.seq++; wpCur.phase='idle'; wpCur.url='';
+  if(fr){ fr.onload=null; fr.removeAttribute('src'); fr.classList.remove('show'); }
+  if(st){ st.classList.remove('show'); st.innerHTML=''; }
+  if(b) b.style.display='none';
+  if(c) c.style.display='none';
+}
+function wpChipClose(){ closeWebPip(); }
+
+function wpAct(a){
+  var u=wpCur.url; if(!u) return;
+  if(a==='retry'){ openWebPip(u,{proxy:wpCur.proxy}); return; }
+  if(a==='proxy'){ wpLoad(u,!wpCur.proxy); return; }
+  if(a==='browser'){ wpOpenExternal(u); return; }
+  if(a==='window'){ wpOpenWindow(u); return; }
+}
+function wpOpenExternal(url){
+  var pw=window.pywebview&&window.pywebview.api;
+  if(pw&&pw.open_external){ try{ pw.open_external(url); return; }catch(e){} }
+  var w=null;
+  try{ w=window.open(url,'_blank','noopener'); }catch(e){}
+  if(!w){ // 弹窗被拦：把链接给用户（面板里长按可复制）
+    if(typeof fbCopyText==='function') fbCopyText(url);
+    wpShowState('note',{title:'浏览器拦截了新窗口，链接已复制',msg:url});
+  }
+}
+function wpOpenWindow(url){
+  var pw=window.pywebview&&window.pywebview.api;
+  if(pw&&pw.open_pip){ try{ pw.open_pip(url); return; }catch(e){} }
+  wpOpenExternal(url);   // 手机/网页端没有原生小窗 → 退到新标签
+}
+
+// 全局拦链接：跨域 http(s) 一律进画中画，绝不导航主窗口。
+// 同源链接（附件下载 /api/mission-file、页面内预览等）保持原生行为，不动。
+document.addEventListener('click',function(e){
+  if(e.defaultPrevented||e.button!==0||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey) return;
+  var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;
+  if(!a) return;
+  var href=a.getAttribute('href')||'';
+  if(!href||href.charAt(0)==='#') return;
+  if(/^(mailto|tel|javascript|blob|data):/i.test(href)) return;
+  var abs;
+  try{ abs=new URL(href,location.href).href; }catch(_){ return; }
+  if(!/^https?:/i.test(abs)) return;
+  if(abs.indexOf(location.origin)===0) return;
+  // 只 preventDefault：拦下"导航走"这个默认行为即可；不再 stopPropagation，
+  // 免得顺手掐掉页面里其他委托监听（右键菜单收起、气泡点击等）。
+  e.preventDefault();
+  openWebPip(abs);
+},true);
 
 // ═══ 文件查看器：图片/视频/音频/PDF/文本/Markdown ═══
 var fvList=[], fvIdx=-1;
@@ -5007,6 +5749,10 @@ function loadThemeSettings(){
   try {
   setTheme(getTheme());
   var cache=loadCache();
+  // 无本地缓存时，从打开到首批消息渲染完这段是"纯空白且无任何反馈"，先把加载提示亮出来；
+  // 有缓存的话下面会立刻渲染出内容，就不用提示了（否则闪一下反而吵）
+  var _initHintShown=!((cache&&cache.messages&&cache.messages.length));
+  if(_initHintShown) _loadBegin('正在加载…');
   var cachedTopicId=null;
   var cachedMsgs=[];
   if(cache&&cache.messages&&cache.messages.length){
@@ -5100,7 +5846,7 @@ function loadThemeSettings(){
       messages = result.messages || [];
       msgOffset = result.rawCount || messages.length;
       allLoaded = (msgOffset < _initialBatchSize);
-      var wState = result.working;
+      var wState = result?result.working:null;
       saveCache();
       render();
       restoreScroll(loadTid);
@@ -5109,8 +5855,10 @@ function loadThemeSettings(){
   }
   render();
   setupScrollLoad();
+  _scheduleAutoFill();             // 首屏内容不满一屏时主动补历史（否则"上滑"永远触发不到）
   renderTopics();
   checkTopicWorking();
+  if(_initHintShown) _loadEnd();   // 首屏提示收尾（与 init 开头的 _loadBegin 配对）
   // Load app name from server config
   fetch('/api/project-config').then(function(r){return r.json();}).then(function(cfg){
     var name = cfg.app_name || 'AI';
@@ -5161,8 +5909,8 @@ function loadThemeSettings(){
     tabSync.onmessage=function(e){
       var d=e.data||{};
       if(d.type==='msg'&&currentTopic&&d.tid===currentTopic.id){
-        // 全量加载：跨tab同步不能破坏分页状态
-        loadMessages(currentTopic.id).then(function(result){ if(!result) return; render(); saveCache(); });
+        // 跨 tab 同步同样走增量：既不破坏分页状态，也不用重传整个历史
+        loadNewMessages(currentTopic.id).then(function(result){ if(!result) return; render(); saveCache(); });
       }
       if(d.type==='topics'){
         loadTopics();
@@ -5180,15 +5928,26 @@ function checkTopicWorking(){
   // Stop any existing poll
   if(workingPoll){ clearInterval(workingPoll); workingPoll=null; }
   var wpFails=0; // [10] 容忍瞬时网络抖动:连续失败 10 次才放弃(旧代码一次失败就永久停摆)
-  workingPoll=setInterval(async function(){
-    if(!currentTopic||currentTopic.id!==tid) return; // topic changed, stop
+  // ⚠️ 关键：守卫不能只在 await 之前查一次。
+  // fetch 在途时用户点了「+ 新任务」或切到别的任务，回来时 currentTopic 已经换了，
+  // 但代码会继续往下走 → 把上一个任务的实时过程泡 push 进新任务的 messages。
+  // 复现条件就是"有任务在跑 + 点加号"：跑着的服务端会让 /api/working 变慢，
+  // 在途窗口被拉长，几乎必中。所以**每个 await 之后都要复检一次**。
+  var me=null;                                  // 本次轮询句柄，用于"只清自己"
+  function stale(t){ return !currentTopic||currentTopic.id!==t; }
+  function quit(){
+    if(me&&workingPoll===me){ clearInterval(me); workingPoll=null; }
+  }
+  me=setInterval(async function(){
+    if(stale(tid)){ quit(); return; } // topic changed, stop
     try {
       var wr=await fetch('/api/working?topic_id='+tid);
       var wd=await wr.json();
+      if(stale(tid)){ quit(); return; }   // ← await 期间可能已新建/切走，复检后再动界面
       wpFails=0;
       if(!wd||wd.status==='idle'){
         workingDot.classList.remove('pulse');
-        clearInterval(workingPoll); workingPoll=null;
+        quit();
         if(currentTopic&&currentTopic.id===tid){ delete _sendingTopics[tid]; _setBtnSending(); } // 轮询收尾校正（含发送方未及清理的兑底）
         // 思维导图：idle 前最后那次改图也要捕获（AI 改图后立即变 idle 的情况）
         if(typeof _mmViewActive!=='undefined' && _mmViewActive && wd.mindmap_updated_at!=null){
@@ -5200,7 +5959,7 @@ function checkTopicWorking(){
         }
         // agent 已完成：若界面上还挂着(非本次发送的)实时泡,拉取服务端最终回复替换它
         if(messages.some(function(m){return (m.working||(m.type==='proc'&&m.live))&&!m.inflight;}) && !recoverPoll){
-          loadMessages(tid).then(function(){
+          loadNewMessages(tid).then(function(){
             if(currentTopic&&currentTopic.id===tid){ render(); saveCache(); setSt('','就绪'); }
           }).catch(function(){});
         }
@@ -5226,9 +5985,10 @@ function checkTopicWorking(){
         // lw 为旧格式 working 泡的情况:不更新,交由上面的完成分支整体替换
       }
     } catch(e){
-      if(++wpFails>=10){ clearInterval(workingPoll); workingPoll=null; }
+      if(++wpFails>=10){ quit(); }
     }
   }, 500);
+  workingPoll=me;
 }
 
 // ── 自动同步：主动拉取后台产生的新消息（其它端发送 / AI 主动消息 / 断线期间完成的回复）──
@@ -7261,6 +8021,568 @@ async function clearLlmCache(){
   if(!await uiConfirm({title:'清空缓存', message:'确定清空所有 LLM 响应缓存？已命中的记录将全部删除。', okText:'清空', danger:true})) return;
   fetch('/api/settings/llm_cache', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({clear:true})}).then(function(){refreshLlmCacheStats();}).catch(function(){});
 }
+// ═══ 第三方模型源（自定义 OpenAI / Anthropic 兼容端点，数量不限）═══
+// 设计要点：
+//   ① 地址随用户怎么粘都行 —— 后端会归一化（纯域名补 /v1、整段端点自动剥掉）
+//   ② 「测试连接」同时做两件事：拉模型清单 + 用最小对话请求确认真实协议
+//      （很多站点有 /models 却只实现 Anthropic 对话，只看列表会把协议认错）
+//   ③ 拉到的模型默认全选（新源），已保存的源只保留原选择，避免误加一堆
+var cpList = [];    // 已保存的源（密钥已脱敏）
+var cpForm = null;  // 正在编辑的表单状态
+var cpBal = {};            // id -> 余额查询状态（会话内缓存，避免每次进设置页都重查）
+var cpCurrentProvider = ''; // 当前正在用的 provider id：进设置页时顺手查它的余额
+
+// 常用第三方站点的「一键填充」——只是省去翻文档抄 Base URL 的功夫，
+// 协议/地址仍会被后端实测校正，所以填错了也不至于卡死。
+// 只收已验证过官方文档的站点（其余走手动添加，能力完全一样）。
+var CP_PRESETS = [
+  { name: '基元律动',   base: 'https://tokenrhythm.studio/v1',                tip: 'TokenRhythm（OpenAI + Anthropic 双协议）' },
+  { name: '硅基流动',   base: 'https://api.siliconflow.cn/v1',                 tip: 'SiliconFlow 模型广场' },
+  { name: '火山方舟',   base: 'https://ark.cn-beijing.volces.com/api/v3',      tip: '豆包 / 火山引擎方舟' },
+  { name: 'Kimi',       base: 'https://api.moonshot.cn/v1',                    tip: '月之暗面 Moonshot' },
+  { name: '阿里云百炼', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', tip: '通义千问 · OpenAI 兼容模式' },
+  { name: '阶跃星辰',   base: 'https://api.stepfun.com/v1',                    tip: 'StepFun' }
+];
+
+function cpProtoLabel(p){ return p === 'anthropic' ? 'Anthropic' : 'OpenAI 兼容'; }
+
+/* ── 第三方源余额 ──
+   站点有没有余额接口、字段叫什么，各家都不一样，所以后端是"三层降级"去试。
+   前端只负责三件事：显示值 / 说明为什么没有值 / 允许手填。
+   手填的值始终优先显示（用户明确填的就算数），但会标注「手填」以示区别。 */
+function cpSym(cur){
+  var c = (cur || '').toUpperCase();
+  if(c === 'USD' || c === 'USDT') return '$';
+  if(c === 'EUR') return '€';
+  return '¥';
+}
+function cpMoney(v, cur){ return cpSym(cur) + (Number(v) || 0).toFixed(2); }
+
+function cpBalBadge(p){
+  // 手填优先：站点没接口时这是唯一的数字来源
+  var m = p.balance_manual;
+  if(m && typeof m.value === 'number'){
+    return '<span class="cp-badge bal" title="手动填写｜点一下可向站点重新查询"'
+         + ' onclick="cpQueryBalance(\'' + escAttr(p.id) + '\')">'
+         + cpMoney(m.value, m.currency) + ' 手填</span>';
+  }
+  var b = cpBal[p.id];
+  if(!b) return '<span class="cp-badge bal none" title="点一下查询余额" onclick="cpQueryBalance(\''
+              + escAttr(p.id) + '\')">余额 ?</span>';
+  if(b.st === 'loading') return '<span class="cp-badge bal none">查询中…</span>';
+  if(b.st === 'ok'){
+    return '<span class="cp-badge bal" title="' + escAttr((b.title || '') + '｜点一下重新查询') + '"'
+         + ' onclick="cpQueryBalance(\'' + escAttr(p.id) + '\')">' + b.text + '</span>';
+  }
+  return '<span class="cp-badge bal err" title="' + escAttr((b.title || '') + '｜点一下重试') + '"'
+       + ' onclick="cpQueryBalance(\'' + escAttr(p.id) + '\')">余额未知</span>';
+}
+
+function cpPaintBal(id){
+  var el = document.getElementById('cpBal_' + id);
+  if(!el) return;
+  var p = cpFind(id);
+  if(p) el.innerHTML = cpBalBadge(p);
+}
+
+async function cpQueryBalance(id, depth){
+  var p = cpFind(id);
+  if(!p) return;
+  cpBal[id] = { st: 'loading' };
+  cpPaintBal(id);
+  var r = null;
+  try{
+    r = await fetch('/api/custom-providers/balance', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id, depth: depth || 'full' })
+    }).then(function(x){ return x.json(); });
+  }catch(e){
+    cpBal[id] = { st: 'err', title: '请求失败：' + (e.message || '') };
+    cpPaintBal(id);
+    return null;
+  }
+  if(r && r.ok && typeof r.remaining === 'number'){
+    var extra = [];
+    if(r.provider) extra.push(r.provider);
+    if(typeof r.total === 'number') extra.push('总额度 ' + r.total);
+    if(typeof r.used === 'number') extra.push('已用 ' + r.used);
+    if(r.advice) extra.push(r.advice);
+    cpBal[id] = { st: 'ok', text: cpMoney(r.remaining, r.currency),
+                  title: extra.join('｜'), raw: r };
+  } else {
+    cpBal[id] = { st: 'err',
+                  title: ((r && r.error) || '查询失败') + (r && r.advice ? '｜' + r.advice : ''),
+                  raw: r };
+  }
+  cpPaintBal(id);
+  return r;
+}
+
+function cpFind(id){
+  for(var i=0;i<cpList.length;i++){ if(cpList[i].id === id) return cpList[i]; }
+  return null;
+}
+
+function cpSectionHtml(){
+  var h = '<div class="sp-section" style="padding-top:4px"><h4>第三方模型源</h4>';
+  h += '<div class="cfg-hint">添加任意 OpenAI 兼容或 Anthropic 兼容的 API 站点（中转站、自建网关、本地 LM Studio / Ollama 都行），数量不限。'
+     + '保存后它的模型会出现在上面的「模型列表」里，可直接切换；密钥只存在本机 model_config.json。'
+     + '每行末尾的<b>余额徽标点一下就能查这个源的余额</b>（查不到可以进编辑页手动填）。</div>';
+  if(!cpList.length){
+    h += '<div class="cp-empty">还没有第三方源</div>';
+  } else {
+    h += '<div class="sp-model-list" style="max-height:none">';
+    for(var i=0;i<cpList.length;i++){
+      var p = cpList[i];
+      h += '<div class="cp-row">';
+      h += '<div class="cp-row-main"><div class="cp-name">' + esc(p.name)
+         + '<span class="cp-badge proto">' + cpProtoLabel(p.protocol) + '</span>'
+         + (p.has_key ? '' : '<span class="cp-badge warn">无密钥</span>')
+         + '<span class="cp-badge">' + (p.model_count||0) + ' 个模型</span>'
+         + '<span id="cpBal_' + escAttr(p.id) + '">' + cpBalBadge(p) + '</span></div>';
+      h += '<div class="cp-url" title="' + escAttr(p.api_base) + '">' + esc(p.api_base) + '</div></div>';
+      h += '<div class="sp-model-actions">';
+      h += '<button class="sp-btn sm" style="width:auto" onclick="openCustomProviderForm(\'' + escAttr(p.id) + '\')">编辑</button>';
+      h += '<button class="sp-btn danger sm" style="width:auto" onclick="deleteCustomProvider(\'' + escAttr(p.id) + '\')">删除</button>';
+      h += '</div></div>';
+    }
+    h += '</div>';
+  }
+  h += '<button class="sp-btn sm" style="margin-top:9px;width:auto" onclick="openCustomProviderForm(null)">+ 添加第三方模型源</button>';
+  h += '</div>';
+  return h;
+}
+
+function openCustomProviderForm(id){
+  var p = id ? cpFind(id) : null;
+  cpForm = {
+    id: id || null,
+    name: p ? (p.name || '') : '',
+    base_url: p ? (p.base_url || p.api_base || '') : '',
+    api_key: '',
+    key_masked: p ? (p.key_masked || '') : '',
+    has_key: p ? !!p.has_key : false,
+    protocol: p ? (p.protocol || 'auto') : 'auto',
+    headersText: (p && p.headers && Object.keys(p.headers).length) ? JSON.stringify(p.headers) : '',
+    vision: p ? !!p.vision : false,
+    ctx_window: p ? (p.ctx_window || 0) : 0,
+    models: (p && p.models ? p.models.map(function(m){ return { id: m.id, on: true }; }) : []),
+    probe: null,
+    busy: false,
+    headerErr: '',
+    clearKey: false,
+    // 手填余额：编辑时回填（余额不是密钥，正常显示）
+    manualVal: (p && p.balance_manual && typeof p.balance_manual.value === 'number')
+                 ? String(p.balance_manual.value) : '',
+    manualCur: (p && p.balance_manual && p.balance_manual.currency) || 'CNY',
+    bal: null,        // 本次"查询余额"的结果
+    balBusy: false
+  };
+  renderCustomProviderForm();
+}
+
+function cpProtoBtns(cur){
+  var opts = [['auto','自动识别'],['openai','OpenAI 兼容'],['anthropic','Anthropic']];
+  var h = '';
+  for(var i=0;i<opts.length;i++){
+    h += '<span class="cp-chip' + (cur === opts[i][0] ? ' on' : '') + '" onclick="cpProtoSet(\'' + opts[i][0] + '\')">' + opts[i][1] + '</span>';
+  }
+  return h;
+}
+
+function cpProtoSet(v){ if(cpForm){ cpForm.protocol = v; renderCustomProviderForm(); } }
+
+function cpApplyPreset(i){
+  var p = CP_PRESETS[i];
+  if(!p || !cpForm) return;
+  cpReadForm();                 // 先收拢用户已输入的内容，别被填充覆盖掉
+  cpForm.name = p.name;
+  cpForm.base_url = p.base;
+  cpForm.probe = null;          // 地址换了，上一次的测试结果作废
+  cpForm.headerErr = '';
+  renderCustomProviderForm();
+  var el = document.getElementById('cpBase');
+  if(el) el.focus();
+}
+
+function cpReadForm(){
+  if(!cpForm) return;
+  var g = function(id){ var e = document.getElementById(id); return e ? e.value : ''; };
+  cpForm.name = g('cpName');
+  cpForm.base_url = g('cpBase');
+  // 密钥例外：输入框永远不回显已保存的密钥（安全），所以"框里是空的"不代表
+  // 用户要清空 —— 直接覆盖会把刚输入的密钥丢掉（重渲染后保存就丢了）。
+  // 空值不覆盖，清空密钥走「清除密钥」按钮（clear_key 标记）。
+  var k = g('cpKey');
+  if(k) cpForm.api_key = k;
+  cpForm.headersText = g('cpHeaders');
+  var ctx = parseInt(g('cpCtx'), 10);
+  cpForm.ctx_window = (isNaN(ctx) || ctx < 0) ? 0 : ctx;
+  var v = document.getElementById('cpVision');
+  cpForm.vision = !!(v && v.checked);
+  // 手填余额：空字符串代表"不要手填"（保存时清掉），不做"空=不覆盖"处理 ——
+  // 它不是密钥，回填显示是正常的，用户清空就是真的想清掉
+  cpForm.manualVal = g('cpManualBal');
+  var sel = document.getElementById('cpManualCur');
+  if(sel) cpForm.manualCur = sel.value;
+}
+
+function cpClearKey(){
+  if(!cpForm) return;
+  cpForm.api_key = '';
+  cpForm.has_key = false;
+  cpForm.key_masked = '';
+  cpForm.clearKey = true;
+  renderCustomProviderForm();
+}
+
+function cpParseHeaders(){
+  var t = (cpForm.headersText || '').trim();
+  cpForm.headerErr = '';
+  if(!t) return {};
+  try{
+    var o = JSON.parse(t);
+    if(!o || typeof o !== 'object' || Object.prototype.toString.call(o) === '[object Array]'){
+      cpForm.headerErr = '额外请求头要是一个 JSON 对象，例如 {"X-Title":"大眼"}';
+      return {};
+    }
+    return o;
+  }catch(e){
+    cpForm.headerErr = '额外请求头不是合法 JSON：' + (e.message || '');
+    return {};
+  }
+}
+
+/* 表单里的余额区块：查询 + 结果 + 手填。
+   手填的存在理由：像 tokenrhythm 这类自研网关只提供 models/chat/messages/embeddings
+   四个接口，余额根本不在 API 里（只在报错码里体现），再努力也拉不到 ——
+   这时"能填一个数自己看得见"比"什么都查不到"有用。 */
+function cpBalFormHtml(){
+  var f = cpForm;
+  var h = '<div class="cp-bal-box">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
+     + '<b style="font-size:12px">余额 / 额度</b>'
+     + '<button class="sp-btn sm" style="width:auto;margin:0" onclick="cpQueryBalanceForm()"'
+     + (f.balBusy ? ' disabled' : '') + '>' + (f.balBusy ? '查询中…' : '查询余额') + '</button></div>';
+  var r = f.bal;
+  if(r){
+    if(r.ok && typeof r.remaining === 'number'){
+      h += '<div class="cp-bal-big">' + cpMoney(r.remaining, r.currency)
+         + '<span style="font-size:11px;font-weight:400;color:var(--tdim);margin-left:7px">'
+         + esc(r.currency || '') + (r.provider ? ' · ' + esc(r.provider) : '') + '</span></div>';
+      var kv = [];
+      if(typeof r.total === 'number') kv.push('总额度 ' + r.total);
+      if(typeof r.used === 'number') kv.push('已用 ' + r.used);
+      if(r.detail){
+        for(var k in r.detail){
+          if(Object.prototype.hasOwnProperty.call(r.detail, k)) kv.push(k + ' ' + r.detail[k]);
+        }
+      }
+      if(kv.length) h += '<div class="cp-bal-kv">' + esc(kv.join('｜')) + '</div>';
+      if(r.endpoint) h += '<div class="cp-bal-kv" style="opacity:.7">来源　' + esc(r.endpoint) + '</div>';
+      if(r.advice) h += '<div class="cp-bal-note">' + esc(r.advice) + '</div>';
+    } else {
+      h += '<div class="cp-bal-note">' + esc(r.error || '没能取到余额')
+         + (r.advice ? '：' + esc(r.advice) : '') + '</div>';
+    }
+  } else {
+    h += '<div class="cp-bal-kv">各家余额接口没有统一标准：这里会先试已知厂商（DeepSeek / 硅基流动 / Kimi / '
+       + '阶跃 / OpenRouter / Novita / 智谱），再试 one-api、new-api 系中转站的账单接口，'
+       + '最后试几个常见路径。都拿不到的话，可以手动填一个值显示在列表里。</div>';
+  }
+  h += '<div class="cp-inline" style="margin-top:9px">'
+     + '<input id="cpManualBal" class="cfg-input sm" type="number" step="0.01" style="flex:1;min-width:88px"'
+     + ' placeholder="手动填写余额" value="' + escAttr(f.manualVal != null ? f.manualVal : '') + '">'
+     + '<select id="cpManualCur" class="cfg-input sm" style="width:82px">'
+     + '<option value="CNY"' + (f.manualCur === 'CNY' ? ' selected' : '') + '>CNY</option>'
+     + '<option value="USD"' + (f.manualCur === 'USD' ? ' selected' : '') + '>USD</option>'
+     + '</select></div>';
+  h += '<div class="cp-bal-kv">手动填的值会显示在源列表的余额徽标上；站点自己能查到时就以站点为准。留空 = 不手填。</div>';
+  h += '</div>';
+  return h;
+}
+
+async function cpQueryBalanceForm(){
+  cpReadForm();
+  if(!(cpForm.base_url || '').trim()){ alert('请先填写 Base URL'); return; }
+  var hdrs = cpParseHeaders();
+  if(cpForm.headerErr){ renderCustomProviderForm(); return; }
+  cpForm.balBusy = true;
+  cpForm.bal = null;
+  renderCustomProviderForm();
+  var body = {
+    base_url: cpForm.base_url.trim(), api_key: cpForm.api_key || '',
+    protocol: cpForm.protocol, headers: hdrs, depth: 'full'
+  };
+  // 已保存的源、用户没重填 key → 后端用文件里的真 key 查
+  if(cpForm.id && !cpForm.api_key) body.id = cpForm.id;
+  try{
+    var r = await fetch('/api/custom-providers/balance', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function(x){ return x.json(); });
+    cpForm.balBusy = false;
+    cpForm.bal = r;
+  }catch(e){
+    cpForm.balBusy = false;
+    cpForm.bal = { ok: false, error: '请求失败：' + (e.message || '') };
+  }
+  renderCustomProviderForm();
+}
+
+function cpResultHtml(){
+  var r = cpForm.probe;
+  if(!r) return '';
+  var cls = r.ok ? 'ok' : 'err';
+  var icon = r.ok ? '✅' : '❌';
+  var title, sub = '';
+  if(r.ok){
+    title = '连接成功 · 识别为 ' + cpProtoLabel(r.protocol);
+    if(r.latency_ms) title += ' · ' + r.latency_ms + 'ms';
+    if(r.models && r.models.length) sub += '拉到 ' + r.models.length + ' 个模型。';
+    else sub += '该站点没有模型列表接口，请在下面手动添加模型 ID。';
+    sub += ' 实际地址：' + (r.api_base || '');
+  } else {
+    title = r.error || '连接失败';
+    sub = r.advice || '';
+  }
+  if(r.warning) sub += ' ' + r.warning;
+  var h = '<div class="cp-result ' + cls + '">';
+  h += '<div class="cp-rt">' + icon + ' ' + esc(title) + '</div>';
+  if(sub) h += '<div class="cp-rs">' + esc(sub) + '</div>';
+  if(r.tried && r.tried.length){
+    h += '<div class="cp-tried">';
+    for(var i=0;i<r.tried.length;i++){
+      var t = r.tried[i];
+      var st = t.status === 0 ? '连接失败' : (t.status + '');
+      h += '<div class="cp-try">[' + (t.proto === 'anthropic' ? 'Anthropic' : 'OpenAI') + '] <b>'
+         + esc(st) + '</b> ' + esc(t.url) + (t.note ? ' — ' + esc(String(t.note).slice(0,120)) : '') + '</div>';
+    }
+    h += '</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+function cpModelsHtml(){
+  var on = cpForm.models.filter(function(m){ return m.on; }).length;
+  var h = '<div style="margin-top:13px"><label style="font-size:10.5px;color:var(--tdim);font-weight:700">模型（已选 <span id="cpModelCount">' + on + ' / ' + cpForm.models.length + '</span>）</label>';
+  h += '<div class="cp-inline" style="margin:6px 0">';
+  h += '<span class="cp-chip" onclick="cpSelectAll(true)">全选</span>';
+  h += '<span class="cp-chip" onclick="cpSelectAll(false)">全不选</span>';
+  h += '<input id="cpManualName" class="cfg-input sm mono" style="flex:1;min-width:150px" placeholder="手动添加模型 ID，如 deepseek-v4-flash">';
+  h += '<button class="sp-btn sm" style="width:auto;margin:0" onclick="cpAddManualModel()">添加</button>';
+  h += '</div>';
+  h += '<div class="cp-chips" id="cpModelBox">' + cpModelChips() + '</div>';
+  h += '</div>';
+  return h;
+}
+
+function cpModelChips(){
+  if(!cpForm.models.length) return '<span class="cp-empty" style="border:none;padding:2px">暂无模型 — 先点「测试连接」拉取，或在上面手动添加</span>';
+  var h = '';
+  for(var i=0;i<cpForm.models.length;i++){
+    var m = cpForm.models[i];
+    h += '<span class="cp-chip' + (m.on ? ' on' : '') + '" title="' + escAttr(m.id) + '" onclick="cpToggleModel(' + i + ')">' + esc(m.id) + '</span>';
+  }
+  return h;
+}
+
+function cpToggleModel(i){
+  if(!cpForm || !cpForm.models[i]) return;
+  cpForm.models[i].on = !cpForm.models[i].on;
+  cpSyncModelBox();
+}
+
+function cpSyncModelBox(){
+  var box = document.getElementById('cpModelBox');
+  if(box) box.innerHTML = cpModelChips();
+  var lab = document.getElementById('cpModelCount');
+  if(lab && cpForm){
+    var on = cpForm.models.filter(function(m){ return m.on; }).length;
+    lab.textContent = on + ' / ' + cpForm.models.length;
+  }
+}
+
+function cpSelectAll(on){
+  if(!cpForm) return;
+  for(var i=0;i<cpForm.models.length;i++) cpForm.models[i].on = !!on;
+  cpSyncModelBox();
+}
+
+function cpAddManualModel(){
+  var el = document.getElementById('cpManualName');
+  if(!el || !cpForm) return;
+  var v = (el.value || '').trim();
+  if(!v) return;
+  var hit = false;
+  for(var i=0;i<cpForm.models.length;i++){
+    if(cpForm.models[i].id === v){ cpForm.models[i].on = true; hit = true; break; }
+  }
+  if(!hit) cpForm.models.push({ id: v, on: true });
+  el.value = '';
+  cpSyncModelBox();
+}
+
+function renderCustomProviderForm(){
+  var f = cpForm;
+  if(!f) return;
+  var h = '<div class="sp-section">';
+  h += '<h4>' + (f.id ? '编辑第三方模型源' : '添加第三方模型源') + '</h4>';
+  h += '<div class="cfg-hint">把站点文档里的 <b>Base URL</b> 粘进来就行：纯域名会自动补 <code>/v1</code>，'
+     + '粘成完整端点（…/chat/completions）也会自动剥掉。不确定协议就留「自动识别」。</div>';
+  h += '<div class="cp-form">';
+  h += '<label>常用站点（点击一键填充，也可以完全手动填）</label>';
+  h += '<div class="cp-presets">';
+  for(var _i=0;_i<CP_PRESETS.length;_i++){
+    h += '<span class="cp-chip" title="' + escAttr(CP_PRESETS[_i].tip + ' · ' + CP_PRESETS[_i].base) + '"'
+       + ' onclick="cpApplyPreset(' + _i + ')">' + esc(CP_PRESETS[_i].name) + '</span>';
+  }
+  h += '</div>';
+  h += '<label>名称（留空则取域名）</label>';
+  h += '<input id="cpName" class="cfg-input sm" placeholder="例如：基元律动 / 硅基流动" value="' + escAttr(f.name) + '">';
+  h += '<label>Base URL *</label>';
+  h += '<input id="cpBase" class="cfg-input sm mono" placeholder="https://tokenrhythm.studio/v1" value="' + escAttr(f.base_url) + '">';
+  h += '<label>API Key' + (f.has_key ? '（已保存 ' + esc(f.key_masked) + '，留空表示不改）' : (f.api_key ? '（本次已填，保存后生效）' : '（本地服务可留空）')) + '</label>';
+  h += '<input id="cpKey" class="cfg-input sm" type="password" placeholder="' + (f.has_key ? '留空保持不变' : 'sk-…') + '">';
+  if(f.has_key || f.api_key){
+    h += '<div class="cp-inline" style="margin-top:2px"><span class="cp-chip" onclick="cpClearKey()">清除密钥</span></div>';
+  }
+  h += '<label>协议</label><div class="cp-inline" id="cpProtoRow">' + cpProtoBtns(f.protocol) + '</div>';
+  h += '<label>额外请求头（JSON，可留空）</label>';
+  h += '<input id="cpHeaders" class="cfg-input sm mono" placeholder=\'{"X-Title":"大眼"}\' value="' + escAttr(f.headersText) + '">';
+  if(f.headerErr) h += '<div class="cfg-hint" style="color:var(--danger)">' + esc(f.headerErr) + '</div>';
+  h += '<label>上下文窗口（可选，影响上下文压缩阈值）</label>';
+  h += '<input id="cpCtx" class="cfg-input sm" type="number" min="0" step="1024" placeholder="例如 128000" value="' + (f.ctx_window || '') + '">';
+  h += '<div class="sp-toggle-row" style="margin:6px 0 0;padding:9px 12px;border-radius:var(--radius-sm);background:var(--surface2)">'
+     + '<span style="font-size:12.5px">支持图片输入（多模态）</span>'
+     + '<label class="sp-toggle"><input type="checkbox" id="cpVision"' + (f.vision ? ' checked' : '') + '><span class="slider"></span></label></div>';
+  h += '</div>';
+
+  h += '<div class="cp-inline" style="margin-top:12px">';
+  h += '<button class="sp-btn primary sm" style="width:auto;margin:0" onclick="cpProbe()"' + (f.busy ? ' disabled' : '') + '>'
+     + (f.busy ? '测试中…' : '测试连接 / 拉取模型') + '</button>';
+  h += '<button class="sp-btn sm" style="width:auto;margin:0" onclick="cpSave()">保存</button>';
+  h += '<button class="sp-btn sm" style="width:auto;margin:0" onclick="loadModelConfig()">返回</button>';
+  h += '</div>';
+
+  h += cpResultHtml();
+  h += cpModelsHtml();
+  h += cpBalFormHtml();
+  h += '</div>';
+  document.getElementById('settingsBody').innerHTML = h;
+}
+
+async function cpProbe(){
+  cpReadForm();
+  if(!(cpForm.base_url || '').trim()){ alert('请先填写 Base URL'); return; }
+  var hdrs = cpParseHeaders();
+  if(cpForm.headerErr){ renderCustomProviderForm(); return; }
+  cpForm.busy = true;
+  cpForm.probe = null;
+  renderCustomProviderForm();
+  var sampleModel = (cpForm.models[0] || {}).id || '';
+  var body = {
+    base_url: cpForm.base_url.trim(), api_key: cpForm.api_key || '',
+    protocol: cpForm.protocol, headers: hdrs, probe_chat: true, model: sampleModel
+  };
+  // 已保存的源、且用户没重填 key → 让后端用文件里的真 key 去探
+  if(cpForm.id && !cpForm.api_key) body.id = cpForm.id;
+  try{
+    var r = await fetch('/api/custom-providers/probe', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    }).then(function(x){ return x.json(); });
+    cpForm.busy = false;
+    cpForm.probe = r;
+    if(r.ok){
+      // 探测成功：协议按实测写回（用户选的是"自动"就变成确定值）
+      if(r.protocol) cpForm.protocol = r.protocol;
+      // 合并模型清单：已有的保持原勾选，新发现的——新源默认勾上，老源不打扰
+      var known = {};
+      for(var i=0;i<cpForm.models.length;i++) known[cpForm.models[i].id] = 1;
+      var arr = r.models || [];
+      for(var j=0;j<arr.length;j++){
+        if(!known[arr[j].id]){
+          cpForm.models.push({ id: arr[j].id, on: !cpForm.id });
+          known[arr[j].id] = 1;
+        }
+      }
+    }
+    renderCustomProviderForm();
+  }catch(e){
+    cpForm.busy = false;
+    cpForm.probe = { ok:false, error:'请求失败：' + (e.message || ''), tried: [] };
+    renderCustomProviderForm();
+  }
+}
+
+function cpManualPayload(){
+  // 留空 = 不手填（后端 upsert 只覆盖非 None 字段，所以这里必须显式传 {} 才能清掉）
+  var v = parseFloat(cpForm.manualVal);
+  if(isNaN(v)) return {};
+  return { value: v, currency: cpForm.manualCur || 'CNY',
+           updated_at: Math.floor(Date.now() / 1000) };
+}
+
+async function cpSave(){
+  cpReadForm();
+  var base = (cpForm.base_url || '').trim();
+  if(!base){ alert('请填写 Base URL'); return; }
+  var hdrs = cpParseHeaders();
+  if(cpForm.headerErr){ renderCustomProviderForm(); return; }
+  var models = cpForm.models.filter(function(m){ return m.on; })
+                            .map(function(m){ return { id: m.id, name: '' }; });
+  if(!models.length){
+    var go = await uiConfirm({ title:'没有勾选模型', message:'当前没有勾选任何模型，保存后这个源不会出现在模型列表里（你之后还可以回来勾）。仍要保存吗？', okText:'仍然保存' });
+    if(!go) return;
+  }
+  try{
+    var r = await fetch('/api/custom-providers', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        action:'save', id: cpForm.id || '', name: (cpForm.name || '').trim(),
+        base_url: base, api_key: cpForm.api_key || '', protocol: cpForm.protocol,
+        headers: hdrs, models: models, vision: cpForm.vision, enabled: true,
+        ctx_window: cpForm.ctx_window || 0, clear_key: !!cpForm.clearKey,
+        balance_manual: cpManualPayload()
+      })
+    }).then(function(x){ return x.json(); });
+    if(r.success){
+      var fixed = (r.api_base && cpForm.base_url &&
+                   r.api_base.replace(/\/+$/,'') !== cpForm.base_url.replace(/\/+$/,''))
+                  ? r.api_base : '';
+      await loadModelConfig();
+      if(r.resolve_error){
+        alert('已保存，但当前连不上这个地址：\n' + r.resolve_error +
+              '\n\n地址按你填的保存了，稍后可以回来点「测试连接」再确认。');
+      } else if(fixed){
+        alert('已保存。\n\n地址已自动校正为：' + fixed + '\n（少写一层 /v1 也会被纠正过来）');
+      }
+    }
+    else { alert('保存失败：' + (r.error || '未知错误')); }
+  }catch(e){ alert('请求失败：' + (e.message || '')); }
+}
+
+async function deleteCustomProvider(id){
+  var p = cpFind(id);
+  var ok = await uiConfirm({
+    title:'删除模型源',
+    message:'确定删除「' + (p ? p.name : id) + '」？\n\n它的模型会从模型列表里消失，密钥一并删除（不影响其它源）。',
+    okText:'删除', danger:true
+  });
+  if(!ok) return;
+  try{
+    var r = await fetch('/api/custom-providers', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'delete', id: id })
+    }).then(function(x){ return x.json(); });
+    if(r.success){
+      await loadModelConfig();
+      if(r.switched_back) alert('该源正是当前使用的模型，已自动切回 DeepSeek。');
+    } else { alert('删除失败：' + (r.error || '未知错误')); }
+  }catch(e){ alert('请求失败：' + (e.message || '')); }
+}
+
 var modelListCache = [];
 var _keyEditOpen = null;
 async function loadModelConfig() {
@@ -7269,6 +8591,11 @@ async function loadModelConfig() {
   try {
     var resp = await fetch('/api/models').then(function(r){ return r.json(); });
     var models = resp.models || [];
+    // 第三方源列表（与模型列表并行拉，密钥已脱敏）
+    try {
+      var cpResp = await fetch('/api/custom-providers').then(function(r){ return r.json(); });
+      cpList = cpResp.providers || [];
+    } catch(e) { cpList = []; }
     modelListCache = models;
     // 视觉：当前模型能否直接收图 / 看不了图时是否回退云端（附件区提示用）
     _visionCapable = !!resp.vision_capable;
@@ -7304,7 +8631,9 @@ async function loadModelConfig() {
       for (var pi = 0; pi < pkeys.length; pi++) {
         var p = pkeys[pi];
         var pModels = providers[p];
-        html += '<div class="sp-model-group-label">' + esc(providerNames[p] || p) + '</div>';
+        // 第三方源没有写死的显示名 —— 用后端随模型带回来的 group（源的名称）
+        var gname = providerNames[p] || (pModels[0] && pModels[0].group) || p;
+        html += '<div class="sp-model-group-label">' + esc(gname) + '</div>';
         for (var mi = 0; mi < pModels.length; mi++) {
           var m = pModels[mi];
           var isCurrent = currentModel && m.provider === currentModel.provider && m.id === currentModel.id;
@@ -7317,19 +8646,27 @@ async function loadModelConfig() {
             if (m.running) { badgeClass = 'ok'; badgeText = '运行中'; }
             else if (m.starting) { badgeClass = 'ok'; badgeText = '启动中'; }
             else { badgeClass = 'need'; badgeText = '未启动'; }
-          } else { badgeClass = m.available ? 'ok' : 'need'; badgeText = m.available ? '已配置' : '需密钥'; }
+          } else { badgeClass = m.available ? 'ok' : 'need'; badgeText = m.available ? '已配置' : (m.custom ? '无密钥' : '需密钥'); }
           html += '<div class="sp-model-item' + (isCurrent ? ' active' : '') + '" id="' + mid + '">';
           html += '<div class="sp-model-info">';
           html += '<div class="sp-model-name">' + esc(m.name || m.id) + '</div>';
           html += '<span class="sp-model-badge ' + badgeClass + '">' + badgeText + '</span>';
           html += '</div>';
           html += '<div class="sp-model-actions">';
-          // 本地模型即使没启动也要给按钮：点了会弹窗拉起服务，而不是直接消失
-          if (!isCurrent && (m.available || m.local)) {
+          // 本地模型即使没启动也要给按钮：点了会弹窗拉起服务，而不是直接消失。
+          // 第三方源同理（本地 LM Studio / Ollama 类端点可以没有密钥）。
+          if (!isCurrent && (m.available || m.local || m.custom)) {
             var btnLabel = (m.local && !m.running) ? (m.starting ? '等待就绪' : '启动并切换') : '切换';
             html += '<button class="sp-btn sm" onclick="switchModel(\'' + esc(m.provider) + '\',\'' + esc(m.id) + '\')">' + btnLabel + '</button>';
           }
-          html += '<button class="sp-btn key-btn" onclick="toggleKeyEdit(\'' + esc(m.provider) + '\',\'' + esc(m.id) + '\',\'' + esc(m.name || m.id) + '\',\'' + mid + '\')" title="配置密钥"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></button>';
+          // 第三方源的密钥不在这一行里管 —— 地址/协议/密钥是一个整体，
+          // 点钥匙直接进「编辑模型源」，避免密钥被塞进 fallback_chain 另起一份
+          var keyBtnSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>';
+          if (m.custom) {
+            html += '<button class="sp-btn key-btn" onclick="openCustomProviderForm(\'' + escAttr(m.provider) + '\')" title="配置该模型源">' + keyBtnSvg + '</button>';
+          } else {
+            html += '<button class="sp-btn key-btn" onclick="toggleKeyEdit(\'' + esc(m.provider) + '\',\'' + esc(m.id) + '\',\'' + esc(m.name || m.id) + '\',\'' + mid + '\')" title="配置密钥">' + keyBtnSvg + '</button>';
+          }
           html += '</div>';
           html += '</div>';
         }
@@ -7338,6 +8675,9 @@ async function loadModelConfig() {
     }
     html += '</div>';
 
+    // 第三方模型源（自定义兼容端点）：列表 + 添加/编辑入口
+    html += cpSectionHtml();
+
     // 本地模型服务（llama.cpp）：状态 + 启动/停止 + 上下文长度
     html += localServiceSectionHtml();
 
@@ -7345,6 +8685,13 @@ async function loadModelConfig() {
     html += '<div class="sp-section" style="margin-top:8px"><button class="sp-btn danger sm" onclick="clearAllKeys()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清除所有密钥</button></div>';
 
     bodyEl.innerHTML = html;
+    // 当前正在用的源：进设置页就顺手查一次余额。
+    // 只用 relay 深度（最多 4 个请求）；full 那层会往站点打二十几个请求，
+    // 那是用户主动点"查询余额"时才该做的事。已有缓存就不重复查。
+    cpCurrentProvider = currentModel ? (currentModel.provider || '') : '';
+    if (cpCurrentProvider && cpFind(cpCurrentProvider) && !cpBal[cpCurrentProvider]) {
+      cpQueryBalance(cpCurrentProvider, 'relay');
+    }
     // 本地服务状态用实时探活刷新（列表里的值来自 /api/models 的缓存探活）
     refreshLocalServiceStatus();
     renderVisionFallbackRow();
@@ -9311,5 +10658,28 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 </script>
 <!-- ═══ /移动端配对面板 ═══ -->
 
+ <!-- 网页画中画：对话里的外链在这里加载，绝不导航主窗口（body 级节点，避开有 transform 的祖先） -->
+ <div id="webPip" data-page-node-id="Wp1PipRoot000000000000">
+   <div class="wp-head" id="wpHead">
+     <img class="wp-fav" id="wpFav" alt="" onerror="this.style.visibility='hidden'" onload="this.style.visibility='visible'">
+     <div class="wp-meta"><div class="wp-title" id="wpTitle">网页</div><div class="wp-host" id="wpHost"></div></div>
+     <div class="wp-acts">
+       <button class="wp-btn" id="wpProxyBtn" title="代理模式（站点禁止内嵌时用）" onclick="wpAct('proxy')">⇄</button>
+       <button class="wp-btn" title="独立小窗打开" onclick="wpAct('window')">⧉</button>
+       <button class="wp-btn" title="用系统浏览器打开" onclick="wpAct('browser')">↗</button>
+       <button class="wp-btn" title="最小化" onclick="wpMinimize(true)">—</button>
+       <button class="wp-btn wp-x" title="关闭" onclick="closeWebPip()">✕</button>
+     </div>
+   </div>
+   <div class="wp-body">
+     <div class="wp-note" id="wpNote">代理模式：脚本/登录态可能不完整</div>
+     <div class="wp-state" id="wpState"></div>
+     <iframe id="wpFrame" referrerpolicy="no-referrer"></iframe>
+   </div>
+   <div class="wp-resize" id="wpResize" title="拖动缩放"></div>
+ </div>
+ <div id="wpChip" onclick="wpMinimize(false)">
+   <img id="wpChipFav" alt="" onerror="this.style.visibility='hidden'" onload="this.style.visibility='visible'"><span class="wp-chip-t" id="wpChipT"></span><span class="wp-chip-x" onclick="event.stopPropagation();wpChipClose()">✕</span>
+ </div>
 </body>
 </html>
