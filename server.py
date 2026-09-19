@@ -3255,6 +3255,108 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(200, book)
             except Exception as e:
                 self._json(500, {"error": str(e)})
+        # ── Assets (file panel asset mode) ──
+        elif path == "/api/assets":
+            try:
+                from tools.file_tools import _safe_path, _ws
+                import hashlib as _hashlib
+                import time as _time
+                ws_path = getattr(_ws, 'path', None) or ROOT_DIR
+                sub = (params.get("path", [""])[0] or "").strip()
+                target = os.path.join(ws_path, sub) if sub else ws_path
+                if not os.path.isdir(target):
+                    self._json(404, {"error": "dir not found"})
+                    return
+                allow_outside = False
+                try:
+                    from tools.file_tools import _get_allow_outside
+                    allow_outside = _get_allow_outside()
+                except Exception:
+                    pass
+                full = os.path.abspath(target)
+                if not allow_outside:
+                    ws_abs = os.path.abspath(ws_path)
+                    if not (full == ws_abs or full.startswith(ws_abs + os.sep)):
+                        self._json(403, {"error": "out of workspace"})
+                        return
+                # ── 收集文件 ──
+                entries = []
+                for root, dirs, files in os.walk(target):
+                    dirs[:] = [d for d in dirs if not d.startswith(('.', '__pycache__')) and d not in ('node_modules', '.git', 'data')]
+                    for fn in files:
+                        if fn.startswith('.') or fn.endswith(('.pyc', '.pyo')):
+                            continue
+                        fp = os.path.join(root, fn)
+                        try:
+                            st = os.stat(fp)
+                            rel = os.path.relpath(fp, ws_path)
+                            entries.append({
+                                "name": fn, "path": rel, "dir": os.path.relpath(root, ws_path) if root != target else "",
+                                "size": st.st_size, "mtime": st.st_mtime,
+                                "ext": os.path.splitext(fn)[1].lower().lstrip('.'),
+                            })
+                        except OSError:
+                            continue
+                    if len(entries) > 4000:
+                        break
+                # ── 指纹分组：内容哈希找重复 ──
+                for e in entries:
+                    if e["size"] <= 512 * 1024:
+                        try:
+                            h = _hashlib.sha256()
+                            with open(os.path.join(ws_path, e["path"]), "rb") as f:
+                                for chunk in iter(lambda: f.read(65536), b""):
+                                    h.update(chunk)
+                            e["fingerprint"] = h.hexdigest()[:16]
+                        except OSError:
+                            pass
+                seen_fp = {}
+                for e in entries:
+                    fp = e.get("fingerprint")
+                    if fp:
+                        if fp in seen_fp:
+                            e["dup_of"] = seen_fp[fp]
+                        else:
+                            seen_fp[fp] = e["path"]
+                # ── 对话提及：messages 表里 AI/用户文本含该文件名 ──
+                mention = {}
+                try:
+                    rows = self.db._fetchall(
+                        "SELECT text FROM messages WHERE text IS NOT NULL ORDER BY id DESC LIMIT 800")
+                    import re as _re
+                    names = sorted({e["name"] for e in entries}, key=len, reverse=True)
+                    pat = _re.compile("|".join(_re.escape(n) for n in names)) if names else None
+                    if pat:
+                        for r in rows:
+                            for m in set(pat.findall(r["text"] or "")):
+                                mention[m] = mention.get(m, 0) + 1
+                except Exception:
+                    pass
+                for e in entries:
+                    e["mentions"] = mention.get(e["name"], 0)
+                # ── 分类 ──
+                CATS = {
+                    "code": {"py", "js", "ts", "html", "css", "go", "rs", "java", "c", "cpp", "h", "sh", "bat", "ps1", "sql", "j2"},
+                    "doc": {"md", "txt", "rst", "pdf", "docx", "doc"},
+                    "data": {"json", "yaml", "yml", "toml", "ini", "csv", "xml", "db", "sqlite"},
+                    "image": {"png", "jpg", "jpeg", "gif", "svg", "webp", "ico"},
+                }
+                def cat_of(e):
+                    return CATS.get(e["ext"], "other") and next((k for k, s in CATS.items() if e["ext"] in s), "other")
+                groups = {"code": [], "doc": [], "data": [], "image": [], "other": []}
+                for e in entries:
+                    groups[cat_of(e)].append(e)
+                for g in groups.values():
+                    g.sort(key=lambda e: -e["mtime"])
+                self._json(200, {
+                    "workspace": ws_path,
+                    "dir": sub,
+                    "total": len(entries),
+                    "groups": groups,
+                })
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+
         # ── List dir ──
         elif path == "/api/list-dir":
             try:
@@ -3992,7 +4094,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     # None = 保留原有的手填余额；传 {} 才是"清空手填"
                     "balance_manual": data.get("balance_manual"),
                 }
-                saved, created = custom_providers.upsert(ROOT_DIR, item)
+                saved, created, dup_err = custom_providers.upsert(ROOT_DIR, item)
+                if dup_err:
+                    # 同站点同密钥重复 / 备注重名：不落盘，让前端弹出来
+                    self._json(409, {"success": False, "error": dup_err,
+                                     "kind": "duplicate"})
+                    return
                 # 改的正好是"当前正在用的源" → 立刻同步到内存配置，
                 # 不然要等重启才生效（用户会觉得"改了没用"）
                 cur = get_model_config()

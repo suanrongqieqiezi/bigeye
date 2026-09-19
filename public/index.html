@@ -1248,6 +1248,7 @@ html[data-theme="white"] #loadHint{box-shadow:0 5px 18px -8px rgba(0,0,0,.16)}
     <button id="fbChangeWsBtn" onclick="openPathPicker(fbWorkspaceAbs)" title="修改工作区" data-page-node-id="EEI6DELf2U2p8MGoypF685">修改工作区</button>
     <button id="fbXferBtn" onclick="toggleXferPanel()" data-page-node-id="D0O2ojPf3TCWqliEZS63HT">队列<span id="fbXferBadge" class="xq-badge" style="display:none" data-page-node-id="v7tlANsgXApdgIERiFoBZq"></span></button>
     <button id="fbMindMapBtn" onclick="toggleMindMapView()" data-page-node-id="Uy07xfpNvg4BwY9fBhsyBr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="Q0Cr9tq5leaxtImWGTdD0g"><circle cx="18" cy="5" r="3" data-page-node-id="1uMSxQ4f72lH5QcrUPVXs1"/><circle cx="6" cy="12" r="3" data-page-node-id="Z7BNKxxbFyKO3fmxoB6ZCi"/><circle cx="18" cy="19" r="3" data-page-node-id="XZXbccu77RzAfqCLRaO3EC"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" data-page-node-id="dQdEYD7fPJ9uiVpmot1xM7"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" data-page-node-id="9FozCzCyY9W6nF6XxQP204"/></svg><span class="fb-btn-label" data-page-node-id="oq1ETNtHA8DRAo7rgbCcPP">思维导图</span></button>
+    <button id="btnAsset" onclick="toggleAssetView()" title="资产视图（分组/重复/提及）">资产</button>
     <button onclick="closeFileBrowser()" data-page-node-id="xKNTfE65d3utZ1O6LbaBGH">✕</button>
   </div>
   <div class="fb-header fb-action-bar" id="fbActionBar" style="display:none" data-page-node-id="PS6aGRSuuAkhFbFXL2Gxhv">
@@ -1266,6 +1267,27 @@ html[data-theme="white"] #loadHint{box-shadow:0 5px 18px -8px rgba(0,0,0,.16)}
   <div id="fbWorkspace" title="点击修改工作区（从当前位置开始浏览）" data-page-node-id="qZ3f9WIky8C66IbCTAv0Mh">工作区: …</div>
 
   <div id="fbGrid" class="fb-grid" data-page-node-id="LoUWE0BztfUZEFH8W5iHsr"></div>
+  <style>
+  #fbAssetPanel{display:none;flex-direction:column;gap:10px;padding:10px 12px;overflow-y:auto;flex:1;min-height:0}
+  .ap-loading{color:var(--tdim);font-size:12px;padding:18px;text-align:center}
+  .ap-head{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--tdim);flex-shrink:0}
+  .ap-head button{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer}
+  .ap-head button:hover{border-color:rgba(var(--accent-rgb),.5)}
+  .ap-group{border:1px solid var(--border);border-radius:var(--radius-sm,8px);background:var(--surface2);overflow:hidden;flex-shrink:0}
+  .ap-group-h{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;font-size:11px;color:var(--tdim);background:rgba(128,128,128,.06)}
+  .ap-group-h b{color:var(--text);font-size:11.5px}
+  .ap-row{display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:12px;cursor:pointer;border-top:1px solid rgba(128,128,128,.08)}
+  .ap-row:hover{background:rgba(var(--accent-rgb),.08)}
+  .ap-name{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46%}
+  .ap-dir{flex:1 1 0;min-width:0;color:var(--tdim);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ap-meta{color:var(--tdim);font-size:10.5px;white-space:nowrap;flex-shrink:0}
+  .ap-badge{font-size:9.5px;padding:1px 5px;border-radius:8px;white-space:nowrap;flex-shrink:0}
+  .ap-mention{background:rgba(var(--accent-rgb),.15);color:var(--accent)}
+  .ap-dup{background:rgba(255,180,60,.15);color:#e8a33d;cursor:help}
+  .ap-more{padding:4px 10px;font-size:10.5px;color:var(--tdim)}
+  #btnAsset.on{background:rgba(var(--accent-rgb),.18)}
+  </style>
+  <div id="fbAssetPanel"></div>
  <div id="imgLightbox" onclick="closeImgLightbox()" data-page-node-id="Hp64U5GBdm1Eww9cDhKnoF"></div>
  <div id="fbViewer" style="display:none" data-page-node-id="bH2ecLtRMxlSk2xFEh2B6G">
     <div class="fv-head" data-page-node-id="kjlRlKtxPMf3pIXab4SELV">
@@ -3291,6 +3313,29 @@ function finalizeLiveProc(w, steps){
   var idx=messages.indexOf(w);
   if(idx>=0) messages.splice(idx,1);
 }
+// 定格界面上**所有**实时泡（agent 已完成时的统一收尾）。
+// 为什么需要：实时泡的收尾原来只靠两条路——①发送方 /api/chat 返回后的 finalizeLiveProc；
+// ②recoverPendingReply 的轮询收尾。但「切任务再切回来」时 checkTopicWorking 会新建一个
+// **inflight=undefined** 的实时泡（6057 的 idle 分支又因 !m.inflight 之外的泡而只拉消息、
+// 不收尾）→ 出现"答案已经渲染、思考框还挂着"，再切一次任务（全量加载+cleanupLiveMsgs）才定格。
+// 这里把散落的收尾规则收拢：有过程内容就定格，没有就移除。返回是否有变化。
+function finalizeAllLiveProcs(){
+  var changed=false;
+  for(var i=messages.length-1;i>=0;i--){
+    var m=messages[i];
+    if(m.type==='proc'&&(m.live||m.working)){
+      var st=(m.steps&&m.steps.length)?m.steps:[];
+      if(!st.length&&m.inter){ var il=(m.inter||'').split('\n'); for(var q=0;q<il.length;q++){ if(il[q].trim()) st.push({kind:'inter',text:il[q]}); } }
+      if(!st.length&&m.tools){ for(var t=0;t<m.tools.length;t++) st.push({kind:'tool',name:m.tools[t]}); }
+      if(!st.length&&m.thinking) st.push({kind:'think',text:m.thinking});
+      finalizeLiveProc(m, st);
+      changed=true;
+    } else if(m.working){          // 旧格式 working 泡：内容是进度 HTML，直接丢
+      messages.splice(i,1); changed=true;
+    }
+  }
+  return changed;
+}
 // 加载缓存时的清理:丢弃旧格式残留工作泡、定格遗留实时泡、清 uid 防撞号
 function cleanupLiveMsgs(list){
   var out=[];
@@ -3832,7 +3877,14 @@ async function _doSendInner(){
           if(aiFiles.length) aiMsg.attachments=aiFiles.map(function(f){return f.name;});
         } catch(e){}
       }
-      messages.push(aiMsg);
+      // 防重：看门狗/checkTopicWorking 可能在 fetch 迟到时已把这条答案拉进来了
+      // （loadNewMessages 按服务端落库取），同文本的 AI 消息已存在就不再 push。
+      var _dupAi=false;
+      for(var _di=messages.length-1;_di>=0;_di--){
+        var _dm=messages[_di];
+        if(_dm.role==='ai'&&!_dm.working&&(_dm.text||'')===(aiMsg.text||'')){ _dupAi=true; break; }
+      }
+      if(!_dupAi) messages.push(aiMsg);
       setSt('','就绪');
       // Push notification via native bridge (Android APK)
       try { if(typeof Native!=='undefined'&&data.response) Native.notify(appName, data.response.slice(0,120)); } catch(e){}
@@ -4254,6 +4306,7 @@ function toggleFileBrowser(){ if(fbOpen) closeFileBrowser(); else openFileBrowse
 function openFileBrowser(){
   var fb=document.getElementById('fileBrowser');
   if(!fb) return;
+  if(typeof closeAssetView==='function') closeAssetView();
   // 恢复用户上次调整的面板宽度（双保险：IIFE 可能因时机问题没执行）
   try{ var savedW=parseInt(localStorage.getItem('fbW')||'');
     if(savedW&&savedW>=300) document.documentElement.style.setProperty('--fb-w',savedW+'px'); }catch(_){}
@@ -4984,6 +5037,79 @@ function fvRender(){
   }
 }
 
+// ═══ 资产视图（文件面板资产模式）═══
+var ASSET_LABELS={code:'代码',doc:'文档',data:'数据',image:'图片',other:'其他'};
+var ASSET_ORDER=['code','doc','data','image','other'];
+var assetOpen=false, assetFlat=[], assetPrevPath=null;
+function _assetTime(t){ var d=new Date(t*1000); function p(n){return (n<10?'0':'')+n;} return p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+function toggleAssetView(){ if(assetOpen){ closeAssetView(); } else { openAssetView(); } }
+function closeAssetView(){
+  assetOpen=false; assetFlat=[];
+  if(assetPrevPath!==null){ fbCurrentPath=assetPrevPath; assetPrevPath=null; }
+  var p=document.getElementById('fbAssetPanel'); if(p) p.style.display='none';
+  var g=document.getElementById('fbGrid'); if(g) g.style.display='';
+  var w=document.getElementById('fbWorkspace'); if(w) w.style.display='';
+  var b=document.getElementById('btnAsset'); if(b) b.classList.remove('on');
+}
+function openAssetView(){
+  var p=document.getElementById('fbAssetPanel'), g=document.getElementById('fbGrid');
+  if(!p||!g) return;
+  assetOpen=true;
+  assetPrevPath=fbCurrentPath||'';
+  g.style.display='none';
+  var w=document.getElementById('fbWorkspace'); if(w) w.style.display='none';
+  var b=document.getElementById('btnAsset'); if(b) b.classList.add('on');
+  p.style.display='flex';
+  p.innerHTML='<div class="ap-loading">扫描工作区…</div>';
+  fetch('/api/assets?path='+encodeURIComponent(fbCurrentPath||''))
+    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(function(d){ if(assetOpen) renderAssetPanel(d,false); })
+    .catch(function(){
+      // 回退：工作区根目录静态快照（服务未重启时新路由不可用）
+      var u='/api/mission-file?topic_id='+encodeURIComponent(currentTopic?currentTopic.id:'')+'&file='+encodeURIComponent('assets_index.json');
+      fetch(u).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+        .then(function(d){ if(assetOpen) renderAssetPanel(d,true); })
+        .catch(function(e){ if(assetOpen) p.innerHTML='<div class="ap-loading">加载失败: '+esc(e&&e.message||e)+'</div>'; });
+    });
+}
+function renderAssetPanel(d,snap){
+  var p=document.getElementById('fbAssetPanel'); if(!p) return;
+  assetFlat=[];
+  var html='<div class="ap-head"><span>资产视图 · '+d.total+' 个文件'+(snap?' · 快照':'')+'</span><button onclick="closeAssetView()">返回文件列表</button></div>';
+  if(snap) html+='<div class="ap-more">静态快照（服务重启前为扫描时点数据，找大眼重跑 _gen_assets_snapshot.py 可刷新）</div>';
+  if(!d.total){ html+='<div class="ap-loading">工作区暂无文件</div>'; p.innerHTML=html; return; }
+  ASSET_ORDER.forEach(function(k){
+    var arr=(d.groups&&d.groups[k])||[];
+    if(!arr.length) return;
+    html+='<div class="ap-group"><div class="ap-group-h"><b>'+ASSET_LABELS[k]+'</b><span>'+arr.length+'</span></div>';
+    arr.slice(0,200).forEach(function(e){
+      var gi=assetFlat.length;
+      assetFlat.push(e);
+      var badges='';
+      if(e.mentions>0) badges+='<span class="ap-badge ap-mention">提及×'+e.mentions+'</span>';
+      if(e.dup_of) badges+='<span class="ap-badge ap-dup" title="与 '+esc(e.dup_of)+' 内容相同">重复</span>';
+      html+='<div class="ap-row" onclick="openAssetViewerIdx('+gi+')">'
+        +'<span class="ap-name" title="'+esc(e.path)+'">'+esc(e.name)+'</span>'
+        +'<span class="ap-dir">'+esc(e.dir||'.')+'</span>'
+        +'<span class="ap-meta">'+xferFmtB(e.size||0)+'</span>'
+        +'<span class="ap-meta">'+_assetTime(e.mtime||0)+'</span>'+badges+'</div>';
+    });
+    if(arr.length>200) html+='<div class="ap-more">…还有 '+(arr.length-200)+' 个未显示</div>';
+    html+='</div>';
+  });
+  p.innerHTML=html;
+}
+function openAssetViewerIdx(i){
+  var e=assetFlat[i]; if(!e) return;
+  var rel=(e.path||'').replace(/\\/g,'/');
+  var cut=rel.lastIndexOf('/');
+  fbCurrentPath=cut>0?rel.slice(0,cut):'';
+  fbFilesData=[{name:e.name,is_dir:false,size:e.size||0}];
+  fvList=[e.name]; fvIdx=0;
+  var v=document.getElementById('fbViewer'); if(!v) return;
+  v.style.display='flex';
+  fvRender();
+}
 // ═══ PC 选择辅助 ═══
 var fbAnchor=-1, fbLassoJustEnded=false;
 function fbSelectRange(a,b,additive){
@@ -5960,7 +6086,13 @@ function checkTopicWorking(){
         // agent 已完成：若界面上还挂着(非本次发送的)实时泡,拉取服务端最终回复替换它
         if(messages.some(function(m){return (m.working||(m.type==='proc'&&m.live))&&!m.inflight;}) && !recoverPoll){
           loadNewMessages(tid).then(function(){
-            if(currentTopic&&currentTopic.id===tid){ render(); saveCache(); setSt('','就绪'); }
+            if(currentTopic&&currentTopic.id===tid){
+              // 关键收尾：拉到答案只解决了"回复显示"，实时泡本身还得定格——
+              // 否则就是"答案出来了、思考框还挂着"（切回来时新建的泡 inflight=undefined，
+              // 没有任何路径会去 finalize 它）
+              finalizeAllLiveProcs();
+              render(); saveCache(); setSt('','就绪');
+            }
           }).catch(function(){});
         }
       }
@@ -6039,6 +6171,43 @@ setInterval(async function(){
   }catch(e){}
   _syncBusy=false;
 },6000);
+
+// ── 收尾看门狗：实时泡的"最后防线" ──
+// 前面所有收尾路径（发送方 /api/chat 返回、recoverPendingReply、checkTopicWorking idle）
+// 各有各的前置条件，任何一条断掉（fetch 挂死、切任务时序、broadcast 竞态），
+// 界面上就会留下一个永远"处理中"的实时泡——答案都出来了它还挂着。
+// 这里每 3 秒巡一次：界面上有实时泡 + 服务端已 idle + 泡超过宽限期 → 强制收尾。
+var _wdBusy=false;
+setInterval(async function(){
+  if(document.hidden||!currentTopic||_wdBusy||recoverPoll) return;
+  var lw=null;
+  for(var i=messages.length-1;i>=0;i--){
+    var m=messages[i];
+    if(m.working||(m.type==='proc'&&m.live)){ lw=m; break; }
+  }
+  if(!lw) return;
+  // inflight 泡归发送方管，给足宽限（正常轮次完成时 sendPoll 清除远早于 20s）
+  if(lw.type==='proc'&&lw.inflight){
+    if(!lw._wdSince) { lw._wdSince=Date.now(); return; }
+    if(Date.now()-lw._wdSince<20000) return;
+  }
+  _wdBusy=true;
+  try{
+    var tid=currentTopic.id;
+    var wr=await fetch('/api/working?topic_id='+tid);
+    var wd=await wr.json();
+    if(!currentTopic||currentTopic.id!==tid) return;          // 期间切走了
+    if(wd && wd.status!=='idle') return;                       // 还在跑，让位给正常轮询
+    // 服务端已完成 → 拉最终消息 + 强制定格。此后即使发送方的 fetch 迟到返回，
+    // aiMsg 的文本防重（_doSendInner push 前）也能挡住重复。
+    var had=await loadNewMessages(tid);
+    if(currentTopic&&currentTopic.id===tid){
+      finalizeAllLiveProcs();
+      render(); saveCache(); setSt('','就绪');
+      workingDot.classList.remove('pulse');
+    }
+  }catch(e){} finally{ _wdBusy=false; }
+},3000);
 
 // ── Changelog ─────────────────────────────────────
 async function showChangelog(){
@@ -8559,7 +8728,13 @@ async function cpSave(){
         alert('已保存。\n\n地址已自动校正为：' + fixed + '\n（少写一层 /v1 也会被纠正过来）');
       }
     }
-    else { alert('保存失败：' + (r.error || '未知错误')); }
+    else {
+      alert('保存失败：' + (r.error || '未知错误'));
+      if(r.kind === 'duplicate'){
+        var ni = document.getElementById('cpName');
+        if(ni){ ni.focus(); if(ni.select) ni.select(); }
+      }
+    }
   }catch(e){ alert('请求失败：' + (e.message || '')); }
 }
 

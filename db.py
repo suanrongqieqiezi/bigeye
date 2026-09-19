@@ -379,6 +379,25 @@ class Database:
         self._commit()
 
     def delete_topic(self, tid):
+        # ── 删除前备份到 jsonl 回收站（追加式）──
+        # SQLite 的 DELETE 是硬删，一旦 VACUUM/页复用就再也找不回来。
+        # 2026-09-19 真实事故：按标题批量删"新任务"把用户 49 个真实任务误删，
+        # 靠 freelist 页挖掘才救回 2728 条消息（部分 user 消息永久丢失）。
+        # 有了这层，任何误删都能原样倒回来。
+        try:
+            topic = self._fetchone("SELECT * FROM topics WHERE id=?", (tid,))
+            msgs = self._fetchall("SELECT * FROM messages WHERE topic_id=?", (tid,))
+            if topic or msgs:
+                rec = {
+                    "deleted_at": time.time(),
+                    "topic": dict(topic) if topic else None,
+                    "messages": [dict(m) for m in msgs],
+                }
+                bak = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "deleted_topics_backup.jsonl")
+                with open(bak, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except Exception:
+            pass  # 备份失败不阻塞删除（与旧行为一致），但正常情况都会成功
         self._execute("DELETE FROM messages WHERE topic_id=?", (tid,))
         self._execute("DELETE FROM topics WHERE id=?", (tid,))
         self._commit()
