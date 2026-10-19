@@ -194,7 +194,7 @@ class GuardianHandler(http.server.BaseHTTPRequestHandler):
             self._json(200, {"archives": archives, "current_hash": cur[:12] if cur else None})
         elif self.path == "/api/version-info":
             self._json(200, version_manager.get_current_info())
-        elif self.path == "/api/ompq-status" or self.path == "/api/server-status":
+        elif self.path == "/api/server-status":
             ok, data = check_health(MAIN_PORT)
             self._json(200, {"exists": True, "running": ok})
         else:
@@ -532,15 +532,6 @@ def main():
     except Exception:
         pass
 
-    # ── Cleanup orphan ompQ from previous runs ──
-    try:
-        if sys.platform == 'win32':
-            subprocess.run(["taskkill", "/f", "/im", "ompQ.exe"],
-                           capture_output=True, timeout=5,
-                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000))
-    except Exception:
-        pass
-
     # Override ports from DB if user saved custom settings
     global MAIN_PORT, GUARDIAN_PORT
     MAIN_PORT = _read_port_setting("main_port", MAIN_PORT)
@@ -548,7 +539,7 @@ def main():
     g = Guardian()
 
     _log_write(f"[guardian] ═══════════════════════════════════════════")
-    _log_write(f"[guardian]   大眼X Guardian — direct LLM, no OMP")
+    _log_write(f"[guardian]   大眼X Guardian — 直接调用 LLM（无外部 Agent 进程）")
     _log_write(f"[guardian]   Active:  server.py")
     _log_write(f"[guardian]   Port:    {MAIN_PORT} (main), {GUARDIAN_PORT} (control)")
     _log_write(f"[guardian] ═══════════════════════════════════════════")

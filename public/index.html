@@ -1920,8 +1920,29 @@ function clipTitleText(s){
       if (k) _encKeyB64 = k;
     }
   } catch(e) {}
+  // [2026-10-18] 历史遗留键名迁移：旧版本地键以 omp_ 开头，现已统一改名 dayan_*。
+  // 只搬一次（目标键已存在则不覆盖），搬完删旧键 —— 否则草稿 / 未送达存档 / 会话密钥会凭空消失。
+  try {
+    (function(){
+      // 全部按“前缀”搬：缓存是 omp_cache_v2_<tid> 这种前缀键，只搬裸键会漏掉真正的缓存。
+      var MAP = [['omp_enc_key','dayan_enc_key'],['omp_cache_v2','dayan_cache_v2'],
+                 ['omp_draft_','dayan_draft_'],['omp_pending_','dayan_pending_']];
+      var mv = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (!k) continue;
+        for (var j = 0; j < MAP.length; j++) {
+          if (k.indexOf(MAP[j][0]) === 0) { mv.push([k, MAP[j][1] + k.slice(MAP[j][0].length)]); break; }
+        }
+      }
+      for (var n = 0; n < mv.length; n++) {
+        var src = mv[n][0], dst = mv[n][1], v = localStorage.getItem(src);
+        if (v !== null) { if (localStorage.getItem(dst) === null) localStorage.setItem(dst, v); localStorage.removeItem(src); }
+      }
+    })();
+  } catch(e) {}
   // Fallback: localStorage (浏览器模式或桥不可用时)
-  try { if (!_encKeyB64) { var lk = localStorage.getItem('omp_enc_key'); if (lk) _encKeyB64 = lk; } } catch(e) {}
+  try { if (!_encKeyB64) { var lk = localStorage.getItem('dayan_enc_key'); if (lk) _encKeyB64 = lk; } } catch(e) {}
 // [2026-09-01] Bootstrap: 从网址 ?token= 领取访问凭证，存入 localStorage 后抹掉查询串（配合守门员 Cookie 会话）
 try { var _tm=(location.search||'').match(/[?&]token=([A-Za-z0-9._%-]+)/); if (_tm) { try { localStorage.setItem('dg_token', _tm[1]); } catch(_te){} history.replaceState(null,'',location.pathname); } } catch(e) {}
   // [2026-08-31] Bootstrap: 从网址 #k=... 取一次密钥，存入 localStorage 后抹掉 hash
@@ -1930,7 +1951,7 @@ try { var _tm=(location.search||'').match(/[?&]token=([A-Za-z0-9._%-]+)/); if (_
       var m = (location.hash || '').match(/k=([A-Za-z0-9+\/=]+)/);
       if (m) {
         _encKeyB64 = m[1];
-        try { localStorage.setItem('omp_enc_key', _encKeyB64); } catch(e) {}
+        try { localStorage.setItem('dayan_enc_key', _encKeyB64); } catch(e) {}
         history.replaceState(null, '', location.pathname + location.search);
       }
     }
@@ -1994,7 +2015,7 @@ try { var _tm=(location.search||'').match(/[?&]token=([A-Za-z0-9._%-]+)/); if (_
 
   function _refreshKeyFromLS() {
     try {
-      var k2 = localStorage.getItem('omp_enc_key');
+      var k2 = localStorage.getItem('dayan_enc_key');
       if (k2 && k2 !== _encKeyB64) {
         _encKeyB64 = k2;
         _encKeyRaw = _b64ToBytes(k2);
@@ -2056,17 +2077,17 @@ if (!_encKeyB64) { try { var _tk = localStorage.getItem('dg_token'); if (_tk) he
   // 供 XHR 上传等非 fetch 通道复用同一套加密(fetch 被劫持,XHR 不会;不暴露则 XHR 明文直发)
   // canEncrypt = "真能加密"（有密钥 **且** 有 crypto.subtle/Native）。XHR 侧必须镜像 fetch 包装的
   // 双重判定：只看 key 会在 http 局域网页面上走进 _encrypt 抛错的分支，把上传整条打死。
-  window.__ompCrypto = { key: _encKeyB64, canEncrypt: !!(_encKeyB64 && _cryptoCapable),
+  window.__dayanCrypto = { key: _encKeyB64, canEncrypt: !!(_encKeyB64 && _cryptoCapable),
                          encrypt: _encrypt, decrypt: _decrypt };
 })();
 var chatBox, msgInput, btnSend, sDot, sText, uInfo, topicList, topicTitle, sidebar, overlay, workingDot, balanceBanner, balanceDisplay, balLbl, balText, costDisplay, tokenDisplay, sidebarTokens, workingPoll=null, hideBannerPref=true, balMode='full', wmMode='off', showTaskCostPref=true, showElapsedPref=true, showTokensPref=true, userAvatar='';
 var messages=[], currentTopic=null, topics=[], cnyRate=7.0, appName='AI';
 var ATT_ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
-var LS_KEY='omp_cache_v2';
+var LS_KEY='dayan_cache_v2';
 var CACHE_FRESH_MS=60000; // 60 秒内缓存视为新鲜,跳过全量服务端拉取(旧值5秒太短,切回同话题仍全量重拉)
 // 内存缓存:避免频繁 localStorage parse,切话题时瞬时恢复
 var _memCache=new Map(); // tid -> {messages, msgOffset, allLoaded, ts}
-function saveMemCache(tid){ if(!tid) return; _memCache.set(tid,{messages:messages.slice(),msgOffset:msgOffset,allLoaded:allLoaded,conclView:_conclView,scrollTop:chatBox.scrollTop,ts:Date.now()}); }
+function saveMemCache(tid){ if(!tid) return; _memCache.set(tid,{messages:messages.slice(),msgOffset:msgOffset,allLoaded:allLoaded,conclView:_conclView,scrollTop:chatBox.scrollTop,atBottom:(typeof chatAtBottom==='function'?chatAtBottom():false),ts:Date.now()}); }
 function loadMemCache(tid){ return _memCache.get(tid)||null; }
 // localStorage 缓存瘦身：思考正文不写进磁盘缓存。它是懒加载来的、单个长任务可达几 MB，
 // 写进去会顶爆 5MB 配额 —— 一旦配额满，所有话题的缓存集体静默写入失败，
@@ -2084,10 +2105,10 @@ function _slimForCache(list){
   });
 }
 // topics 列表只存一份(旧版每个任务缓存里都冗余一份,加速撑爆 5MB 配额)
-function saveCache(tid){ try { var id=tid||(currentTopic?currentTopic.id:null); if(!id) return; var payload=JSON.stringify({topicId:id,messages:_slimForCache(typeof dedupeMsgs==='function'?dedupeMsgs(messages):messages),ts:Date.now(),msgOffset:msgOffset,allLoaded:allLoaded,conclView:_conclView,scrollTop:chatBox.scrollTop}); try { localStorage.setItem(LS_KEY+'_'+id,payload); } catch(e1){ try { // 配额满:清掉其他话题的持久缓存(内存缓存不受影响),保住当前话题,否则切任务永远全量重拉
+function saveCache(tid){ try { var id=tid||(currentTopic?currentTopic.id:null); if(!id) return; var payload=JSON.stringify({topicId:id,messages:_slimForCache(typeof dedupeMsgs==='function'?dedupeMsgs(messages):messages),ts:Date.now(),msgOffset:msgOffset,allLoaded:allLoaded,conclView:_conclView,scrollTop:chatBox.scrollTop,atBottom:(typeof chatAtBottom==='function'?chatAtBottom():false)}); try { localStorage.setItem(LS_KEY+'_'+id,payload); } catch(e1){ try { // 配额满:清掉其他话题的持久缓存(内存缓存不受影响),保住当前话题,否则切任务永远全量重拉
   for(var qi=localStorage.length-1;qi>=0;qi--){ var qk=localStorage.key(qi); if(qk&&qk.indexOf(LS_KEY)===0&&qk!==LS_KEY+'_'+id) localStorage.removeItem(qk); } localStorage.setItem(LS_KEY+'_'+id,payload); } catch(e2){} } localStorage.setItem(LS_KEY+'_topics',JSON.stringify(topics)); localStorage.setItem(LS_KEY+'_active',id); saveMemCache(id); } catch(e){} }
 // ── 输入框草稿自动保存（独立前缀，避开 pruneCache 按 LS_KEY 清理）──
-var DRAFT_KEY_PREFIX='omp_draft_';
+var DRAFT_KEY_PREFIX='dayan_draft_';
 var draftTimer=null;
 function saveDraft(tid){
   try{
@@ -2128,7 +2149,7 @@ function restoreDraft(tid, doFocus){
 //   不用猜。与 dedupeMsgs 的去重键同源，语义天然一致。
 // 🔴 判据必须是「同 cmid **且有 id**」：本地乐观气泡没有 id，所以"当场刚标记完"不会被
 //    误判成已送达（否则存档刚写就被自己删掉，兜底等于没有）。
-var PENDING_KEY_PREFIX='omp_pending_';
+var PENDING_KEY_PREFIX='dayan_pending_';
 var _pendingMem=null;          // tid -> [{text,ts,cmid,reason}]（懒加载后的内存镜像）
 function _pendingAll(){
   if(_pendingMem) return _pendingMem;
@@ -2223,16 +2244,82 @@ function applyPending(tid){
     return added;
   }catch(e){ return false; }
 }
+// ── 打开/切任务时的落点（2026-10-19）──────────────────────────────────────
+// 为什么单独搞一套：切换任务时 chatBox 里还挂着**上一个任务**的 DOM，render 若照常
+// capture 视口锚，抓到的行属于旧任务（uid 在新任务里查不到 → 按**行索引**兜底），
+// 等于把旧任务的"第 N 行"硬映射成新任务的"第 N 行"；锚也失效时退化的裸像素更是旧任务的。
+// 用户看到的就是：切过去先落在中间某一段（甚至停一秒），然后才跳到底部 —— "焦点乱跳"。
+// 所以落点只认一件东西：**本任务自己存下来的位置**；没有就贴底。
+var _swTarget=null;      // number = scrollTop；'bottom' = 贴底
+var _swApplied=-1;       // 上一次由程序写入的 scrollTop（用来让 scroll 监听认出"这是程序在滚"）
+var _swSettleTimer=null;
+var _swUserTouched=false; // 落位窗口内用户自己动了手 → 立刻撒手
+var _swUnbind=null;
+function _chatTargetFor(tid){
+  try{
+    var mc=loadMemCache(tid);
+    if(mc){
+      if(mc.atBottom===true) return 'bottom';          // 上次就在底部 ⇒ 直接贴底，别按旧像素算
+      if(typeof mc.scrollTop==='number') return mc.scrollTop;
+    }
+    var lc=loadCache(tid);
+    if(lc){
+      if(lc.atBottom===true) return 'bottom';
+      if(typeof lc.scrollTop==='number') return lc.scrollTop;
+    }
+  }catch(e){}
+  return 'bottom';        // 第一次打开这个任务：用户要的是最新内容
+}
+function _applySwScroll(){
+  var cb=chatBox; if(!cb) return false;
+  var max=Math.max(0,cb.scrollHeight-cb.clientHeight);
+  var bottom=(_swTarget==='bottom'||_swTarget==null||_swTarget>=max-8);
+  cb.scrollTop=bottom?max:Math.max(0,Math.min(_swTarget,max));
+  _swApplied=cb.scrollTop;
+  chatStick=bottom;
+  if(bottom) _userUp=false;
+  return true;
+}
+// 渲染后内容还会长（图片解码 / 代码块 / 字体替换 / 入场动画）——
+// 只落一次会被后续长高甩偏。**判"用户动手"不能用位置差**：
+// 图片刚重建时没有高度，浏览器会把 scrollTop 往回钳几十 px，那不是用户滚的。
+// 所以认真正的输入事件（滚轮 / 手指 / 点击拖动滚动条 / 键盘），一有就撒手。
+// 🔴 窗口给到 2.5s：切到长任务后图片是**懒加载**的，解码完成不产生任何 mutation
+//   （MutationObserver 的 _followBurst 看不见），实测内容会在 1s 后还长高 500+px，
+//   视口于是停在离底半屏的地方，看起来像"没加载到底"。
+function _settleSwScroll(){
+  if(_swSettleTimer){ clearTimeout(_swSettleTimer); _swSettleTimer=null; }
+  if(_swUnbind){ try{ _swUnbind(); }catch(e){} _swUnbind=null; }
+  var cb=chatBox; if(!cb) return;
+  _swUserTouched=false;
+  var mark=function(){ _swUserTouched=true; };
+  var evs=['wheel','touchstart','touchmove','pointerdown','keydown'];
+  var opts={passive:true,capture:true};
+  for(var i=0;i<evs.length;i++){ try{ cb.addEventListener(evs[i],mark,opts); }catch(e){} }
+  _swUnbind=function(){
+    for(var j=0;j<evs.length;j++){ try{ cb.removeEventListener(evs[j],mark,opts); }catch(e){} }
+    _swUnbind=null;
+  };
+  var t0=Date.now(), n=0;
+  function tick(){
+    n++;
+    if(_swUserTouched||!chatBox){ if(_swUnbind) _swUnbind(); _swSettleTimer=null; return; }
+    // 位置比我们上次设的**往下**跑了：不是图片/字体把高度钳小（那只会往上跑），
+    // 而是别的代码有意改了位置（jumpBottom / 翻页补偿）→ 让它说了算，别抢回来。
+    if(_swApplied>=0 && chatBox.scrollTop > _swApplied+4){ if(_swUnbind) _swUnbind(); _swSettleTimer=null; return; }
+    if(!_applySwScroll()){ if(_swUnbind) _swUnbind(); _swSettleTimer=null; return; }
+    if(Date.now()-t0>2500){ if(_swUnbind) _swUnbind(); _swSettleTimer=null; return; }
+    _swSettleTimer=setTimeout(tick, n<3?70:200);
+  }
+  requestAnimationFrame(tick);
+}
 // 恢复某任务的滚动位置（打开/切任务时调用）
 function restoreScroll(tid){
   try {
-    var mc=loadMemCache(tid);
-    var st=null;
-    if(mc&&typeof mc.scrollTop==='number') st=mc.scrollTop;
-    else { var lc=loadCache(tid); if(lc&&typeof lc.scrollTop==='number') st=lc.scrollTop; }
-    if(st!==null && st!==undefined){
-      requestAnimationFrame(function(){ chatBox.scrollTop=st; });
-    }
+    _swApplied=-1;
+    _swTarget=_chatTargetFor(tid);
+    _applySwScroll();     // 同步落位：render 之后到下一帧之间不能露出错误位置
+    _settleSwScroll();    // 后续长高再校正几帧
   } catch(e){}
 }
 function loadCache(tid){ try { if(!tid){ var aid=localStorage.getItem(LS_KEY+'_active'); if(!aid) return null; tid=aid; } var raw=localStorage.getItem(LS_KEY+'_'+tid); var d=raw?JSON.parse(raw):null; if(!d) return null; if(!d.topics){ try{ var tp=localStorage.getItem(LS_KEY+'_topics'); if(tp) d.topics=JSON.parse(tp); }catch(_e){} } return d; } catch(e){ return null; } }
@@ -3116,6 +3203,9 @@ function _lastIsAiText(){
 // 渲染签名:内容没变就整个跳过重建 —— 切任务时缓存渲染与服务端渲染内容一致的场景,
 // 旧逻辑会连续整页重建 DOM,riseIn/入场动画重演造成气泡"原地跳几次"
 var _lastRenderSig='';
+// 上一次 render 的 DOM 属于哪个任务。切换任务后 render 里那段"视口锚 / 裸像素还原"
+// 必须整段作废 —— 锚是上一任务的行、像素是上一任务的高度，套到新任务上必然错位。
+var _renderedTopic='';
 function _renderSig(){
   // 带上 msgOffset：加载更早的历史时，工具密集的任务折叠后可见行可能一条都不多，
   // 但顶部提示行的"已加载 N 条"要跟着变，否则用户看不出加载在推进。
@@ -3135,6 +3225,8 @@ function _renderSig(){
   return s;
 }
 function render(){
+  var _tidNow=currentTopic?currentTopic.id:'';
+  var _topicChanged=(_tidNow!==_renderedTopic);   // DOM 里还是上一个任务的内容
   // 每次渲染都把按钮与服务端真相对一遍（幂等，_stopPending 期间自动跳过）。
   // 必须放在下面的签名短路**之前**：消息没变但运行态变了（切回来 / 断线恢复 /
   // 别的窗口发起）时也要生效，那种情况下签名是相等的，放后面就永远同步不到。
@@ -3154,7 +3246,7 @@ function render(){
   var _prevScroll=chatBox.scrollTop;
   // 重建前的视口锚（详 _chatAnchorCapture）。_prevScroll 在重建后未必还指向同一段内容，
   // 走"不跟底"分支时优先用锚还原，锚失效才退回裸像素。
-  var _prevAnchor=_chatAnchorCapture();
+  var _prevAnchor=_topicChanged?null:_chatAnchorCapture();
   // 记录"最后一条是否为已见过的旧消息"——必须在循环标记 _seen 之前读取
   var _lastWasSeen=messages.length?!!messages[messages.length-1]._seen:false;
   // 保存 chatStick：innerHTML='' 会触发 scroll 事件把 chatStick 重置成 false
@@ -3173,6 +3265,7 @@ function render(){
       var el=chatBox.querySelector('.empty-slogan');
       if(el&&d&&d.text) el.textContent=d.text;
     }).catch(function(){});
+    _renderedTopic=_tidNow;
     return;
   }
   // 结论视图：结论是一次全量拿到的，压根不存在"更早"，分页状态必须锁成"已加载完"。
@@ -3296,7 +3389,14 @@ function render(){
   // 不再额外查 chatNearBottom()：发消息时用户可能在中间位置，chatNearBottom()=false 会导致不滚到底
   // 注:loadMoreMessages 前插历史后自己会算偏移,这里标记了 _skipRenderScroll 就不抢
   if(!window._skipRenderScroll){
-    if(chatStick) chatBox.scrollTop=chatBox.scrollHeight;
+    if(_topicChanged){
+      // 换了任务：上一个任务的像素/锚一律作废（跨任务的行索引毫无意义）。
+      // 真正的落点由紧随其后的 restoreScroll 给；这里先贴底，避免停在 0 让用户先看到最老一条。
+      chatBox.scrollTop=chatBox.scrollHeight;
+      _swApplied=chatBox.scrollTop;
+      chatStick=true;
+    }
+    else if(chatStick) chatBox.scrollTop=chatBox.scrollHeight;
     else {
       // 不跟底（用户自己上滑在看历史）：按**视口锚**还原，而不是裸像素 ——
       // 重建期间内容高度变了的话，裸像素会让视口落到别的段落上（"焦点跳到前几段对话"）。
@@ -3306,6 +3406,7 @@ function render(){
     }
   }
   updateJumpBtn();
+  _renderedTopic=_tidNow;
   } catch(e){ _lastRenderSig=''; chatBox.innerHTML='<div class="empty"><div>渲染出错，请刷新页面</div></div>'; }
   // 展开态的过程泡若思考正文还没拉（缓存恢复、上次就开着），在这里补齐
   try { _hydrateOpenProcs(); } catch(e2) {}
@@ -3385,6 +3486,10 @@ async function switchTopic(tid){
   if(window._switching) return;
   window._switching=true;
   try {
+  // 切任务时**不许抢焦点**：用户可能正用键盘在消息区翻/选中文字，
+  // 无条件 focus() 输入框会把焦点和光标一起拽走（桌面壳里尤其明显）。
+  // 只有切换前焦点本来就在输入框（正在写草稿）时才还给它。
+  var _keepInputFocus=(document.activeElement===msgInput);
   saveCache();
   saveDraft(); // 切走前保存旧话题草稿
   var _seq=++switchSeq;
@@ -3405,7 +3510,7 @@ async function switchTopic(tid){
     if(topics[n].id===tid){ localTopic=topics[n]; break; }
   }
   currentTopic=localTopic||{id:tid,title:'任务'};
-  restoreDraft(tid,true); // 恢复新话题草稿
+  restoreDraft(tid,_keepInputFocus); // 恢复新话题草稿（不主动抢输入框焦点）
   topicTitle.textContent=dispTitle(currentTopic);
   // Cache-first：优先内存缓存(本会话切走时刚存的)，localStorage 兜底；
   // localStorage 可能因 WebView 配额满而写入失败(静默catch)，不能只依赖它
@@ -3415,8 +3520,10 @@ async function switchTopic(tid){
   // 缓存里可能没有「未送达」那条（它是本地存档，未必写进缓存）→ 这里先补一次，
   // 否则用户要等下一次服务端同步（结论视图 3s 重取）才看得见。2026-10-09
   applyPending(tid);
-  render(); chatStick=chatNearBottom(); // 缓存渲染完:用户没动=滚底,动了=保留
-  // 恢复上次浏览位置（覆盖上面的滚底/保留逻辑）
+  // 换任务渲染：render 内部已按"任务变了"作废旧任务的像素/视口锚，这里给唯一落点。
+  // 注意不要再写 chatStick=chatNearBottom()：它会把"离底 100px"误判成贴底，
+  // 下一次 3s 刷新就把用户拽到底（落点由 restoreScroll 内部决定）。
+  render();
   restoreScroll(tid);
   renderTopics();
   if(window.innerWidth<=768) closeSidebar(true);
@@ -3437,12 +3544,15 @@ async function switchTopic(tid){
           msgOffset=messages.length;
           allLoaded=true;
           _seedTail(tid, swC.lastId, swC.working&&swC.working.status&&swC.working.status!=='idle');
-          // 结论是一次全量拿到的，直接落到最新那条（用户关心的是"结果怎样"，
-          // 停在顶部等于让他从最老的一条开始自己往下找）。上次的浏览位置若有，下面 restoreScroll 会覆盖。
+          // 结论是一次全量拿到的，默认落到最新那条（用户关心的是"结果怎样"）。
+          // 但**用户上次看到哪**优先：restoreScroll 用切走前存的目标覆盖。
           chatStick=true;
-          render(); chatStick=chatNearBottom();
-          saveCache();
+          render();
+          // 🔴 顺序不能反：先 restoreScroll 再 saveCache。
+          // 反过来时 saveCache 会把"刚渲染出来的贴底位置"写成用户位置，
+          // restoreScroll 接着读回来的就是它 —— 恢复浏览位置等于从未生效。
           restoreScroll(tid);
+          saveCache();
         }
         if(!swC){
         _conclView=false;
@@ -3481,11 +3591,11 @@ async function switchTopic(tid){
             msgOffset=_pageRaw;
             allLoaded=(_pageRaw<msgLimit);
           }
-          if(!_unchanged){ render(); chatStick=chatNearBottom(); }
+          if(!_unchanged){ render(); }   // 落点交给下面统一处理
         }
-        // 服务端数据可能比缓存多，恢复位置前先保存一次新数据，再恢复
-        saveCache();
+        // 先按切走前存的目标落位，再把服务端新数据落盘（顺序反了会自己覆盖目标）
         restoreScroll(tid);
+        saveCache();
         }   // if(!swC)：老分页路径结束
       }
     } else if(allLoaded){
@@ -3917,13 +4027,18 @@ function setupScrollLoad(){
   if(!chatBox._scrollBound){
     chatBox._scrollBound=true;
     chatBox.addEventListener('scroll',function(){
+      // 程序性落位（restoreScroll / 校正）自己也会派发 scroll。不认出来的话，
+      // 一个"离底 100px 的恢复位置"会被下面判成贴底 → 下一次 3s 刷新又把用户拽到底。
+      var _prog=(_swApplied>=0 && Math.abs(chatBox.scrollTop-_swApplied)<=2);
       // 跟底三态（_userUp 定义见文件上方 chatNearBottom 处）：
       // ① 真的回到底（<8px）→ 清掉上滑意图、恢复跟随；
       // ② 用户主动上滑过 → 保持脱离，**哪怕还在 120px 容差带里**（旧写法在这里必被改回 true）；
       // ③ 其余按老规矩（容差内算贴底）。
+      if(!_prog){
       if(chatAtBottom()){ _userUp=false; chatStick=true; }
       else if(_userUp) chatStick=false;
       else chatStick=chatNearBottom();
+      }
       updateJumpBtn();
       // 滚动停止后静默保存当前位置到内存缓存（切任务/关闭页面时恢复用）
       if(currentTopic){
@@ -4872,7 +4987,7 @@ function recoverPendingReply(tid, wMsg){
       render(); saveCache();
       setSt('','就绪');
       fetch('/api/usage').then(r=>r.json()).then(d=>{updateToken(d);}).catch(()=>{});
-      fetch('/api/omp_cost').then(r=>r.json()).then(d=>{updateCost(d);}).catch(()=>{});
+      fetch('/api/cost').then(r=>r.json()).then(d=>{updateCost(d);}).catch(()=>{});
       refreshBalance();
       loadTopics();
     }catch(e){
@@ -5391,7 +5506,7 @@ async function _doSendInner(){
       clearInterval(sendPoll); sendPoll=null;
       workingDot.classList.remove('pulse');
       fetch('/api/usage').then(r=>r.json()).then(d=>{updateToken(d);}).catch(()=>{});
-      fetch('/api/omp_cost').then(r=>r.json()).then(d=>{updateCost(d);}).catch(()=>{});
+      fetch('/api/cost').then(r=>r.json()).then(d=>{updateCost(d);}).catch(()=>{});
       loadTopics();
       return;
     }
@@ -5461,7 +5576,7 @@ async function _doSendInner(){
       // Push notification via native bridge (Android APK)
       try { if(typeof Native!=='undefined'&&data.response) Native.notify(appName, data.response.slice(0,120)); } catch(e){}
       fetch('/api/usage').then(r=>r.json()).then(d=>{ updateToken(d); }).catch(()=>{});
-      fetch('/api/omp_cost').then(r=>r.json()).then(d=>{ updateCost(d); }).catch(()=>{});
+      fetch('/api/cost').then(r=>r.json()).then(d=>{ updateCost(d); }).catch(()=>{});
       refreshBalance();
       if(data.topic_id){
         for(var k=0;k<topics.length;k++){
@@ -7519,7 +7634,7 @@ function wsTabPlaceholder(tab) {
 }
 
 // ── draft 标签：草稿纸渲染器（2026-09-20 补实装）──
-// 与聊天输入框共用同一份 localStorage 草稿（omp_draft_{tid}），双向同步：
+// 与聊天输入框共用同一份 localStorage 草稿（dayan_draft_{tid}），双向同步：
 // 标签内打字 → saveDraft 存回；切任务/聊天侧改动后重渲染标签时 → loadDraft 读回。
 var wsDraftCur = null;   // { tid, ta } 防抖定时器句柄
 function wsTabDraftRender(tab, body) {
@@ -8335,7 +8450,7 @@ function xferRunUpload(it,done){
     // 能加密才加 X-Can-Enc 并加密 body、无密钥则退回 X-Access-Token。
     // ⚠️ 别只看 key 是否存在：http 局域网上没有 crypto.subtle，照发会走进 _encrypt 抛错分支，
     //    把整条上传打死（两层判定必须同源 —— 与守卫加密那条铁律同理）。
-    var C=window.__ompCrypto||{};
+    var C=window.__dayanCrypto||{};
     var useEnc=!!(C.key&&C.canEncrypt);
     var prep=useEnc?Promise.resolve(C.encrypt(payload)):Promise.resolve(payload);
     prep.then(function(body){
@@ -10844,9 +10959,9 @@ msgInput.addEventListener('input',function(){
 });
 
 
-// ── OMP health check ─────────────────────────────
-var ompWasDown=false;
-async function checkOmpStatus(){
+// ── 服务健康检查（/api/health）─────────────────────
+var svcWasDown=false;
+async function checkSvcStatus(){
   try {
     var r=await fetch('/api/health');
     var h=await r.json();
@@ -10855,14 +10970,14 @@ async function checkOmpStatus(){
       if(!workingDot.classList.contains('pulse')){
         setSt('','就绪');
       }
-      ompWasDown=false;
+      svcWasDown=false;
     } else {
-      setSt('error','OMP 离线');
-      ompWasDown=true;
+      setSt('error','服务未就绪');
+      svcWasDown=true;
     }
   } catch(e){
     setSt('error','服务离线');
-    ompWasDown=true;
+    svcWasDown=true;
   }
 }
 // Theme
@@ -11007,7 +11122,7 @@ function loadThemeSettings(){
     // 打开时恢复上次浏览位置
     if(cachedTopicId) restoreScroll(cachedTopicId);
   }
-  await checkOmpStatus();
+  await checkSvcStatus();
   applyDevMode();
   // 启动时把本地开发者模式状态同步给后端，后端据此决定是否记录日志
   fetch('/api/settings/devmode', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({dev_mode: localStorage.getItem('dev_mode')==='1'})}).catch(function(){});
@@ -11020,7 +11135,7 @@ function loadThemeSettings(){
     uInfo.textContent=(s.urls||[])[0]||'';
   } catch(e){}
   try { var ur=await fetch('/api/usage'); var ud=await ur.json(); updateToken(ud); } catch(e){}
-  try { var ur=await fetch('/api/omp_cost'); var ud=await ur.json(); updateCost(ud); } catch(e){}
+  try { var ur=await fetch('/api/cost'); var ud=await ur.json(); updateCost(ud); } catch(e){}
   try { var hr2=await fetch('/api/settings/banner'); var hd2=await hr2.json(); hideBannerPref=hd2.hide_banner!==false; } catch(e){}
   var srvShowBal=true;
   try { var sr2=await fetch('/api/settings/balance_display'); var sd2=await sr2.json(); srvShowBal=sd2.show_balance!==false; } catch(e){}
@@ -11107,8 +11222,11 @@ function loadThemeSettings(){
       // 而用户关心的是最新结论——他得自己一路往下找，还以为"加载不出来"。
       if(_conclView) chatStick=true;
       render();
-      saveCache();
+      // 顺序要紧：先按"上次看到哪"落位，再把真实位置落盘。
+      // 旧写法 saveCache 在 restoreScroll 之前，会把刚渲染的贴底位置写进缓存，
+      // restoreScroll 读回来的就是它 —— 每次打开任务都停在最新一条，浏览位置从未恢复。
       restoreScroll(loadTid);
+      saveCache();
     }
     topicTitle.textContent=dispTitle(currentTopic);
   }
@@ -11191,7 +11309,7 @@ function loadThemeSettings(){
     };
   } catch(e){}
   } catch(e){ chatBox.innerHTML='<div class="empty"><div>⚠️ 初始化失败<br><small>'+esc(e.message||'')+'</small></div></div>'; }
-setInterval(function(){ fetch('/api/usage').then(r=>r.json()).then(d=>{ updateToken(d); }).catch(()=>{}); fetch('/api/omp_cost').then(r=>r.json()).then(d=>{ updateCost(d); }).catch(()=>{}); refreshBalance(); updateWmDisplay(); checkOmpStatus(); if(!document.hidden) loadTopics(); }, 8000);
+setInterval(function(){ fetch('/api/usage').then(r=>r.json()).then(d=>{ updateToken(d); }).catch(()=>{}); fetch('/api/cost').then(r=>r.json()).then(d=>{ updateCost(d); }).catch(()=>{}); refreshBalance(); updateWmDisplay(); checkSvcStatus(); if(!document.hidden) loadTopics(); }, 8000);
 })();
 
 // Check if current topic has an active AI working session
@@ -14970,7 +15088,7 @@ async function saveWebConfig() {
     // Include enc_key even if empty (to allow clearing)
     body.enc_key = encKey;
     // [2026-08-31] 无密钥状态下首次保存：自己带 X-Key 头并写入 localStorage，否则被守门员 403
-    try { localStorage.setItem('omp_enc_key', encKey); } catch(_) {}
+    try { localStorage.setItem('dayan_enc_key', encKey); } catch(_) {}
     var _cfgHdrs = { 'Content-Type': 'application/json' };
     if (encKey) _cfgHdrs['X-Key'] = encKey;
     var resp = await fetch('/api/project-config', {
@@ -14984,7 +15102,7 @@ async function saveWebConfig() {
         if (typeof Native !== 'undefined' && Native.setEncKey) {
           Native.setEncKey(encKey);
         }
-        localStorage.setItem('omp_enc_key', encKey);
+        localStorage.setItem('dayan_enc_key', encKey);
       } catch(_) {}
       // Reload page encryption wrapper to pick up new key
       alert('已保存，即将刷新页面');
@@ -15906,7 +16024,7 @@ ctx.strokeStyle=sp.e.link_type==='cause'?'rgba(255,120,80,0.5)':(getTheme()==='w
 		      else{summary=JSON.stringify(data).slice(0,120);}
 		    }else{
 		      if(type==='response'){summary='success='+(data.success?'true':'false')+(data.error?', error='+data.error:'');}
-		      else if(type==='ready'){summary='OMP ready';}
+		      else if(type==='ready'){summary='就绪';}
 		      else if(type==='session_info_update'){summary='session: '+(data.sessionFile||'').split('/').pop();}
 		      else if(type==='message_update'){var me=data.assistantMessageEvent||{};var mt=me.type||'';if(mt==='text_delta'){summary=(me.delta||'').slice(0,100);}else if(mt==='thinking_delta'){summary='💭 '+(me.delta||'').slice(0,100);}else if(mt==='tool_call'){summary='🔧 '+me.toolName+'('+JSON.stringify(me.toolArgs||{}).slice(0,60)+')';}else{summary=mt;}}
 		      else if(type==='host_tool_call'){summary='🖥 '+data.toolName+'('+JSON.stringify(data.arguments||{}).slice(0,80)+')';}
@@ -16457,7 +16575,7 @@ function _pairKey(){
 
   try{ if(typeof _encKeyB64!=='undefined'&&_encKeyB64) return _encKeyB64; }catch(e){}
 
-  try{ var lk=localStorage.getItem('omp_enc_key'); if(lk) return lk; }catch(e){}
+  try{ var lk=localStorage.getItem('dayan_enc_key'); if(lk) return lk; }catch(e){}
 
   return '';
 
@@ -16782,5 +16900,26 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
  </div>
 <script src="/task-composer.js?v=20261016-recentmodel"></script>
 <script src="/composer-floating.js?v=20261007-ios-smooth2"></script>
+<script>
+/* [2026-10-18] 安卓 WebView 返回键钩子：没有可退的网页历史时，先关最上层浮层，而不是直接退出 App */
+window.__dayanHandleBack = function () {
+  try {
+    var fc = document.getElementById('flowChartModal');
+    if (fc && fc.classList.contains('show')) { try { closeFlowChart(); } catch (e) {} return true; }
+    var wp = document.getElementById('wpFrame');
+    try {
+      if (wp && wp.offsetParent !== null && typeof wpMinimize === 'function') { wpMinimize(true); return true; }
+    } catch (e) {}
+    var open = document.querySelectorAll('.modal.show, .modal.open, .sheet.open, .drawer.open, .overlay.show');
+    if (open && open.length) {
+      var m = open[open.length - 1];
+      m.classList.remove('show');
+      m.classList.remove('open');
+      return true;
+    }
+  } catch (e) {}
+  return false;
+};
+</script>
 </body>
 </html>

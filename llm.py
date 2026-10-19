@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 LLM API client — direct OpenAI-compatible calls, streaming, function calling.
-完全取代 ompQ.exe 的角色。
+直接与模型 API 通信，不依赖任何外部 Agent 进程。
 """
 import json
 import os

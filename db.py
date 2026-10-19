@@ -1048,7 +1048,7 @@ class Database:
 
     @staticmethod
     def _sync_session_to_db(db, tid, session_path):
-        """Sync messages from OMP session file into DB. Position-based: only appends new messages beyond what DB already has."""
+        """Sync messages from a legacy session file into DB. Position-based: only appends new messages beyond what DB already has."""
         msgs = Database._read_session_file(session_path)
         if not msgs:
             return
@@ -1070,7 +1070,7 @@ class Database:
 
     @staticmethod
     def _read_session_file(session_path):
-        """Parse OMP session .jsonl file into message list."""
+        """Parse a legacy session .jsonl file into message list."""
         msgs = []
         try:
             with open(session_path, "r", encoding="utf-8") as f:

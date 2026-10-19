@@ -3,7 +3,7 @@
 Edit engine — line-level / fuzzy / patch editing for code files.
 Replaces the old write_file-only approach with precise surgical edits.
 
-Designed after OMPQ's edit engine (Node/TS), translated to Python with
+Modeled on a proven Node/TS line-level edit engine, rewritten in Python with
 progressive fallback chain and LSP hook points.
 
 P0 — Core edit engine for 大眼X融合增强计划

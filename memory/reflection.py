@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Memory AI — event-driven autobiographical memory agent using direct LLM calls.
-取代 OMP-based reflection。
+取代早期基于外部 Agent 的反思实现。
 
 手动触发深度整合（/api/memory/reflect）。
 """

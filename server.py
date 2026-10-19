@@ -2,7 +2,7 @@
 """
 大眼X Server — 全能超级个体。
 直接 LLM API 调用 + 工具系统 + 记忆系统。
-完全取代 rpc_server.py + ompQ.exe 的组合。
+从模型调用到工具、记忆全部在本进程内完成，不依赖任何外部 Agent 进程。
 """
 import json
 import task_runtime
@@ -14,6 +14,7 @@ import uuid
 import re
 import math
 import base64
+import hashlib
 import socket
 import signal
 import subprocess
@@ -46,6 +47,60 @@ _UNVERIFIED_SSL_CTX.verify_mode = ssl.CERT_NONE
 BASE_DIR = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
 ROOT_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else BASE_DIR
 PUBLIC_DIR = os.path.join(BASE_DIR, "public")
+
+
+# ── 前端指纹（APK 冷启动只比哈希，不重搬前端） ──────────
+# 病根：手机端每次打开都是新会话，主文档又带 _t 时间戳 ⇒ 缓存键每次都不同，
+# 987K 的 index.html + 子资源全量重下。这里给出一个稳定的 build 指纹，
+# 客户端先拉这几百字节，指纹一致就走 WebView 缓存（未命中还有 ETag 304 兜底）。
+_FE_FILES = ("index.html", "composer-floating.js", "mindmap.js")
+_FE_SHA_CACHE = {}
+_FE_MANIFEST_CACHE = {"key": None, "data": None}
+
+
+def _file_sha1(path, st):
+    key = (path, st.st_size, int(st.st_mtime))
+    hit = _FE_SHA_CACHE.get(key)
+    if hit is not None:
+        return hit
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    val = h.hexdigest()
+    _FE_SHA_CACHE.clear()          # 只留最近一轮，避免常驻占内存
+    _FE_SHA_CACHE[key] = val
+    return val
+
+
+def fe_manifest():
+    """前端构建清单：build = 各核心文件内容 sha1 的合并指纹。"""
+    sig = []
+    entries = {}
+    for rel in _FE_FILES:
+        fp = os.path.join(PUBLIC_DIR, rel)
+        try:
+            st = os.stat(fp)
+            sig.append((rel, st.st_size, int(st.st_mtime)))
+            entries[rel] = {"size": st.st_size, "sha": _file_sha1(fp, st)}
+        except OSError:
+            sig.append((rel, -1, -1))
+            entries[rel] = {"size": 0, "sha": "missing"}
+    key = tuple(sig)
+    if _FE_MANIFEST_CACHE["key"] == key:
+        return _FE_MANIFEST_CACHE["data"]
+    h = hashlib.sha1()
+    for rel in _FE_FILES:
+        h.update(entries[rel]["sha"].encode())
+    data = {
+        "build": h.hexdigest()[:16],
+        "ts": max([s[2] for s in sig] + [0]),
+        "files": entries,
+    }
+    _FE_MANIFEST_CACHE["key"] = key
+    _FE_MANIFEST_CACHE["data"] = data
+    return data
+
 
 # ── Ports ───────────────────────────────────────────
 PORT = 8765
@@ -1970,10 +2025,9 @@ def _vision_fallback_enabled() -> bool:
 
 
 # ── 主模型故障处理：同源重试 + 可选自动换源 ──────────────
-# 同源重试上限（仅当本轮**无任何输出**时整轮重试安全）。
-# 退避 2/4/6/8/8… 秒，10 次合计约 68 秒；聚合网关"渠道池临时枯竭"通常 1 分钟内自愈，
-# 所以默认把同源重试拉长到 10 次 —— 能靠等待自愈的就不要换源（换源有副作用）。
-LLM_TURN_RETRY_MAX = 10
+# 同源重试仅在本轮无任何输出/工具调用时安全；按总恢复窗口限制。
+LLM_TURN_RETRY_MAX = 100
+LLM_TURN_RETRY_WINDOW = 120  # 从首次可重试故障起，最多恢复 2 分钟
 
 # 需要回传 reasoning_content 的源：{(base_url, model)}。
 # 思考模型（LiteLLM 代理的 deepseek-v4.1-flash-1017 等）要求带 tool_calls 的
@@ -3109,6 +3163,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _json(self, code, data):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         try:
+            # [2026-10-19] GET 接口走 ETag 协商缓存：对话/列表内容没变只回 304（零正文），
+            # 手机端切任务、刷新、轮询不再重复搬运整段历史。指纹 = md5(正文)，天然正确；
+            # POST 等非 GET 一律不走这条路（请求本来就带副作用语义）。
+            if code == 200 and (getattr(self, "command", "") or "").upper() == "GET":
+                etag = '"' + hashlib.md5(body).hexdigest()[:24] + '"'
+                inm = self.headers.get("If-None-Match") or ""
+                self.send_response(304 if etag in inm else 200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Cache-Control", "no-cache, private")
+                self.send_header("ETag", etag)
+                if etag not in inm:
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                if etag not in inm:
+                    self.wfile.write(body)
+                return
             self.send_response(code)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -3166,6 +3237,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "pid": os.getpid(),
                 "bridge_ready": True,
             })
+
+        # ── 前端指纹清单（APK 冷启动先比哈希，一致就不重搬前端） ──
+        elif path == "/api/fe-manifest":
+            self._json(200, fe_manifest())
+
 
         # ── System Status ──
         elif path == "/api/system_status":
@@ -3464,8 +3540,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(200, {"topic_id": tid, "body": _last_request_body[tid]})
             else:
                 self._json(404, {"error": "no cached request for this topic"})
-        # ── Cost (replaces /api/omp_cost) ──
-        elif path in ("/api/cost", "/api/omp_cost"):
+        # ── Cost ──
+        elif path == "/api/cost":
             _fetch_cny_rate()
             with _cost_lock:
                 cost_cny = _total_cost_cny
@@ -4538,10 +4614,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _serve_static(self, path):
         """Serve a static file from PUBLIC_DIR."""
+        # [2026-10-19] URL 解码：浏览器/WebView 发来的是 percent-encoded UTF-8
+        # （/大眼.apk -> /%E5%A4%A7%E7%9C%BC.apk）。旧实现直接按编码串拼路径，
+        # 中文名文件一律 404（实测 /大眼.apk -> 404，/dayan-1.7.apk -> 200）。
+        # 解码放在 normpath 之前，%2e%2e%2f 这类穿越编码才会被下面的前缀校验拦住。
+        try:
+            raw_path = urllib.parse.unquote(path, errors="surrogatepass")
+        except Exception:
+            raw_path = path
         # Security: prevent path traversal
-        safe = os.path.normpath(path).lstrip("/\\")
+        safe = os.path.normpath(raw_path).lstrip("/\\")
         filepath = os.path.join(PUBLIC_DIR, safe)
-        if not filepath.startswith(os.path.normpath(PUBLIC_DIR)):
+        _pub_norm = os.path.normpath(PUBLIC_DIR)
+        if filepath != _pub_norm and not filepath.startswith(_pub_norm + os.sep):
             self._json(403, {"error": "forbidden"})
             return
         if not os.path.isfile(filepath):
@@ -4563,22 +4648,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
             ".apk": "application/vnd.android.package-archive",
         }.get(ext, "application/octet-stream")
         try:
+            # [2026-10-18] 缓存分级。病根：首屏总量 7.16MB（mermaid 3.34M / icon.png 1.79M /
+            # x6.js 858K / index.html 987K），旧实现一律 no-cache，而远端客户端每次导航都是
+            # 全新会话（Cookie 都不保留，guard.log 每次 GET / 都紧跟 COOKIE-SET）⇒ 从不发
+            # If-None-Match ⇒ 19 万次请求 0 次 304 ⇒ 每次重搬 7MB；3~5Mbps 下 12~20 秒，
+            # 用户体感就是"远端切任务卡住无响应"。分级后首屏只剩 index.html 需要重下。
+            #   · vendor/ 第三方库、带 ?v= 的自家 js → 一年 immutable（版本号即缓存键）
+            #   · icon.png / favicon → 7 天
+            #   · 其余（含 index.html、无版本号的 public/*.js）→ no-cache，改完刷新即生效
+            _q = self.path.split("?", 1)[1] if "?" in self.path else ""
+            _rel = safe.replace("\\", "/").lower()
+            _base = _rel.rsplit("/", 1)[-1]
+            if _rel.startswith("vendor/") or re.search(r"(?:^|&)v=", _q):
+                _cc = "public, max-age=31536000, immutable"
+            elif _base in ("icon.png", "favicon.ico") or _base.startswith("apple-touch-icon"):
+                _cc = "public, max-age=604800"
+            elif ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
+                # [2026-10-19] 图片（/generated/ 下都是 gen_时间戳_随机 命名，内容不会原地变）
+                # 缓存 7 天：手机端反复看同一张图不再拉网络，只有文件名变了才会重下。
+                _cc = "public, max-age=604800"
+            else:
+                _cc = "no-cache"
             # ETag 协商缓存：指纹 = 大小-mtime；If-None-Match 匹配 -> 304，
-            # APK 冷启动不再重拉 427KB 壳页面，守门员透明转发不影响
+            # APK 冷启动不再重拉壳页面，守门员透明转发不影响
             st = os.stat(filepath)
             etag = '"%d-%d"' % (st.st_size, int(st.st_mtime))
             inm = self.headers.get("If-None-Match", "")
             if inm and etag in inm:
                 self.send_response(304)
                 self.send_header("ETag", etag)
-                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Cache-Control", _cc)
                 self.end_headers()
                 return
             with open(filepath, "rb") as f:
                 data = f.read()
             self.send_response(200)
             self.send_header("Content-Type", ctype)
-            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Cache-Control", _cc)
             self.send_header("ETag", etag)
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
@@ -7610,8 +7716,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # 200/200/200 —— 确定性问题，不是上游抖动，所以"等几秒再重试"没用，
                 # 必须先把消息修好再重发。修好后记住这个源，后续轮次组装时直接带上。
                 _te = str(turn_error).lower()
+                if _turn_retries == 0:
+                    _turn_retry_started = time.monotonic()
+                _retry_elapsed = time.monotonic() - _turn_retry_started
+                _retry_window_open = _retry_elapsed < LLM_TURN_RETRY_WINDOW
                 if ("reasoning_content" in _te and "passed back" in _te
-                        and _turn_retries < LLM_TURN_RETRY_MAX
+                        and _retry_window_open
                         and any(m.get("role") == "assistant" and m.get("tool_calls")
                                 and "reasoning_content" not in m for m in msgs)):
                     _patched = 0
@@ -7636,7 +7746,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if _budget_hint_msg and msgs and msgs[-1].get("content") == _budget_hint_msg:
                         msgs.pop()
                     continue
-                if _turn_retries < LLM_TURN_RETRY_MAX and is_retryable_llm_error(turn_error):
+                if (_retry_window_open and _turn_retries < LLM_TURN_RETRY_MAX
+                        and is_retryable_llm_error(turn_error)):
                     _turn_retries += 1
                     _wait = min(_turn_retries * 2, 8)
                     print(f"[agent] retryable LLM error (retry {_turn_retries}/{LLM_TURN_RETRY_MAX}), retry in {_wait}s: {turn_error}")
@@ -7668,6 +7779,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     print(f"[agent] main model '{_orig_model}' unusable -> fallback to {_fb_label}")
                     llm_config = _fb_cfg
                     _turn_retries = 0  # 新源重新给满重试额度
+                    _turn_retry_started = time.monotonic()  # 新源独立计时 2 分钟
                     if _budget_hint_msg and msgs and msgs[-1].get("content") == _budget_hint_msg:
                         msgs.pop()
                     msgs.append({"role": "user", "content":
@@ -7689,7 +7801,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "",
                     f"· 主模型：{_orig_model}",
                     f"· 错误：{turn_error}",
-                    f"· 已尝试：当前源实际重试 {_turn_retries} 次（上限 {LLM_TURN_RETRY_MAX} 次）",
+                    f"· 已尝试：当前源实际重试 {_turn_retries} 次（恢复窗口 {min(_retry_elapsed, LLM_TURN_RETRY_WINDOW):.0f}/{LLM_TURN_RETRY_WINDOW} 秒）",
                 ]
                 if _fell_back:
                     _fb_note_lines.append(
@@ -7716,6 +7828,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise Exception(f"LLM API error: {turn_error}")
             else:
                 _turn_retries = 0  # 本轮正常产出，重置重试计数
+                _turn_retry_started = None  # 下一个模型轮次重新开始恢复窗口
             # 移除本轮注入的系统预算提示（保持 msgs 干净供下一轮）
             if _budget_hint_msg and msgs and msgs[-1].get("content") == _budget_hint_msg:
                 msgs.pop()
