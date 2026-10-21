@@ -69,11 +69,18 @@ RETRYABLE_SERVER_MARKERS = (
     "no available channel", "无可用渠道",
     "overloaded", "engine_overloaded", "server is busy",
     "http 429", "rate limit", "too many requests",
-    # 2026-10-17 补：思考模型（tokenrhythm / deepseek-v4.1-flash-1017）在带
+    # 2026-10-17 补：思考模型（部分第三方网关 / deepseek-v4.1-flash-1017）在带
     # tool_calls 的 assistant 消息里要求原样回传 reasoning_content，缺了必返
     # HTTP 400 LITELLM_ERROR "The `reasoning_content` in the thinking mode must
     # be passed back to the API"。实测补上字段后立刻 200 —— 属可修可重试。
     "must be passed back",
+    # 2026-10-20 补：LeaderAI 网关间歇返回 SSE error
+    #   {"type":"api_error","message":"settlement pending reconciliation"}
+    # （结算流水在途，账号侧的临时状态）。实测同一 key、同一模型（g6.1s-promotion1）
+    # 直连 /v1/messages 与 /v1/chat/completions 均 200 —— 属明确可重试。
+    # 这两句原不在清单里 ⇒ 上层判"非瞬时" ⇒ **0 次重试**直接中断，
+    # 用户看到的就是"模型侧持续不可用，已停止（已尝试 0 次）"。
+    "settlement pending", "pending reconciliation",
 )
 
 # 明确**不可**重试：余额/额度类。重试无意义，必须换源或直接告知用户。
@@ -471,7 +478,7 @@ def _repair_truncated_json(raw, back=600):
 # ══════════════════════════════════════════════════════
 # Anthropic Messages 协议适配（第三方源用 protocol="anthropic"）
 # ══════════════════════════════════════════════════════
-# 为什么需要：不少第三方站点（含 tokenrhythm 这类聚合站）同时提供
+# 为什么需要：不少第三方站点（含聚合站）同时提供
 # /v1/chat/completions 与 /v1/messages，也有只给 Anthropic 协议的 Claude
 # 中转。只支持 OpenAI 协议会把后一半站点排除在外。
 # 这里把内部的 OpenAI 形态消息/工具双向转换，事件产出与 OpenAI 路径
@@ -953,7 +960,7 @@ def _chat_stream_impl(config, messages, tools=None, cancel_event=None, verify_ss
         body["tool_choice"] = "auto"
     body["stream_options"] = {"include_usage": True}
     # ── 源级附加请求体参数（如 {"enable_thinking": true}）──
-    # 推理开关是各家自创的、且**默认关**：同一份权重在硅基流动上裸调用不吐
+    # 推理开关是各家自创的、且**默认关**：同一份权重在部分第三方站点上裸调用不吐
     # reasoning_content，加 {"enable_thinking": true} 才吐（实测 DeepSeek-V4-Flash
     # 0 字 → 554 字，且裸调用会答错"9.11 和 9.9 哪个大"）。字段名各家不同
     # （chat_template_kwargs / thinking.type / reasoning_effort），所以由源配置决定，
@@ -1047,6 +1054,24 @@ def _chat_stream_impl(config, messages, tools=None, cancel_event=None, verify_ss
             # Capture usage from final chunk
             if "usage" in obj and obj["usage"] is not None:
                 last_usage = obj["usage"]
+
+            # ── 网关在流里直接回错误对象（没有 choices）──────────────────────
+            # 2026-10-20 实测 LeaderAI 会这么返回：
+            #   data: {"error":{"type":"api_error","message":"settlement pending reconciliation"}}
+            # 旧代码走到下面 "if not choices: continue" 就把它**当空块丢掉**了 ⇒
+            # 这一轮没有正文、也没有收尾标记，上层看到的是"模型回了个空"而不是"模型报错了"：
+            # 错误分类/重试/换源全部不触发（比报错更糟，用户白等一整轮）。
+            if isinstance(obj.get("error"), (dict, str)):
+                _err = obj["error"]
+                if isinstance(_err, str):
+                    _msg, _etype = _err, "error"
+                else:
+                    _msg = _err.get("message") or json.dumps(_err, ensure_ascii=False)
+                    _etype = _err.get("type") or _err.get("code") or "error"
+                _log_raw_response(log_group, "OPENAI STREAM ERROR: " + str(_msg),
+                                  duration_ms=(time.time() - t0) * 1000, status_code=200)
+                yield {"type": EVENT_ERROR, "error": f"{_etype}: {_msg}"}
+                return
 
             choices = obj.get("choices", [])
 

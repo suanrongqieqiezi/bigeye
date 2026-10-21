@@ -47,92 +47,151 @@ def _clear_pip_window(*_a):
 def _splash_thread():
     """独立线程跑启动提示窗：双击后立刻有反馈，主窗口加载完立即消失。
 
-    tkinter 全部调用只在本线程内；主线程通过 _splash 字典传状态（GIL 安全）。
-    视觉：圆角深色卡片 + 单调递增进度条 + 状态小字；位置固定、淡入出现，
-    主窗口加载完成立即销毁（不淡出，避免被主窗口弹出顶跳）。
+    为什么不再用 tkinter（2026-10-19 换血）：PyInstaller 打包后 Tcl 数据文件
+    （_tcl_data/_tk_data/tcl8）若不完整，卡片销毁时会触发 tcl86t.dll panic
+    （0x80000003）把 desktop.exe 直接放倒。WinForms 走 .NET —— pywebview 的
+    winforms 后端本就依赖 pythonnet，不引入新依赖，打包时也不必再收 tkinter。
+
+    视觉沿用旧卡片：420x120 圆角深色卡片 + 渐近进度条 + 状态小字；位置固定、
+    淡入出现，主窗口加载完成立即销毁（不淡出，避免被主窗口弹出顶跳）。
+    主线程通过 _splash 字典传状态（GIL 安全），卡片真正销毁时置 _splash_closed。
     """
     try:
-        import tkinter as tk
-        from tkinter import font as tkfont
-        root = tk.Tk()
-    except Exception:
-        _splash_closed.set()  # 无 tkinter 环境静默跳过，放行主窗口
-        return
-    try:
-        W, H, R = 420, 120, 14
-        BG, EDGE, ACCENT, DIM = "#161616", "#2a2a2a", "#2ee6c0", "#8a8f98"
-        MAGIC = "#010101"  # 透明键色，卡片圆角外区域透明
-        root.overrideredirect(True)
-        root.attributes("-topmost", True)
-        root.configure(bg=MAGIC)
         try:
-            root.attributes("-transparentcolor", MAGIC)
+            import clr
+        except Exception:
+            os.environ['PYTHONNET_RUNTIME'] = 'coreclr'
+            import clr
+        # 卡片跑在 import webview 之前，程序集得自己加载（照抄 pywebview winforms 后端）
+        clr.AddReference('System.Windows.Forms')
+        import System.Windows.Forms as WinForms  # noqa: E402
+        from System.Drawing import (Color, Font, Pen, Point, Rectangle, RectangleF,
+                                    Region, Size, SolidBrush, StringAlignment,
+                                    StringFormat)
+        from System.Drawing.Drawing2D import GraphicsPath, SmoothingMode
+        from System.Threading import ApartmentState, Thread, ThreadStart
+    except Exception as e:
+        _splash_log(f"splash: pythonnet 不可用，跳过卡片 {e!r}")
+        _splash_closed.set()  # 环境缺失静默跳过，放行主窗口
+        return
+
+    W, H, R = 420, 120, 14
+    BG = Color.FromArgb(0x16, 0x16, 0x16)
+    EDGE = Color.FromArgb(0x2A, 0x2A, 0x2A)
+    ACCENT = Color.FromArgb(0x2E, 0xE6, 0xC0)
+    DIM = Color.FromArgb(0x8A, 0x8F, 0x98)
+    TRACK = Color.FromArgb(0x26, 0x26, 0x26)
+    TX1, TX2, TY = 110, 310, 46
+    D = R * 2
+
+    st = {"v": 0.0, "p": 0.0, "n": 0, "t0": time.time()}
+    form = None
+
+    def _rounded_path(inset=0.0):
+        p = GraphicsPath()
+        p.AddArc(inset, inset, D, D, 180, 90)
+        p.AddArc(W - D - inset, inset, D, D, 270, 90)
+        p.AddArc(W - D - inset, H - D - inset, D, D, 0, 90)
+        p.AddArc(inset, H - D - inset, D, D, 90, 90)
+        p.CloseFigure()
+        return p
+
+    def on_paint(sender, args):
+        try:
+            g = args.Graphics
+            g.SmoothingMode = SmoothingMode.AntiAlias
+            g.DrawPath(Pen(EDGE, 1.0), _rounded_path(0.5))
+            g.FillRectangle(SolidBrush(TRACK), Rectangle(TX1, TY, TX2 - TX1, 3))
+            w = int((TX2 - TX1) * st["p"])
+            if w > 0:
+                g.FillRectangle(SolidBrush(ACCENT), Rectangle(TX1, TY, w, 3))
+            fmt = StringFormat()
+            fmt.Alignment = StringAlignment.Center
+            g.DrawString(_splash["status"] + "." * (st["n"] // 15 % 3 + 1),
+                         Font("Microsoft YaHei", 9.0), SolidBrush(DIM),
+                         RectangleF(0, 72, W, 20), fmt)
+        except Exception as e:
+            _splash_log(f"card paint err: {e!r}")
+
+    def run():
+        nonlocal form
+        try:
+            form = WinForms.Form()
+            # .None 是 Python 关键字，点号后不能直接用，只能 getattr
+            form.FormBorderStyle = getattr(WinForms.FormBorderStyle, 'None')
+            form.StartPosition = WinForms.FormStartPosition.Manual
+            form.ShowInTaskbar = False
+            form.TopMost = True   # 启动卡片要保证被看见：用户从资源管理器双击、焦点不在大眼上时也在最前
+            form.BackColor = BG
+            form.ClientSize = Size(W, H)
+            b = WinForms.Screen.PrimaryScreen.Bounds
+            form.Location = Point(b.X + (b.Width - W) // 2, b.Y + (b.Height - H) // 2)
+            # 圆角直接用窗口 Region 裁掉四角：比色键透明干净，不会留暗边
+            form.Region = Region(_rounded_path())
+            form.Paint += on_paint
+            # 不给卡片挂 FormClosed/FormClosing 事件：卡片生命周期完全由本线程的
+            # 循环决定，销毁信号在 Close() 后置位 _splash_closed，足够交接。
+            try:
+                form.Opacity = 0.0
+            except Exception:
+                pass
+            form.Show()
+            # 从卡片"真正可见"这一刻重新起算：clr 导入 + 建窗 + Show 要花 0.4~1s，
+            # 若从线程创建就计时，MIN_SHOW 会被这段启动开销吃掉，卡片实际只亮
+            # 零点几秒 —— 这就是旧版"进度条一闪就没/没了"的根因（不是被谁关掉）。
+            st["t0"] = time.time()
+            _splash_log("card shown")
+            # 自己泵消息，卡片寿命完全由本循环掌控，不依赖 Application.Run 的消息泵。
+            MIN_SHOW = 1.5
+            reason, elapsed = "loop-end", 0.0
+            while True:
+                WinForms.Application.DoEvents()
+                if st["v"] < 1.0:
+                    st["v"] = min(1.0, st["v"] + 0.20)   # 快速淡入，别让卡片刚出现还半透明
+                    try:
+                        form.Opacity = st["v"]
+                    except Exception:
+                        pass
+                st["p"] = min(0.92, st["p"] + (0.92 - st["p"]) * 0.02 + 0.0015)
+                st["n"] += 1
+                elapsed = time.time() - st["t0"]
+                if not form.IsHandleCreated:
+                    reason = "handle-gone"
+                    break
+                try:
+                    form.Invalidate()
+                except Exception as e:
+                    reason = f"invalidate-err {e!r}"
+                    break
+                if _splash["done"] and elapsed >= MIN_SHOW:
+                    reason = "done"
+                    break
+                if elapsed > 140:   # 兜底超时，绝不让卡片卡死主窗口
+                    reason = "timeout"
+                    break
+                time.sleep(0.03)
+            _splash_log(f"card exit: {reason} shown={elapsed:.2f}s")
+            try:
+                form.Close()
+                _splash_log("card close")
+            except Exception as e:
+                _splash_log(f"card close err: {e!r}")
+        except Exception as e:
+            _splash_log(f"card run err: {e!r}")
+        finally:
+            _splash_closed.set()  # 任何退出路径都放行主窗口
+
+    try:
+        t = Thread(ThreadStart(run))
+        t.IsBackground = True
+        try:
+            t.SetApartmentState(ApartmentState.STA)  # WinForms 需要 STA
         except Exception:
             pass
-        root.update_idletasks()
-        x0 = (root.winfo_screenwidth() - W) // 2
-        y0 = (root.winfo_screenheight() - H) // 2
-        root.geometry(f"{W}x{H}+{x0}+{y0}")  # 位置固定，动画只改透明度，避免跳动
-        root.attributes("-alpha", 0.0)
-
-        cv = tk.Canvas(root, width=W, height=H, bg=MAGIC, highlightthickness=0)
-        cv.pack()
-        # 圆角卡片：两矩形 + 四角扇形填充，边缘用弧线和直线描边
-        cv.create_rectangle(R, 0, W - R, H, fill=BG, outline="")
-        cv.create_rectangle(0, R, W, H - R, fill=BG, outline="")
-        corners = ((R, R, 90), (W - R, R, 0), (W - R, H - R, 270), (R, H - R, 180))
-        for cx, cy, a0 in corners:
-            cv.create_arc(cx - R, cy - R, cx + R, cy + R, start=a0, extent=90, fill=BG, outline="")
-            cv.create_arc(cx - R, cy - R, cx + R, cy + R, start=a0, extent=90, style="arc", outline=EDGE)
-        cv.create_line(R, .5, W - R, .5, fill=EDGE)
-        cv.create_line(R, H - .5, W - R, H - .5, fill=EDGE)
-        cv.create_line(.5, R, .5, H - R, fill=EDGE)
-        cv.create_line(W - .5, R, W - .5, H - R, fill=EDGE)
-        f_s = tkfont.Font(family="Microsoft YaHei", size=9)
-        # 进度条：2px 轨道 + 单调递增填充（渐近 92%，完成即满格关闭）
-        TX1, TX2, TY = 110, 310, 46
-        cv.create_rectangle(TX1, TY, TX2, TY + 3, fill="#262626", outline="")
-        seg = cv.create_rectangle(TX1, TY, TX1, TY + 3, fill=ACCENT, outline="")
-        st = cv.create_text(W / 2, 80, text="", fill=DIM, font=f_s)
-
-        A = {"v": 0.0, "p": 0.0}
-        t0 = time.time()
-        pos0 = None
-
-        def close(reason="done"):
-            try:
-                # withdraw 同步调系统 ShowWindow(SW_HIDE)，卡片立刻不可见；
-                # destroy 的实际摘窗可能滞后 1~2 帧，不能等它再放行主窗口
-                root.withdraw()
-                root.destroy()
-            finally:
-                _splash_log(f"card close reason={reason}")
-                _splash_closed.set()
-
-        def tick(n=0):
-            nonlocal pos0
-            if _splash["done"] or time.time() - t0 > 140:
-                close("done" if _splash["done"] else "timeout")  # 完成立即关
-                return
-            if pos0 is None:
-                pos0 = (root.winfo_x(), root.winfo_y())
-            elif (root.winfo_x(), root.winfo_y()) != pos0:
-                close("moved")  # 位置被系统/主窗口顶动 → 立即关，绝不让它跳
-                return
-            if A["v"] < 1.0:
-                A["v"] = min(1.0, A["v"] + 0.08)
-                root.attributes("-alpha", A["v"])
-            A["p"] = min(0.92, A["p"] + (0.92 - A["p"]) * 0.015 + 0.0012)
-            cv.coords(seg, TX1, TY, TX1 + (TX2 - TX1) * A["p"], TY + 3)
-            cv.itemconfig(st, text=_splash["status"] + "." * (n // 15 % 3 + 1))
-            root.after(30, tick, n + 1)
-
-        root.after(30, tick)
-        root.mainloop()
-    except Exception:
-        pass
-    finally:
-        _splash_closed.set()  # 任何退出路径都放行主窗口
+        t.Start()
+    except Exception as e:
+        _splash_log(f"card start err: {e!r}")
+        _splash_closed.set()
 
 
 def _splash_log(msg):
@@ -805,10 +864,12 @@ def main():
     )
     _window.events.loaded += _on_loaded
     # 卡片必须在 webview.start() 前彻底销毁：webview 初始化 UI 框架会扰动
-    # 同进程还活着的 tkinter 卡片（表现为卡片跳变）。代价是卡片关闭后有一
-    # 小段页面加载空白期，本地页面加载很快，可接受。
+    # 同进程还活着的启动卡片（表现为卡片跳变）。代价是卡片关闭后有一小段
+    # 页面加载空白期，本地页面加载很快，可接受。
+    # 超时给 3s：卡片有 MIN_SHOW=1.5s 的"最短可见"约束，done 若在卡片刚
+    # 出现时置位，卡片还会再留 1.5s，等够它再起 webview，避免两窗同屏。
     _splash["done"] = True
-    _splash_closed.wait(timeout=1)
+    _splash_closed.wait(timeout=3)
     _splash_log("main show")
     # private_mode 默认 True 会丢弃 localStorage/cookies，主题等设置重启即失；
     # 关闭后持久化到 %APPDATA%/pywebview。

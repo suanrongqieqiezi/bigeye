@@ -335,6 +335,11 @@ _DEV_MODE = False                  # 开发者模式：开启后才记录 API �
 _LLM_CACHE_ENABLED = False         # LLM 响应本地缓存：开启后全链路命中即秒回，避免重复消费
 ESTIMATE_SAFETY = 0.85  # 估算安全余量：实际 token 数可能比 _estimate_tokens 高 ~15%
 _INTERMEDIATE_MAX = 8000  # 中间过程叙述上限（字符）：工具轮输出累积超此值丢弃，防止几十万字符单条消息炸工作记忆
+# 工具结果内联上限（字符）。默认 4000，超了落盘成有界引用、只给 head1000+tail500。
+# 但"本来就是用来读长文"的工具必须单独放宽：否则 read_topic_messages 一页上万字
+# 会被外层再砍成 1500 字 —— AI 以为翻了 10 条，实际只看到 1 条半（2026-10-21 复盘）。
+_TOOL_INLINE_DEFAULT = 4000
+_TOOL_INLINE_CAP = {"read_topic_messages": 14000}
 
 
 def _append_intermediate(buf, s):
@@ -404,7 +409,7 @@ _last_request_tokens = 0  # input tokens of most recent API request
 _last_hard_tokens = 0     # 最近一次请求的硬性内容实测 tokens（系统提示+工具schema）
 
 # ── 模型上下文窗口（工作记忆窗口上限）──
-# 已知模型上下文窗口（tokens）；未登记模型回退默认值
+# 已知模型上下文窗口（tokens）；未登记模型回退 _DEFAULT_CONTEXT_WINDOW（仅作推定值）
 _MODEL_CONTEXT_WINDOWS = {
     "deepseek-v4-pro": 1000000,
     "deepseek-v4-flash": 1000000,
@@ -419,12 +424,19 @@ _MODEL_CONTEXT_WINDOWS = {
     "step-1o-turbo-vision": 32000,
 }
 _DEFAULT_CONTEXT_WINDOW = 128000
+# 工作记忆容量的绝对上限。未知窗口的模型（聚合站别名 / 私有网关）由用户自己定，
+# 只受这个绝对上限约束——不能拿一个"猜出来的 128K"去改写用户的显式设置。
+_WM_ABS_MAX = 2000000
 
 
-def _model_context_window(model_id):
-    """查模型上下文窗口；未知模型前缀匹配，仍未知用默认值。"""
+def _ctx_window_info(model_id):
+    """返回 (推定上下文窗口, 来源)。来源：provider / local / known / unknown。
+
+    推定值只用于估算压缩阈值、任务预算和设置页展示。
+    unknown 时**不得**当作可设置上界（等于用启发式替用户拍板）。
+    """
     if not model_id:
-        return _DEFAULT_CONTEXT_WINDOW
+        return _DEFAULT_CONTEXT_WINDOW, "unknown"
     mid = model_id.lower()
     # 第三方源：同一个模型名在不同聚合站的窗口可能被改写（或本身是别名），
     # 用户在设置页填了就信用户 —— 否则上下文压缩阈值会按错的窗口估算
@@ -432,7 +444,7 @@ def _model_context_window(model_id):
         _cfg = get_model_config()
         _cp = custom_providers.runtime_config(ROOT_DIR, _cfg.provider)
         if _cp and _cp.get("ctx_window") and mid == str(_cfg.model or "").lower():
-            return int(_cp["ctx_window"])
+            return int(_cp["ctx_window"]), "provider"
     except Exception:
         pass
     # 本地 llama.cpp 模型：上下文由 llama-server 的 --ctx-size 决定（本机 24K），
@@ -440,22 +452,44 @@ def _model_context_window(model_id):
     # → 请求超长被 llama-server 拒绝或头部被截断，表现为"忘了前面说的话"。
     try:
         if local_llm.is_local_model(mid):
-            return int(local_llm.effective_ctx())
+            return int(local_llm.effective_ctx()), "local"
     except Exception as e:
         print(f"[ctx] local ctx probe failed, fallback to default: {e}")
     if mid in _MODEL_CONTEXT_WINDOWS:
-        return _MODEL_CONTEXT_WINDOWS[mid]
+        return _MODEL_CONTEXT_WINDOWS[mid], "known"
     for k, v in _MODEL_CONTEXT_WINDOWS.items():
         if mid.startswith(k) or k.startswith(mid):
-            return v
-    return _DEFAULT_CONTEXT_WINDOW
+            return v, "known"
+    return _DEFAULT_CONTEXT_WINDOW, "unknown"
+
+
+def _model_context_window(model_id):
+    """查模型上下文窗口（推定值）；未知模型前缀匹配，仍未知用默认值。"""
+    return _ctx_window_info(model_id)[0]
+
+
+def _wm_setting_ceiling(model_id=None):
+    """工作记忆容量「可设置」的上限。
+
+    已知窗口 → 用真实窗口（小窗口模型不该被设成 200K，那会直接发超长请求）；
+    未知窗口 → 用 _WM_ABS_MAX。未知模型上没有可靠事实，就不该拿默认值冒充事实。
+    """
+    try:
+        mid = model_id if model_id is not None else get_model_config().model
+        win, src = _ctx_window_info(mid)
+        if src == "unknown":
+            return _WM_ABS_MAX
+        return int(max(min(int(win), _WM_ABS_MAX), _wm_min_token_limit()))
+    except Exception:
+        return _WM_ABS_MAX
 
 
 def _effective_token_limit(db=None):
-    """实际生效的工作记忆上限 = 库里的设置 → 钳制到 [最小可设值, 模型上下文窗口]。
+    """实际生效的工作记忆上限 = 库里的设置 → 钳制到 [最小可设值, 可设上限]。
 
-    GET /api/settings/compress 用它回报，保证前端输入框的 value ≤ max
-    （本地 llama.cpp 模型上下文只有 24K，而库里可能存着 80000）。
+    GET /api/settings/compress 用它回报，保证前端输入框的 value ≤ max。
+    可设上限走 _wm_setting_ceiling()：未知窗口的模型不再被 128K 推定值卡住，
+    否则用户填 200000 存进去就变成 128000（静默改写，看不出是谁干的）。
     """
     try:
         db = db or get_db()
@@ -463,8 +497,7 @@ def _effective_token_limit(db=None):
     except Exception:
         raw = TOKEN_LIMIT
     try:
-        return int(min(max(raw, _wm_min_token_limit()),
-                       _model_context_window(get_model_config().model)))
+        return int(min(max(raw, _wm_min_token_limit()), _wm_setting_ceiling()))
     except Exception:
         return int(raw)
 
@@ -504,9 +537,9 @@ def _load_compress_config(db=None):
         db = db or get_db()
         PER_MESSAGE_COMPRESS_CHARS = int(db.get_meta("compress_per_msg_chars") or 500)
         TOKEN_LIMIT = int(db.get_meta("compress_token_limit") or 200000)
-        # 钳制到 [最小可设值, 模型上下文窗口]
+        # 钳制到 [最小可设值, 可设上限]（未知窗口模型放行到 _WM_ABS_MAX）
         TOKEN_LIMIT = max(TOKEN_LIMIT, _wm_min_token_limit())
-        TOKEN_LIMIT = min(TOKEN_LIMIT, _model_context_window(get_model_config().model))
+        TOKEN_LIMIT = min(TOKEN_LIMIT, _wm_setting_ceiling())
         COMPRESS_WARN_PCT = int(db.get_meta("compress_warn_pct") or 60)
         TURN_BUDGET = int(db.get_meta("compress_turn_budget") or 50)
         MSG_COUNT_WARN = int(db.get_meta("compress_msg_count_warn") or 15)
@@ -1358,7 +1391,8 @@ def _apply_context_wall(system_msg, history_msgs, truncated_count, store=None, t
         f"⚠ 上下文受限:",
         f"  可见: {visible} 条消息",
         f"  已整理: 前 {truncated_count} 条（不在上下文中）",
-        f"  翻阅: read_topic_messages(order='asc') → 从最早开始读",
+        f"  找回: read_topic_messages(topic_id='{str(topic_id or '')[:8]}', query='要找回的那件事')",
+        f"  逐页翻: read_topic_messages(topic_id='{str(topic_id or '')[:8]}', more=True)",
     ]
     # 防堆叠：剥离旧的上下文状态 section（连同前面的分隔线）
     content = system_msg["content"]
@@ -1381,11 +1415,34 @@ def _apply_context_wall(system_msg, history_msgs, truncated_count, store=None, t
         except Exception:
             pass
 
-def _trim_context_to_budget(messages, token_limit, store=None, topic_id=None):
+def _trim_context_to_budget(messages, token_limit, store=None, topic_id=None, on_dropped=None):
+    """预算裁剪入口 —— 先把「归档摘要」摘出来，避免被从前往后裁掉。
+
+    `_ct_node` 消息是整理树生成的摘要（[已整理 L1] …），它们本身就位于历史最前面，
+    而裁剪是从前往后按对话边界切的，于是每轮都会先砍摘要：
+    「刚整理出来的精华，下一轮就被自己裁掉」，整理等于白做（2026-10-21 实测发现）。
+    摘要体积很小（两个节点约 1.1k 字 ≈ 600 tok），价值却最高，因此固定保留。
+    """
+    history = messages[1:] if len(messages) > 1 else []
+    pinned = [m for m in history if m.get("_ct_node")]
+    if not pinned:
+        return _trim_context_to_budget_raw(messages, token_limit, store=store,
+                                           topic_id=topic_id, on_dropped=on_dropped)
+    rest = [m for m in history if not m.get("_ct_node")]
+    trimmed, n = _trim_context_to_budget_raw([messages[0]] + rest, token_limit,
+                                             store=store, topic_id=topic_id,
+                                             on_dropped=on_dropped)
+    return [trimmed[0]] + pinned + trimmed[1:], n
+
+
+def _trim_context_to_budget_raw(messages, token_limit, store=None, topic_id=None, on_dropped=None):
     """Trim oldest complete dialogues from front until under budget.
 
     A dialogue = one user message + all following assistant/tool messages
     until the next user message (or end). Never trims mid-dialogue.
+
+    on_dropped(dropped_msgs)：被截掉那批消息的回调。用来把「凭空消失」改成
+    「后台整理成摘要节点」——见 _schedule_organize_dropped。回调里抛异常不影响裁剪。
 
     Returns (trimmed_messages, truncated_count).
     """
@@ -1393,6 +1450,19 @@ def _trim_context_to_budget(messages, token_limit, store=None, topic_id=None):
 
     system_msg = messages[0]
     history_msgs = list(messages[1:])
+    _orig_history = list(history_msgs)
+
+    def _emit_dropped(kept):
+        if not on_dropped:
+            return
+        _keep = {id(x) for x in kept}
+        dropped = [m for m in _orig_history if id(m) not in _keep]
+        if not dropped:
+            return
+        try:
+            on_dropped(dropped)
+        except Exception as _e:
+            print(f"[context-wall] on_dropped 回调失败（不影响本轮请求）: {_e}")
 
     # Calculate current size
     if _estimate_tokens([system_msg] + history_msgs) < token_limit:
@@ -1414,6 +1484,7 @@ def _trim_context_to_budget(messages, token_limit, store=None, topic_id=None):
                 history_msgs = [history_msgs[0]] + history_msgs[cut_idx:]
                 history_msgs = _strip_orphaned_tool_messages(history_msgs)
                 _apply_context_wall(system_msg, history_msgs, truncated_count, store, topic_id)
+                _emit_dropped(history_msgs)
                 return [system_msg] + history_msgs, truncated_count
 
         # Still over budget — keep only the last assistant exchange + user
@@ -1421,6 +1492,7 @@ def _trim_context_to_budget(messages, token_limit, store=None, topic_id=None):
         truncated_count = cut_idx - 1
         history_msgs = [history_msgs[0]] + history_msgs[cut_idx:]
         _apply_context_wall(system_msg, history_msgs, truncated_count, store, topic_id)
+        _emit_dropped(history_msgs)
         return [system_msg] + history_msgs, truncated_count
 
     # ── Multi-dialogue path: trim oldest complete dialogues from front ──
@@ -1434,6 +1506,7 @@ def _trim_context_to_budget(messages, token_limit, store=None, topic_id=None):
             history_msgs = history_msgs[user_idx:]
             history_msgs = _strip_orphaned_tool_messages(history_msgs)
             _apply_context_wall(system_msg, history_msgs, truncated_count, store, topic_id)
+            _emit_dropped(history_msgs)
             return [system_msg] + history_msgs, truncated_count
 
     # Still over budget after all dialogues tried — keep only last dialogue
@@ -1441,7 +1514,66 @@ def _trim_context_to_budget(messages, token_limit, store=None, topic_id=None):
     truncated_count = cut_idx
     history_msgs = history_msgs[cut_idx:]
     _apply_context_wall(system_msg, history_msgs, truncated_count, store, topic_id)
+    _emit_dropped(history_msgs)
     return [system_msg] + history_msgs, truncated_count
+
+
+# 正在后台整理的区间（防重复调度）。整理本身是"减少未来回读"的优化，
+# 失败了也只是回退到"照旧丢弃"，绝不能因此让本轮请求红掉。
+_ORGANIZE_INFLIGHT = set()
+_ORGANIZE_LOCK = threading.Lock()
+_ORGANIZE_MAX_CHARS = 40000   # 一次整理的原文上限，超出按最早的一段截
+
+
+def _schedule_organize_dropped(topic_id, dropped):
+    """把「超预算被挤出上下文」的整轮对话交给后台整理，而不是让它凭空消失。
+
+    为什么异步：整理要调一次 LLM（几秒到几十秒）。放在 /api/chat 的发送路径上，
+    用户会看到"点了发送，转圈半分钟才开始回复"。这里只登记区间、起个守护线程，
+    本轮 AI 仍按原逻辑用 read_topic_messages 回查，下一轮整理树摘要就已就位。
+
+    为什么值得：原文一旦被丢，AI 以后要靠多次工具往返才能捞回来（每次往返重发
+    system+工具定义 ≈ 3 万 token）。整理一次 = 一次 LLM 调用，能省掉未来 N 次回读。
+    """
+    try:
+        if not topic_id or not dropped:
+            return
+        # 已被整理树覆盖的虚拟摘要不能再整理一遍
+        anchors = [m.get("_anchor") for m in dropped
+                   if isinstance(m.get("_anchor"), int) and not m.get("_ct_node")]
+        if len(anchors) < 5:          # 与 MIN_COMPRESSION_ITEMS 对齐
+            return
+        a0, a1 = min(anchors), max(anchors)
+
+        # 体积闸：一次吞 4 万字原文已经够生成高质量摘要，再多只是烧输入 token
+        total = 0
+        for m in dropped:
+            total += len(m.get("content") or "")
+            if total > _ORGANIZE_MAX_CHARS:
+                print(f"[auto-organize] {str(topic_id)[:8]} 区间过长({total}字)，仍按 [{a0},{a1}] 整理")
+                break
+
+        key = (topic_id, a0, a1)
+        with _ORGANIZE_LOCK:
+            if key in _ORGANIZE_INFLIGHT:
+                return
+            _ORGANIZE_INFLIGHT.add(key)
+
+        def _run():
+            try:
+                from tools.memory_tools import compress_context
+                r = compress_context(topic_id=topic_id, anchor_start=a0, anchor_end=a1,
+                                     purpose="归档：预算超限被挤出上下文的历史轮次")
+                print(f"[auto-organize] {str(topic_id)[:8]} [{a0},{a1}] -> {str(r)[:160]}")
+            except Exception as _e:
+                print(f"[auto-organize] {str(topic_id)[:8]} [{a0},{a1}] 失败: {_e}")
+            finally:
+                with _ORGANIZE_LOCK:
+                    _ORGANIZE_INFLIGHT.discard(key)
+
+        threading.Thread(target=_run, daemon=True, name="auto-organize").start()
+    except Exception as _e:
+        print(f"[auto-organize] 调度失败: {_e}")
 
 def _compress_context(messages, topic_id, store, db=None):
     """Phase 1: 滑动窗口 --- 按轮次截断最旧对话。
@@ -1480,7 +1612,8 @@ def _compress_context(messages, topic_id, store, db=None):
             trim_target = max(trim_target, system_tokens + 500)
 
         trimmed_msgs, trimmed_count = _trim_context_to_budget(
-            msgs_with_system, trim_target, store=store, topic_id=topic_id
+            msgs_with_system, trim_target, store=store, topic_id=topic_id,
+            on_dropped=lambda _d: _schedule_organize_dropped(topic_id, _d),
         )
         system_msg = trimmed_msgs[0]
         history_msgs = trimmed_msgs[1:]
@@ -1601,8 +1734,9 @@ def _inject_context_hints(msgs, topic_id, limit_truncated=False):
         hints.append("⚠ 上下文拥挤 — 用 organize_context 整理旧消息腾空间。")
     if limit_truncated:
         hints.append(
-            f"📖 更早的消息不在上下文中。翻阅: read_topic_messages(order='asc')。"
-            f"看完记得 organize_context。"
+            f"📖 更早的消息不在上下文中。"
+            f"找具体内容: read_topic_messages(topic_id='{str(topic_id)[:8]}', query='要找回的那件事')"
+            f"（语义命中，不用逐页翻）；顺序翻: 同上 + more=True。看完记得 organize_context。"
         )
     if hints:
         content = msgs[0]["content"]
@@ -2805,12 +2939,16 @@ def _merge_balance_auth(pid, sent):
             old = dict((custom_providers.get(ROOT_DIR, pid) or {}).get("balance_auth") or {})
         except Exception:
             old = {}
-    _t = str(sent.get("system_token") or "").strip()
+    _t = str(sent.get("system_token") or sent.get("access_token") or "").strip()
     if _t and "•" not in _t:          # 带「•」的是脱敏回显，不是新值
         old["system_token"] = _t
     _u = str(sent.get("user_id") or "").strip()
     if _u:
         old["user_id"] = _u
+    # 续期令牌（LeaderAI 这类会轮换登录令牌的站点用）：同样"框里空着 = 不改"
+    _r = str(sent.get("refresh_token") or "").strip()
+    if _r and "•" not in _r:
+        old["refresh_token"] = _r
     return old
 
 
@@ -2823,6 +2961,11 @@ def _balance_auth_for(cfg):
 
     先按 provider id 匹配（用户可能直接把 provider 选成 dmxapi），
     再按地址兜底（换了名字但地址同一个站点）。
+
+    判据是「有没有**任何**一份令牌」，不再硬要求 system_token + user_id 两件齐全：
+      · LeaderAI 只用主站登录令牌（没有用户 ID 这种东西），按老判据永远返回 None；
+      · DMX 缺 user_id 时也应该把凭据交下去 —— 它的适配器会给出
+        「还缺用户 ID」的准话，比在这里静默当成"没凭据"有用得多。
     """
     try:
         items = custom_providers.load_all(ROOT_DIR)
@@ -2838,9 +2981,33 @@ def _balance_auth_for(cfg):
         if not (same_id or same_url):
             continue
         a = it.get("balance_auth") or {}
-        if a.get("system_token") and a.get("user_id"):
+        if a.get("system_token") or a.get("refresh_token") or a.get("user_id"):
             return a
     return None
+
+
+def _persist_balance_auth(pid, upd):
+    """把适配器续期换到的**新令牌**写回源配置。
+
+    为什么必须落盘：LeaderAI 的登录令牌是 JWT、带 exp，主站在用户每次打开网页时
+    都会轮换。不写回的话，我们手里那张过期后就再也续不上 —— 症状是顶栏积分
+    某天开始静默变成「—」，用户完全不知道发生了什么。
+    只写 balance_auth 这一个字段（走 upsert 的部分更新），源的名称/模型/密钥一律不动。
+    """
+    if not pid or not isinstance(upd, dict) or not upd:
+        return
+    try:
+        cur = custom_providers.get(ROOT_DIR, pid)
+        if not cur:
+            return
+        merged = dict(cur.get("balance_auth") or {})
+        merged.update({k: v for k, v in upd.items() if v})
+        if merged == (cur.get("balance_auth") or {}):
+            return
+        custom_providers.upsert(ROOT_DIR, {"id": pid, "balance_auth": merged})
+        print(f"[balance] {pid}: 登录令牌已自动续期并保存")
+    except Exception as e:
+        print(f"[balance] 令牌续期落盘失败: {e}")
 
 
 def _balance_now(tid=None):
@@ -2860,14 +3027,19 @@ def _balance_now(tid=None):
     try:
         cfg = get_task_model_config(tid) if tid else get_model_config()
         api_key = cfg.api_key
-        if not api_key:
+        # 有平台凭据的源（DMX / LeaderAI）即使没填模型密钥也照样能查 ——
+        # 它们的余额记在账号上，模型密钥本来就不参与这件事。
+        bal_auth = _balance_auth_for(cfg)
+        if not api_key and not bal_auth:
             return None, "", ""
         r = custom_providers.query_balance(
             cfg.base_url or "", api_key,
             getattr(cfg, "protocol", "openai") or "openai",
             getattr(cfg, "extra_headers", None),
             timeout=10, depth="relay",
-            balance_auth=_balance_auth_for(cfg))
+            balance_auth=bal_auth)
+        if r.get("auth_update"):
+            _persist_balance_auth(getattr(cfg, "provider", ""), r["auth_update"])
         if r.get("ok") and r.get("remaining") is not None:
             return float(r["remaining"]), (r.get("currency") or ""), (r.get("provider") or "")
         if r.get("error"):
@@ -3656,6 +3828,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "narrative_light_trigger": _runtime_switch(db, "narrative_light_trigger", "NARRATIVE_LIGHT_TRIGGER_ENABLED"),
                 "fingerprint_advantage": _runtime_switch(db, "fingerprint_advantage", "FINGERPRINT_ADVANTAGE_ENABLED"),
                 "context_window": _model_context_window(get_model_config().model),
+                # 可设置上限与窗口来源：前端输入框的 max 用 wm_max，
+                # ctx_source=unknown 时说明"窗口未登记，上限由用户定"
+                "wm_max": _wm_setting_ceiling(),
+                "ctx_source": _ctx_window_info(get_model_config().model)[1],
                 "model_name": get_model_config().model,
                 "hard_tokens": _last_hard_tokens,
                 "wm_min": _wm_min_token_limit(),
@@ -5091,15 +5267,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # 文件里的真值，否则"查余额"永远吃到 401。
                 _sent = data.get("balance_auth") if isinstance(data.get("balance_auth"), dict) else {}
                 bal_auth = dict((saved or {}).get("balance_auth") or {})
-                _tok = str(_sent.get("system_token") or "").strip()
+                _tok = str(_sent.get("system_token") or _sent.get("access_token") or "").strip()
                 if _tok and "•" not in _tok:
                     bal_auth["system_token"] = _tok
                 _uid = str(_sent.get("user_id") or "").strip()
                 if _uid:
                     bal_auth["user_id"] = _uid
-                if not bal_auth.get("system_token") and data.get("provider"):
+                _rt = str(_sent.get("refresh_token") or "").strip()
+                if _rt and "•" not in _rt:
+                    bal_auth["refresh_token"] = _rt
+                if not bal_auth.get("system_token") and not bal_auth.get("refresh_token") \
+                        and data.get("provider"):
                     # 从「内置模型配置」那一栏发起查询时前端不带 id，凭据只能按
-                    # 当前正在用的源去认领（DMXAPI 常被当成内置 provider 直接选）
+                    # 当前正在用的源去认领（DMXAPI / LeaderAI 常被当成内置 provider 直接选）
                     bal_auth = _balance_auth_for(get_model_config()) or bal_auth
                 r = custom_providers.query_balance(
                     base_url, api_key, protocol or "openai",
@@ -5107,6 +5287,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     timeout=int(data.get("timeout") or 10),
                     depth=depth,
                     balance_auth=bal_auth or None)
+                # 续期换到的新令牌：落盘但**不回给前端**（令牌没必要进 DOM/日志）
+                _upd = r.pop("auth_update", None)
+                if _upd:
+                    _persist_balance_auth(pid, _upd)
                 r["manual"] = (saved or {}).get("balance_manual") or {}
                 self._json(200, r)
             except Exception as e:
@@ -5459,10 +5643,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if "per_message_chars" in data:
                 db.set_meta("compress_per_msg_chars", str(data["per_message_chars"]))
             if "token_limit" in data:
-                # 钳制到 [最小可设值, 模型上下文窗口]
+                # 钳制到 [最小可设值, 可设上限]（未知窗口模型放行到 _WM_ABS_MAX）
                 tl = int(data["token_limit"])
                 tl = max(tl, _wm_min_token_limit())
-                tl = min(tl, _model_context_window(get_model_config().model))
+                tl = min(tl, _wm_setting_ceiling())
                 db.set_meta("compress_token_limit", str(tl))
             if "warn_threshold_pct" in data:
                 db.set_meta("compress_warn_pct", str(data["warn_threshold_pct"]))
@@ -6656,7 +6840,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         _task_config = get_task_model_config(tid)
         _configured_budget = int(self.db.get_topic_meta(tid, 'context_budget') or self.db.get_meta('compress_token_limit') or TOKEN_LIMIT)
         _cp = _custom_provider(_task_config.provider) or {}
-        _task_budget = min(_configured_budget, int(_cp.get('ctx_window') or _MODEL_CONTEXT_WINDOWS.get(_task_config.model.lower(), _DEFAULT_CONTEXT_WINDOW)))
+        # 预算上限同样走 _wm_setting_ceiling：原来直接查 _MODEL_CONTEXT_WINDOWS，
+        # 未登记模型（聚合站别名 / 私有网关）一律被 128K 截断，和用户设的工作记忆容量对不上。
+        _task_budget = min(_configured_budget,
+                           int(_cp.get('ctx_window') or _wm_setting_ceiling(_task_config.model)))
         _request_runtime.budget = _task_budget
         task_runtime.begin(tid, _task_config.model, _task_budget)
         # Sync active topic so AI tools (current_topic etc.) see the right context
@@ -7391,9 +7578,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # Build history — user + AI only, no tool messages
         # 取数用 skip_process=False：process 消息在循环内占位计数（与 fold 侧 anchor 语义一致），
         # 但不加入 AI 上下文（省 token）；这样 compression_tree 的 anchor 才能与折叠时对齐
-        history_raw = self.db.get_messages(tid, limit=500, skip_process=False)
-        # Detect limit truncation — messages older than the fetch window are lost
+        # 取数窗口：按话题**全量**取，而不是固定 500 行（2026-10-21 修）。
+        # 旧实现 limit=500 是"最近 500 条原始行"，而原始行里工具返回/过程叙述占绝大多数：
+        # 实测「蓝牙控制器」7507 行中 500 行只含 **7 条真人对话**（全量 360 条），于是
+        #   (a) 模型只看得到最近 7 轮，更早内容静默消失，且这条路径不经过任何预算判定；
+        #   (b) _compress_context 的条数墙（MSG_COUNT_WALL=50）永远不触发
+        #       ⇒ 后台整理（丢弃→摘要）永不启动，整理树覆盖率停在 7–10%。
+        # 现在把"留多少"交还给预算与条数墙：超墙 → _trim_context_to_budget 按对话边界
+        # 从前裁剪 → on_dropped 后台整理成摘要节点。20000 行仅作极端话题的安全上限。
         total_db_msgs = self.db.message_count(tid)
+        _FETCH_ROW_CAP = 20000
+        _fetch_limit = total_db_msgs if total_db_msgs <= _FETCH_ROW_CAP else _FETCH_ROW_CAP
+        history_raw = self.db.get_messages(tid, limit=_fetch_limit, skip_process=False)
+        # Detect limit truncation — messages older than the fetch window are lost
         limit_truncated = total_db_msgs > len(history_raw)
         # 全局 anchor 基准：compression_tree 的 anchor 是"话题内非tool消息的全局序号"
         # （从话题第一条非tool消息数起）。组装窗口是最近500条，窗口第一条非tool消息的
@@ -7450,6 +7647,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "content": _summary,
                         "_db_id": None,
                         "_ct_node": ct_node["id"],
+                        "_anchor": anchor,
                     })
                 anchor += 1
                 continue  # 区间内其余原文跳过（已被摘要覆盖，不重复占用预算）
@@ -7460,18 +7658,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 #   否则（原文）→ 跳过不进上下文，需要时 expand_compressed 按需展开
                 if text and (text.startswith("[已整理") or text.startswith("[已压缩")):
                     if role == "ai":
-                        history_msgs.append({"role": "assistant", "content": text, "_db_id": msg_id})
+                        history_msgs.append({"role": "assistant", "content": text,
+                                             "_db_id": msg_id, "_anchor": anchor})
                     elif role == "user":
-                        history_msgs.append({"role": "user", "content": text, "_db_id": msg_id})
+                        history_msgs.append({"role": "user", "content": text,
+                                             "_db_id": msg_id, "_anchor": anchor})
                 anchor += 1
                 continue
             if role == "ai":
                 if not (text or "").strip():
                     anchor += 1
                     continue
-                history_msgs.append({"role": "assistant", "content": text, "_db_id": msg_id})
+                # _anchor = 话题内全局非 tool 序号，与 compression_tree 的锚点同一套坐标系。
+                # 只在内存里用（发送前 llm.py 会剥掉所有 _ 开头字段），用于裁剪时精确标定
+                # "被丢掉的是哪一段"，好让后台整理写出锚点正确的节点。
+                history_msgs.append({"role": "assistant", "content": text,
+                                     "_db_id": msg_id, "_anchor": anchor})
             elif role == "user":
-                history_msgs.append({"role": "user", "content": text, "_db_id": msg_id})
+                history_msgs.append({"role": "user", "content": text,
+                                     "_db_id": msg_id, "_anchor": anchor})
             anchor += 1
         # Set workspace context for file/bash/image tools (thread-local)
         tools.file_tools.set_workspace(ws)
@@ -7503,7 +7708,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             """本次任务的耗时与 Token 合计 —— 写进最终 AI 消息的 args，前端按开关决定是否展示。
             只挂在"最终回复"上（工具轮过程叙述不带），与任务级统计语义一致。
 
-            Token 优先用服务端真实 usage；拿不到时（实测 tokenrhythm.studio 的流式
+            Token 优先用服务端真实 usage；拿不到时（实测部分聚合站的流式
             usage 恒为 {}，stream_options.include_usage 也不生效）退回本地估算，
             并置 est=True 让前端加 "~" 前缀 —— 宁可标注成估算值，也不要给用户一个恒为 0 的数。
             """
@@ -7584,6 +7789,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         _turn_retries = 0  # 连接层瞬时故障的轮级重试计数
         _dangling_retries = 0  # 防悬空检测：每请求最多强制续跑 2 次
         _resume_retries = 0  # 流式中断续写（A 方案）：每请求最多续写 2 次
+        _empty_final_retries = 0  # 空收尾（无工具无正文）：每请求最多逼问结论 2 次
         _carry = ""  # 流式中断续写：承接被提前掐断的那半段正文
         _orig_model = llm_config.model       # 本请求最初选的主模型（换源后仍用于提示文案）
         _fallback_tried = set()              # 已换过的备用源 "provider/model"
@@ -7813,8 +8019,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     _fb_note_lines.append(
                         "· 备用源：未尝试（fallback_chain 里没有已配好的可用源）")
                 _fb_note_lines.append("")
-                _fb_note_lines.append(
-                    "建议：到 设置 → 模型 里换一个当前可用的模型，再发一条消息让我继续。")
+                # 一类错一类话：网关"结算流水在途"不是"模型下线"，重发就能过。
+                # 混在"去换模型"里，用户只会白跑一趟设置页（2026-10-20 实测）。
+                _te_note = str(turn_error or "").lower()
+                if "settlement" in _te_note or "reconciliation" in _te_note:
+                    _fb_note_lines.append(
+                        "建议：这是网关侧的结算流水在途（不是余额不足，也不是模型下线），"
+                        "通常几十秒内自己就消失 —— 直接再发一条消息即可；"
+                        "急用可临时到 设置 → 模型 换一个源。")
+                else:
+                    _fb_note_lines.append(
+                        "建议：到 设置 → 模型 里换一个当前可用的模型，再发一条消息让我继续。")
                 if not _auto_fb:
                     _fb_note_lines.append(
                         "（也可在同一页开启「模型不可用时自动切换备用源」，让这类故障自动恢复。）")
@@ -7918,6 +8133,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if turn_text.strip():
                     full_response = turn_text  # 最终答案（覆盖式，只此一轮）
                     msgs.append({"role": "assistant", "content": turn_text})
+                    break
+                # ── 空收尾：既没调工具、也没写一个字 ──────────────────────
+                # 旧实现到这里直接 break ⇒ 一条 AI 消息都不落库，用户只看到末尾占位写着
+                # "未给出结论"（2026-10-19 实测：64 轮工具后模型回了空，日志
+                # "[agent] done after 64 turns"，DB 最后一条是 remember 的工具结果）。
+                # 这是"跑了很久却什么都拿不到"里最贵的一种：过程全部算完、结论一个字没有，
+                # 而且**连失败都不告诉用户**。先强制再要一次结论（模型常把 update_task_brief /
+                # remember 这类状态维护工具当成了收尾），两次都空才落一条看得见的兜底。
+                if _empty_final_retries < 2 and not cancel_evt.is_set():
+                    _empty_final_retries += 1
+                    print(f"[agent] empty final turn (no text, no tool calls), "
+                          f"forcing conclusion {_empty_final_retries}/2")
+                    msgs.append({"role": "user", "content": (
+                        "[系统提示] 你上一轮既没有调用工具，也没有输出任何正文。"
+                        "现在请直接用正文向用户汇报：这一轮做了什么、结论是什么、"
+                        "还需要用户确认或决定什么。不要调用工具，不要重新开头。")})
+                    set_working(tid, "responding", thinking=full_thinking,
+                                intermediate=full_intermediate, response="",
+                                turn=turn + 1, remaining=remaining)
+                    continue
+                full_response = (
+                    "（模型这一轮没有返回正文，任务停在了上面「最后一步」之后 —— "
+                    "过程都在最后一个过程泡里，结论没出来。"
+                    "直接回一句「继续」，我接着把结论说完。）")
                 break
             # 工具轮：turn_text 是动作叙述（"好嘞去抓官网…"），归 intermediate，不进最终回复
             if turn_text.strip():
@@ -8061,12 +8300,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # Prune large tool outputs to avoid context pollution
                 # 2026-10-15 改造②：超限不再原地丢弃，改为落盘成有界引用（r-xxxx）。
                 # 落盘失败**必须回退旧行为**——绝不允许因落盘异常导致工具结果丢失。
-                if len(result_json) > 4000:
+                _inline_cap = _TOOL_INLINE_CAP.get(tc["tool_name"], _TOOL_INLINE_DEFAULT)
+                if len(result_json) > _inline_cap:
                     _ref = _save_bounded_ref(result_json, tid, tc["tool_name"], result)
                     if _ref is not None:
                         result_json = json.dumps(_ref, ensure_ascii=False)
                     else:
-                        result_json = result_json[:1000] + f"\n…[截断 {len(result_json)-4000} 字符，工具输出过长已修剪]…\n" + result_json[-500:]
+                        _keep = max(1000, _inline_cap - 3000)
+                        result_json = (result_json[:_keep]
+                                       + f"\n…[截断 {len(result_json) - _inline_cap} 字符，工具输出过长已修剪]…\n"
+                                       + result_json[-500:])
                 msgs.append({"role": "tool", "tool_call_id": tc["tool_call_id"],
                              "content": result_json})
                 tool_results.append((tc, result_json))
@@ -8150,7 +8393,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # 第二优先：给 tools 留出预算，只对 messages 截断
                 msgs_budget = max(eff_limit - loop_tools_tokens, 5000)
                 msgs, trimmed = _trim_context_to_budget(
-                    msgs, msgs_budget, store=store, topic_id=tid
+                    msgs, msgs_budget, store=store, topic_id=tid,
+                    on_dropped=lambda _d: _schedule_organize_dropped(tid, _d),
                 )
                 if trimmed:
                     print(f"[agent] context wall trimmed {trimmed} messages, "

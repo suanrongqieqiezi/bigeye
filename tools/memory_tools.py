@@ -949,7 +949,11 @@ def compress_context(topic_id: str = "", anchor_start: int = -1, anchor_end: int
             topic_id = get_current_topic() or ""
         if not topic_id:
             return "无法确定当前话题。请指定 topic_id 或先开始一个对话。"
-        raw = db.get_messages(topic_id, limit=500)
+        # 全量取非 tool 消息。旧实现 limit=500 是「最近 500 条原始行」，
+        # 对 3361 条非 tool 的话题，anchor 0-239 的原文根本不在窗口里 ——
+        # indexed 从 _base 起编，range_msgs 却按窗口内位置切片，结果是「整理错了段」。
+        # 整理是低频操作（实测全量 3361 条 0.84s / 6123 条 2.7s），且跑在后台线程。
+        raw = db.get_messages(topic_id, limit=None, conclusions_only=True)
         store = get_store() if _memory_enabled else None
 
         # ── Resolve anchors: build positional index (non-tool only, 全局序号) ──
@@ -1123,7 +1127,10 @@ def compress_context(topic_id: str = "", anchor_start: int = -1, anchor_end: int
             f"({item_count}项)\n"
             f"{summary_text}"
             f"{tree_nav}"
-            f"\n📋 expand_compressed(node_id={exact_match['id'] if exact_match else '???'}, depth=N) 逐层展开"
+            # 新建节点时 id 还没生成，先用占位符 —— 必须与下方 replace() 的查找串**逐字一致**。
+            # 旧实现这里写 '???'，而 replace 找的是 '<待填入>'，于是每个新节点摘要都留着
+            # node_id=???，AI 照着调必然失败（正是「让 AI 填编号」最典型的坑）。
+            f"\n📋 expand_compressed(node_id={exact_match['id'] if exact_match else '<待填入>'}, depth=N) 逐层展开"
         )
 
         # ── Create or update compression tree node ──
@@ -1766,7 +1773,8 @@ def _format_message_hit(i: int, h: dict) -> str:
             ctext = ctext[:60] + "…"
         role = "我说" if c.get("role") == "ai" else "你说"
         lines.append(f"      ↳ {role}：{ctext}")
-    lines.append("      ↳ 翻阅完整对话: read_topic_messages")
+    _tid8 = (h.get("topic_id") or "")[:8]
+    lines.append(f"      ↳ 看这个话题的上下文: read_topic_messages(topic_id='{_tid8}')" if _tid8 else "      ↳ 翻阅完整对话: read_topic_messages")
     return "\n".join(lines)
 
 

@@ -232,6 +232,97 @@ def recall_with_context(query, exclude_topic_id=None, top_k=4,
         conn.close()
 
 
+def _lex_terms(q):
+    """抽「字面命中」用的词：英文/数字整词 + 中文双字 bigram（滤掉含虚字的）。
+
+    为什么需要：BGE-small-zh 在中文技术对话上基线分数很高 —— 实测把
+    「完全没有的东西zzzqqq」拿去召回，top1 能拿到 0.616，比「ONNX 模型」的 0.501 还高。
+    单靠余弦无法区分「相关」与「沾边」，任何 threshold 都筛不掉。
+    而「找回我们之前说过什么」这个场景，字面命中恰恰是最稳的信号：
+    问「16399 那次怎么定位的」，原文里一定出现 16399。
+    """
+    import re as _re
+    STOP = set("的了是在和与就都也很不没这那我你他她它个们么什怎哪为以可要会能对把被从到地得着过还只但又其如若因所之")
+    terms = set(_re.findall(r"[A-Za-z][A-Za-z0-9_\-\.]{1,}|[0-9][0-9\-\.]{2,}", q or ""))
+    for seg in _re.findall(r"[\u4e00-\u9fff]{2,}", q or ""):
+        for i in range(len(seg) - 1):
+            bg = seg[i:i + 2]
+            if not (set(bg) & STOP):
+                terms.add(bg)
+    return list(terms)[:12]
+
+
+def recall_topic_dialogs(topic_id, query, top_k=4, threshold=0.30, ctx_after=2):
+    """在当前话题**内部**做向量召回（与 recall_related_dialogs 相反：那里排除本话题）。
+
+    用途：AI 想找回"我们前面说过什么"，不必逐页翻几百页原始记录。
+    返回 list[dict]: {message_id, topic_id, text, ts, score, replies:[{id,text,ts}]}
+    replies 是紧随其后的 AI 最终回复（跳过过程叙述与空消息）。
+    """
+    import time as _time
+    if not query or len(query.strip()) < 2 or not topic_id:
+        return []
+    try:
+        from memory.embedder import embed
+        qv = embed(query[:300])
+        if not qv or all(x == 0 for x in qv):
+            return []
+        cache = _load_cache()
+        if not cache:
+            return []
+        short = topic_id[:8]
+        rows = [r for r in cache
+                if (r[2] or "") == topic_id or (r[2] or "").startswith(short)]
+        if not rows:
+            return []
+        scores = _cosine_batch(qv, [r[4] for r in rows])
+        terms = _lex_terms(query)
+        merged = []
+        for i, r in enumerate(rows):
+            text = r[3] or ""
+            if not text.strip():
+                continue
+            lex = (sum(1 for t in terms if t in text) / len(terms)) if terms else 0.0
+            # 字面命中是强信号，不受向量门槛限制 —— BGE 对短 query 打分不稳，
+            # 真正含「16399」的消息可能余弦只有 0.1，卡阈值就把它筛掉了。
+            if lex == 0 and scores[i] < threshold:
+                continue
+            merged.append({"vec": float(scores[i]), "lex": lex,
+                           "final": float(scores[i]) * 0.5 + lex * 0.5, "row": r})
+        merged.sort(key=lambda x: -x["final"])
+        # 有字面命中的就用它们；一条都没有才退而给语义最像的 2 条（调用方会标注不确定）
+        strong = [m for m in merged if m["lex"] > 0]
+        weak = [m for m in merged if m["lex"] == 0]
+        need = max(1, int(top_k))
+        chosen = strong[:need]
+        if len(chosen) < 2:
+            chosen += weak[:2 - len(chosen)]
+        picked_pairs = [(m["row"], m["vec"]) for m in chosen]
+        conn = _conn()
+        try:
+            out = []
+            for r, s in picked_pairs:
+                mid, ts, tid_, text = r[0], r[1], r[2], r[3]
+                reps = conn.execute(
+                    "SELECT id, text, ts FROM messages WHERE topic_id=? AND id > ? "
+                    "AND role='ai' AND text IS NOT NULL AND trim(text) != '' "
+                    "AND (args IS NULL OR args NOT LIKE '%\"process\"%') "
+                    "AND (args IS NULL OR args NOT LIKE '%\"hidden\"%') "
+                    "ORDER BY id ASC LIMIT ?", (tid_, mid, ctx_after)).fetchall()
+                out.append({
+                    "message_id": mid, "topic_id": tid_, "text": text, "ts": ts,
+                    "score": round(float(s), 3),
+                    "lex": next((m["lex"] for m in chosen if m["row"] is r), 0.0),
+                    "replies": [{"id": rr[0], "text": rr[1] or "", "ts": rr[2]} for rr in reps],
+                })
+            return out
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"[msg_vectors] recall_topic failed: {e}")
+        return []
+
+
 def stats():
     try:
         conn = _conn()

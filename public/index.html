@@ -1284,13 +1284,17 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
    改成给正文区设上限 → 盒高 = 表头 + 正文上限 + 卡片自然高，卡片永远完整；
    正文超出部分照旧在 .proc-body 内部滚动，盒子高度依然恒定不跳。 */
 .row.proc-live .proc-box{background:var(--surface2);border-color:rgba(255,255,255,.16);opacity:1;color:var(--text);font-size:12px;max-height:none;animation:neonGlow 14s linear infinite;filter:none}
-.row.proc-live .proc-box .proc-body{flex:1 1 auto;max-height:48px}      /* 折叠档：盒高 ≈ 88px（与原档位一致） */
+/* 🔴 height 必须写死，不能只给 max-height：正文比 48px 短的时候（模型刚吐头两行思考），
+   body 的自然高就是内容高 → 盒子跟着内容一路长高（实测 66px→76px→88px 三段），
+   每长一档就把整个对话顶上去 9~12px，用户看到的就是「一发送，画面跳几下」。
+   写死 48px 后，盒子在**出现的第一帧**就是最终高度，之后只有正文内部滚动。 */
+.row.proc-live .proc-box .proc-body{flex:1 1 auto;height:48px;max-height:48px}      /* 折叠档：盒高恒 ≈ 88px（与原档位一致） */
 .row.proc-live .proc-box.open{max-height:352px;height:352px}
 .row.proc-live .proc-box.open .proc-body{max-height:312px}             /* 展开档：盒高固定 352px（内容增长只滚动正文，盒子不跳），正文上限 312 与原值一致 */
 /* ⚠️ 必须排在 .open 之后（同特异性取后者）：提问态要压掉展开档的高度 ——
    实测旧写法在展开态把正文挤到 25px（几乎没有正文），卡片再高一点又同样被裁。 */
 .row.proc-live .proc-box.proc-asking{max-height:none;height:auto}
-.row.proc-live .proc-box.proc-asking .proc-body{max-height:110px}      /* 提问态：正文让位给卡片，卡片必须整块可见 */
+.row.proc-live .proc-box.proc-asking .proc-body{height:auto;max-height:110px}      /* 提问态：正文让位给卡片，卡片必须整块可见 */
 /* .proc-live-dot 黄点已去掉 */
 .proc-live-dot{display:none}
 /* 气泡展开体的显示档位：简约 = 只渲染思考（与 09-01~09-21 的老形态一致）；
@@ -1315,32 +1319,91 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
 @keyframes lmPulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
 /* ── 加载提示胶囊 ──
    解决"不知道拉完没有"：远程/跨域访问时历史消息可能传好几秒，旧界面全程无任何反馈，
-   于是内容"卡很久然后突然全冒出来"。这里给明确的进行中(spinner+已耗时)与完成(已加载)信号。
+   于是内容"卡很久然后突然全冒出来"。这里给明确的进行中(spinner+下载百分比+剩余时间)与完成(已加载)信号。
    挂在 #mainPanel 上（它已是 position:relative），不放在 chatBox 里——render() 会重建 chatBox。 */
 #loadHint{position:absolute;left:50%;top:70px;transform:translate(-50%,-6px);z-index:6;
   display:flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;
   background:var(--surface2);border:1px solid var(--border);color:var(--tdim);
   font-size:11.5px;line-height:1;white-space:nowrap;pointer-events:none;
   opacity:0;visibility:hidden;transition:opacity .18s ease,transform .18s ease,visibility .18s;
-  box-shadow:0 5px 18px -8px rgba(0,0,0,.5)}
+  box-shadow:0 5px 18px -8px rgba(0,0,0,.5);overflow:hidden}
 #loadHint.show{opacity:1;visibility:visible;transform:translate(-50%,0)}
 #loadHint .lh-spin{width:11px;height:11px;border-radius:50%;flex-shrink:0;
   border:1.6px solid rgba(var(--accent-rgb),.25);border-top-color:var(--accent);
   animation:lhSpin .7s linear infinite}
 @keyframes lhSpin{to{transform:rotate(360deg)}}
-#loadHint .lh-time{font-variant-numeric:tabular-nums;opacity:.65}
+/* 数字槽：只放"还要多久"（剩 2.4s，一位小数，每 100ms 往下走）；
+   算不出剩余时间就退回已耗时（1.4s）—— 数字必须一直在跳，干等才是最难受的。 */
+#loadHint .lh-time{font-variant-numeric:tabular-nums;font-weight:600;color:var(--accent);
+  letter-spacing:.01em}
+/* "剩"这个字只是标签，别跟数字抢眼：数字才是要看的东西 */
+#loadHint .lh-left{font-weight:400;opacity:.62}
 /* 等得久了(>1.2s)才点亮强调色，短请求不闪眼 */
 #loadHint.slow{border-color:rgba(var(--accent-rgb),.4);color:var(--text)}
 /* 完成态：圆点停转并变实心，明确告诉用户"好了"，再淡出 */
 #loadHint.done{border-color:rgba(var(--accent-rgb),.5);color:var(--accent)}
 #loadHint.done .lh-spin{animation:none;border-color:var(--accent);border-top-color:var(--accent)}
 html[data-theme="white"] #loadHint{box-shadow:0 5px 18px -8px rgba(0,0,0,.16)}
+/* ── 对话区骨架屏（扫描占位）──
+   解决的问题：首屏/切任务时 #chatBox 是空的，旧界面就是一片纯黑 —— 用户分不清
+   "正在加载"还是"已经卡死"，只能死死盯着看，而且很难看。
+   为什么骨架**静态写在 HTML 里**（不是 JS 生成后才出现）：用户真正感受到"死等"的
+   那一刻，init 脚本往往还没跑完，任何 JS 驱动的提示都还没注册；只有纯 CSS 动画能在
+   "页面壳已出现、数据还没到"的窗口里立刻动起来。render() 一旦画出真实内容就会
+   chatBox.innerHTML='' 把它整块清掉 —— 不靠任何隐藏标志，天然不可能残留。
+   （布尔标志残留导致永久停摆的教训见 §47、§22。）
+   顶部 72px 不是随手写的：加载胶囊挂在 header 下方 10px（高约 26px），不留够这段
+   骨架第一行会被胶囊压住中间一截，看起来像"内容断了"。 */
+.skel{display:flex;flex-direction:column;gap:16px;padding:72px 0 0;flex-shrink:0;overflow:hidden;max-height:100%;
+  align-self:stretch;width:100%;max-width:min(760px,100%);margin:0 auto}
+.skel-row{display:flex;gap:9px;align-items:flex-start;width:100%}
+.skel-row.ai{align-self:flex-start;max-width:88%}
+.skel-row.you{align-self:flex-end;flex-direction:row-reverse;max-width:74%}
+.skel-av{width:27px;height:27px;border-radius:50%;flex-shrink:0}
+.skel-lines{display:flex;flex-direction:column;gap:8px;flex:1;min-width:0;padding-top:5px}
+.skel-bar{display:block;height:10px;border-radius:6px}
+/* 光带自左向右扫过：background-size 400% + position 100% → 0，
+   一轮结束后下一轮从同侧重新起扫，中间没有"纯色静止"的空档；
+   每一条各自扫、节奏一致，观感就是 APP 里那种"正在出内容"的过渡。 */
+.skel-av,.skel-bar{background-image:linear-gradient(90deg,rgba(255,255,255,.05) 25%,rgba(255,255,255,.14) 37%,rgba(255,255,255,.05) 63%);
+  background-size:400% 100%;background-repeat:no-repeat;animation:skelSweep 1.5s ease-in-out infinite}
+@keyframes skelSweep{0%{background-position:100% 50%}100%{background-position:0 50%}}
+html[data-theme="white"] .skel-av,html[data-theme="white"] .skel-bar{
+  background-image:linear-gradient(90deg,rgba(0,0,0,.055) 25%,rgba(0,0,0,.11) 37%,rgba(0,0,0,.055) 63%)}
+@media(max-width:768px){.skel{gap:12px;padding-top:68px}.skel-av{width:24px;height:24px}.skel-bar{height:9px}}
+@media(prefers-reduced-motion:reduce){.skel-av,.skel-bar{animation-duration:3.4s}}
+/* ── 顶栏占位 ──
+   任务标题 / token 数 / 余额这三处在服务端数据到位前摆的是占位字符（"AI" / "—" / "余额 —"），
+   观感上就是"半成品已经画出来了"，和下面正在扫的消息区骨架完全不搭。这里统一盖一条扫描条。
+   收尾判据复用 _bootDone（首屏第一轮装载结束），和消息区骨架同进同出 ——
+   不会出现"上面已经好了、下面还在扫"这种半吊子状态。
+   为什么标题也要盖：标题在首屏期显示的是 app 名兜底值 "AI"，用户会误以为"当前没有任务"。 */
+.hp-skel{position:relative;color:transparent!important;pointer-events:none;min-width:var(--hp-w,60px)}
+.hp-skel > *{visibility:hidden}
+.hp-skel::after{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);
+  width:var(--hp-w,60px);height:9px;border-radius:5px;
+  background-image:linear-gradient(90deg,rgba(255,255,255,.05) 25%,rgba(255,255,255,.14) 37%,rgba(255,255,255,.05) 63%);
+  background-size:400% 100%;background-repeat:no-repeat;animation:skelSweep 1.5s ease-in-out infinite}
+html[data-theme="white"] .hp-skel::after{
+  background-image:linear-gradient(90deg,rgba(0,0,0,.055) 25%,rgba(0,0,0,.11) 37%,rgba(0,0,0,.055) 63%)}
+#topicTitle.hp-skel{--hp-w:92px}
+#tokenDisplay.hp-skel{--hp-w:52px}
+#tokenDisplay.hp-skel::after{left:50%;transform:translate(-50%,-50%)}
+#balanceDisplay.hp-skel{--hp-w:62px}
+@media(prefers-reduced-motion:reduce){.hp-skel::after{animation-duration:3.4s}}
 /* 触顶上拉的物理回弹(带轻微过冲) */
 .pull-rebound{transition:transform .38s cubic-bezier(.2,1.4,.36,1)!important}
 @media(prefers-reduced-motion:reduce){
   .row.proc-live .proc-box{animation:none;box-shadow:0 5px 22px -4px rgba(34,230,255,.45),0 10px 44px 4px rgba(139,92,246,.26)}
 }
 #sidebar.no-anim{transition:none!important}
+/* 任务流程图弹窗：单独关掉 .modal-overlay 的全屏 backdrop-filter 模糊。
+   根因（2026-10-20 探针实测，可复现可逆）：画布每帧 transform 平移/缩放时，
+   浏览器必须逐帧把整个屏幕的背景重新模糊一遍 ⇒ 12 个节点的图
+   拖动只有 26fps、缩放 34fps（24 帧里 23 帧掉帧）；同一弹窗把 blur 置 none 后
+   稳定 60fps、零掉帧，与 router / dagre / 节点数无关。
+   视觉补偿：遮罩加深到 .86，背景观感与模糊版几乎无差（已截图比对）。 */
+#flowChartModal{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:rgba(0,0,0,.86)}
 #flowChartContent svg{max-width:100%;height:auto}
 #flowChartZoomViewport{touch-action:none;-webkit-tap-highlight-color:transparent}
 #flowChartZoomViewport svg{max-width:none;max-height:none}
@@ -1514,11 +1577,11 @@ html[data-theme="white"] #loadHint{box-shadow:0 5px 18px -8px rgba(0,0,0,.16)}
   <button id="btnMenu" onclick="toggleSidebar()" data-page-node-id="vCCw8NemUwQvzJuA9gyVpx">☰</button>
   <div id="sDot" data-page-node-id="1I2MsGBwa95VYv4M36vESf"></div>
   <div id="workingDot" data-page-node-id="P1FDSObIu3xDGkSd16vvfn"></div>
-  <h1 id="topicTitle" data-page-node-id="DX8yp6XCOrDqgrGWPys9nR"><span id="topicTitleText" onclick="openFlowChart()" title="查看任务流程图" data-page-node-id="QHfKdiIwPflwfbT6HBADQW">AI</span></h1>
+  <h1 id="topicTitle" class="hp-skel" data-page-node-id="DX8yp6XCOrDqgrGWPys9nR"><span id="topicTitleText" onclick="openFlowChart()" title="查看任务流程图" data-page-node-id="QHfKdiIwPflwfbT6HBADQW">AI</span></h1>
   <span id="sText" style="display:none" data-page-node-id="5fvIIpnUaZxH1bKR4k7tvT"></span>
-  <span id="tokenDisplay" style="font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;min-width:60px;text-align:center" data-page-node-id="FOBO7vamDYScRoSQ1DlI8d">—</span>
+  <span id="tokenDisplay" class="hp-skel" style="font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;min-width:60px;text-align:center" data-page-node-id="FOBO7vamDYScRoSQ1DlI8d">—</span>
   <span id="wmDisplay" title="工作记忆使用率" style="display:none;align-items:center;gap:5px;font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;line-height:1" data-page-node-id="B46HI1kM7BB4xgJmgwNHtC"><svg width="14" height="14" viewBox="0 0 36 36" style="display:block;flex-shrink:0" data-page-node-id="H6FiOC1tcFz41Gosf55bE9"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="6" data-page-node-id="LjJCsBUmCaMFCTchrEpFVv"/><circle id="wmRing" cx="18" cy="18" r="14" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round" stroke-dasharray="0 88" transform="rotate(-90 18 18)" data-page-node-id="dA5pvxYsF6BlrbxYtta9Kq"/></svg><span id="wmPct" data-page-node-id="2A7JAGUEHWYOC8Y4y6PBCA">—</span></span>
-  <span id="balanceDisplay" style="display:inline-flex;align-items:center;font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;line-height:1" data-page-node-id="YRbgjBGDY1qWHIS3gM9dW7"><span id="balLbl" style="white-space:pre">余额 </span><span id="balText">—</span></span>
+  <span id="balanceDisplay" class="hp-skel" style="display:inline-flex;align-items:center;font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;line-height:1" data-page-node-id="YRbGjBGDY1qWHIS3gM9dW7"><span id="balLbl" style="white-space:pre">余额 </span><span id="balText">—</span></span>
   <button id="btnFiles" onclick="toggleFileBrowser()" title="工作区文件（Esc 关闭）" data-page-node-id="gyN19HiRLgwHXuSmo89RcX"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="FY0maM0KOiYKW1qOqOALv8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" data-page-node-id="u6SKPAS6NsdomlHN2I6id5"/></svg></button>
   <button id="btnDebug" onclick="toggleDebugPanel()" title="调试面板" data-page-node-id="c8zFNAuu46kNHCSvRjFZ5d"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="HLPgQILxXRrOznMrMVMQAm"><rect x="8" y="7" width="8" height="13" rx="4" data-page-node-id="GW6fRfl9f0CECGmTr2YUUZ"/><path d="M12 7V5" data-page-node-id="ajUNdVxfHK2VbyUFCj6RHH"/><path d="M10 5.5 9 3.5" data-page-node-id="KbHkliUrWFSx5zgcqaTWAI"/><path d="M14 5.5 15 3.5" data-page-node-id="i92pOGPJRWzWCH2xEjreP0"/><path d="M8 11H4" data-page-node-id="ix260ARmzGqvvb9nqStRyu"/><path d="M8 15H5" data-page-node-id="yqwVNChRcUqkgaofipPsi8"/><path d="M8 18.5H4" data-page-node-id="VOALKF0ad1SrftlyHDN8Au"/><path d="M16 11h4" data-page-node-id="uWcTCixEL8ycNd8sOoUzks"/><path d="M16 15h3" data-page-node-id="7NbGMcdWH8HEvWw4xMqgwC"/><path d="M16 18.5h4" data-page-node-id="q7IAJKUmVcYtlLjNukZ8JU"/></svg></button>
   <span id="uInfo" data-page-node-id="GyIR4VoHerEVhatorecOFR"></span>
@@ -1529,7 +1592,27 @@ html[data-theme="white"] #loadHint{box-shadow:0 5px 18px -8px rgba(0,0,0,.16)}
   </span>
 </header>
 <div id="loadHint" data-page-node-id="LoadHintCapsule01"><span class="lh-spin"></span><span class="lh-txt">正在加载…</span><span class="lh-time"></span></div>
-<main id="chatBox" data-page-node-id="DxizxaMlb1wAwfI51LAr7C"></main>
+<main id="chatBox" data-page-node-id="DxizxaMlb1wAwfI51LAr7C">
+  <!-- 首屏/切任务骨架：纯 CSS 扫描占位，脚本没跑完时也在动。render() 画出真实内容即被清掉。 -->
+  <div class="skel" id="chatSkel" aria-hidden="true">
+    <div class="skel-row ai"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:100%"></i><i class="skel-bar" style="width:92%"></i><i class="skel-bar" style="width:64%"></i></span></div>
+    <div class="skel-row you"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:78%"></i><i class="skel-bar" style="width:52%"></i></span></div>
+    <div class="skel-row ai"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:96%"></i><i class="skel-bar" style="width:88%"></i></span></div>
+    <div class="skel-row ai"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:62%"></i></span></div>
+    <div class="skel-row you"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:56%"></i></span></div>
+    <div class="skel-row ai"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:100%"></i><i class="skel-bar" style="width:84%"></i><i class="skel-bar" style="width:90%"></i><i class="skel-bar" style="width:50%"></i></span></div>
+    <div class="skel-row ai"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:88%"></i><i class="skel-bar" style="width:40%"></i></span></div>
+    <div class="skel-row you"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:66%"></i><i class="skel-bar" style="width:44%"></i></span></div>
+    <div class="skel-row ai"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:100%"></i><i class="skel-bar" style="width:76%"></i></span></div>
+    <div class="skel-row ai"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:94%"></i><i class="skel-bar" style="width:58%"></i></span></div>
+    <div class="skel-row you"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:52%"></i></span></div>
+    <div class="skel-row ai"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:98%"></i><i class="skel-bar" style="width:88%"></i><i class="skel-bar" style="width:46%"></i></span></div>
+    <div class="skel-row ai"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:86%"></i><i class="skel-bar" style="width:54%"></i></span></div>
+    <div class="skel-row you"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:64%"></i><i class="skel-bar" style="width:40%"></i></span></div>
+    <div class="skel-row ai"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:100%"></i><i class="skel-bar" style="width:78%"></i><i class="skel-bar" style="width:52%"></i></span></div>
+    <div class="skel-row you"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:48%"></i></span></div>
+  </div>
+</main>
 <button id="btnJump" onclick="jumpBottom()" title="回到底部" data-page-node-id="suot2KpdKZwotcUDgWBAm3"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="9uaf8d8N7ip3FrrEm8kxOK"><path d="M12 4v11" data-page-node-id="IEHeiNEtrPJVDy8cCV3xWy"/><path d="m7 11 5 5 5-5" data-page-node-id="7Su29ETinw6TZ8Ib9taZEB"/><path d="M6 20h12" data-page-node-id="H2HtDKmUeFTWUmV0WFwvct"/></svg></button>
 <footer data-page-node-id="HCHcKJDyDuJ4GjQiJqU2kp"><div id="attachPreview" style="display:none;flex-wrap:wrap;gap:6px;padding:6px 8px;background:var(--surface2);border-top:1px solid var(--border)" data-page-node-id="yhOv5DMFkpuyyAh58krcBG"></div><div class="input-row" data-page-node-id="SrZNQIQvUw3jq3L6WJVMwW"><input type="file" id="fileInput" multiple style="display:none" onchange="onFileSelect(this)" data-page-node-id="CqWIYwKndzTfTL9tgFzdBT"><button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="添加附件" data-page-node-id="RJwZ0SRzpcwJt1ugersOTE"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="iuiDCKfmIlScUkrGpd0opv"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" data-page-node-id="bOzZUrTJtPrw3JGDMyiyep"/></svg></button><textarea id="msgInput" rows="1" placeholder="输入消息…" onkeydown="onKey(event)"></textarea><button class="send" id="btnSend" onclick="toggleSend()" title="发送" data-page-node-id="983AB8HRgBx90LPUBkVEHF"><svg class="ico-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="3y7v19Me6vEKpjfi6DT2M3"><path d="M12 19V5" data-page-node-id="K4uPQwgfuDxBYFCEELQ4HB"/><path d="m6 11 6-6 6 6" data-page-node-id="Wb9lgQ6gY5qCtazXxWs7Zx"/></svg><svg class="ico-stop" viewBox="0 0 24 24" data-page-node-id="OIoaAyHWyka0aqXAr7TBuw"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" data-page-node-id="DkbLuNJzVJeirdWFyNCB9E"/></svg></button></div></footer>
 </div>
@@ -2025,10 +2108,38 @@ try { var _tm=(location.search||'').match(/[?&]token=([A-Za-z0-9._%-]+)/); if (_
     return false;
   }
 
+  // 加密响应必须**在这里**边收边报进度：_wrapResp 一 await 完，正文就已经全在内存里了，
+  // 上层 _fetchJsonProgress 再读只会瞬间 0→100%（而且量纲错配：Content-Length 是密文字节，
+  // 解密后的明文只有它的 ~75%，百分比永远走不到 100% 就跳）。手机走公网正是这条链路。
+  async function _readEncBody(resp) {
+    var body = resp.body, total = 0;
+    try { total = parseInt(resp.headers.get('Content-Length') || '0', 10) || 0; } catch(e) { total = 0; }
+    if (!body || typeof body.getReader !== 'function' || !total) return await resp.text();
+    // 挂个在途 token：并发时只有"剩余字节最多的流"能报倒计时（见 _loadDominant）
+    var tk = (typeof _loadOpen === 'function') ? _loadOpen() : null;
+    try {
+      var reader = body.getReader(), dec = new TextDecoder('utf-8'), out = '';
+      var ps = {total: total, got: 0, rate: 0, _pt: 0, _pg: 0, token: tk};
+      for (;;) {
+        var st = await reader.read();
+        if (st.done) break;
+        ps.got += st.value.length;
+        out += dec.decode(st.value, {stream: true});
+        if (typeof _loadProgress === 'function') { try { _loadProgress(ps); } catch(e) {} }
+      }
+      out += dec.decode();
+      ps.got = total;
+      if (typeof _loadProgress === 'function') { try { _loadProgress(ps); } catch(e) {} }
+      return out;
+    } finally {
+      if (typeof _loadClose === 'function') { try { _loadClose(tk); } catch(e) {} }
+    }
+  }
+
   async function _wrapResp(resp, isApi) {
     if (!isApi) return resp;
     if (!resp.headers.get('X-Encrypted')) return resp;
-    var txt = await resp.text();
+    var txt = await _readEncBody(resp);
     try {
       var dec = await _decrypt(txt);
       return new Response(dec, {status: resp.status, statusText: resp.statusText, headers: resp.headers});
@@ -2376,6 +2487,17 @@ function updateBalance(data){
   }
   var bal = parseFloat(data.total_balance) || 0;
   var cur = (data.currency || 'CNY').toUpperCase();
+  // 积分制站点（LeaderAI 这类）：数字是积分不是钱。这里**不能**套 ¥ ——
+  // 「¥4823.00」会被读成四千多块钱。也不给"积分偏低"编阈值：积分没有
+  // 人民币等价物，凭空定一个 500 只是拍脑袋（要阈值请明确说，再按你的口径加）。
+  if(cur === 'PTS' || cur === 'POINTS' || cur === 'CREDIT'){
+    balanceDisplay.title = (data.provider ? '来源: ' + data.provider + ' | ' : '')
+      + '积分制余额（不折算金额）';
+    if(!(bal > 0)){ setBal('积分 ', '—'); balanceDisplay.style.color = 'var(--tdim)'; return; }
+    setBal('积分 ', Math.round(bal).toLocaleString());
+    balanceDisplay.style.color = bal <= 0 ? '#f85149' : 'var(--accent)';
+    return;
+  }
   // 币种符号跟随后端：第三方源里 one-api 系大多记 USD，硬编码 ¥ 会显示成
   // "¥37.65"这种看着像人民币、其实是美元的假象
   var sym = (cur === 'USD' || cur === 'USDT') ? '$' : (cur === 'EUR' ? '€' : '¥');
@@ -2466,6 +2588,10 @@ function updateBalanceBanner(data){
   if(hideBannerPref) return;
   // Only show banner for CNY balance type (not accumulated_cost)
   if(data.note === 'accumulated_cost'){ balanceBanner.classList.remove('show','warn-low','warn-crit'); return; }
+  // 积分制不弹横幅：横幅的三档阈值是「¥10 / ¥50」，对积分没有意义
+  if(/^(PTS|POINTS|CREDIT)$/.test((data.currency || '').toUpperCase())){
+    balanceBanner.classList.remove('show','warn-low','warn-crit'); return;
+  }
   var bal = parseFloat(data.total_balance) || 0;
   var cur = (data.currency || 'CNY').toUpperCase();
   // 原来 USD 时符号会变成空字符串（"余额不足 10"看不出币种），阈值也照搬 ¥10/¥50。
@@ -3175,9 +3301,14 @@ function _btnRunning(){ return currentTopic?_btnRunningFor(currentTopic.id):fals
 // 保证按钮与"处理中"提示看到的是同一个事实（原来只有提示那条线在写 _tailWorking）。
 function _setTailWorking(tid,busy){
   if(!tid) return;
+  // 一轮跑完（true→false）的**唯一可靠时机就是这里**：三路写者（尾部探针 / 500ms 工作轮询 /
+  // 断线恢复）都从这里落，而 500ms 那一路常常比 3s 探针先看到 idle —— 挂在探针里的话，
+  // 等它轮到的时候 _wasWorking 已经被清成 false，补刷永远不触发（实测 kick=0）。
+  var _wasBusy=!!(_tailState&&_tailState.tid===tid&&_tailState.working);
   if(_tailState.tid!==tid){ _tailState.tid=tid; _tailState.lastId=-1; }
   _tailState.working=!!busy;
   _tailWorking=!!busy;
+  if(_wasBusy&&!busy&&typeof fbArAfterTurn==='function') fbArAfterTurn();
 }
 var _stopPending=false;   // 停止请求在途：期间任何轮询都不许把按钮翻回"发送"
 // 按钮同步的唯一出口。幂等，可在 render / 各路轮询里无脑调用。
@@ -3219,7 +3350,7 @@ function _renderSig(){
       if(m.live) s+='|L'+((m.status||'').length)+':'+((m.tools&&m.tools.length)||0)+':'+((m.thinking||'').length)+':'+((m.resp||'').length)+':'+(m.turn||0);
       // 懒加载占位上的"步数/最后一步"是尾部轮询就地改的（不重取消息），签名必须带上，
       // 否则改了文案 render 会被短路掉（表现：最后一步永远停在打开任务那一刻的值）
-      s+='|S:'+(m.gap||0)+':'+(m.lastStep||'');
+      s+='|S:'+(m.gap||m.gapHint||0)+':'+(m.lastStep||'');
     }
   }
   return s;
@@ -3231,6 +3362,15 @@ function render(){
   // 必须放在下面的签名短路**之前**：消息没变但运行态变了（切回来 / 断线恢复 /
   // 别的窗口发起）时也要生效，那种情况下签名是相等的，放后面就永远同步不到。
   _syncSendBtn();
+  // 骨架闸：还一条消息都没有、且确实在等（拉正文 / 切任务中）→ 保住骨架并直接返回。
+  // 🔴 必须放在下面 chatBox.innerHTML='' **之前**：否则每 3s 一次的轮询都会把静态骨架
+  // 擦掉一次，用户看到的就是"骨架闪一下 → 一片黑 → 骨架又出来"，比死等还难看。
+  if(_skelWanted()){ _ensureSkel(); return; }
+  // 渲染前最后一道闸：同一轮过程只允许一个表示（见 _collapseProcSegments）。
+  // 之所以还要在这里做一遍（加载 / 实时泡新建 / 定格三处已经各做了一次）：产生过程泡的入口
+  // 不止那三个，只要漏掉任何一条，屏幕上就是"同一段过程挂了 3 个泡、步数还各不相同"。
+  // render 是唯一出口，闸设在这儿才闭合；O(n) 与下面的签名计算同量级，没有额外开销。
+  _collapseProcSegments(messages);
   // uid 是"DOM 与 messages 对账"的唯一钥匙：过程泡的 data-uid 由重建时 mid(m) 分配，
   // toggleProc/updateProcDom 又靠它反查 messages。而 loadMessages/loadNewMessages 会整体
   // 替换 messages（新对象还没 uid）——若此时内容签名恰好与上一批一致，下面的短路会直接
@@ -3515,7 +3655,10 @@ async function switchTopic(tid){
   // Cache-first：优先内存缓存(本会话切走时刚存的)，localStorage 兜底；
   // localStorage 可能因 WebView 配额满而写入失败(静默catch)，不能只依赖它
   var cached=_memC||loadCache(tid);
-  messages=cleanupLiveMsgs(groupProcess(dedupeMsgs(cached&&cached.messages?cached.messages:[])));
+  // 顺序：先把遗留的 live 泡定格（服务端可能早就跑完了），再 groupProcess 归一 ——
+  // 反过来的话归一化会先看到 live，把它当唯一表示保留，那份"本地口径"的凝固泡就顶掉了
+  // 服务端占位（步数口径还不一致）。见 _collapseProcSegments。
+  messages=groupProcess(cleanupLiveMsgs(dedupeMsgs(cached&&cached.messages?cached.messages:[])));
   for(var ci2=0;ci2<messages.length;ci2++) messages[ci2]._seen=true;
   // 缓存里可能没有「未送达」那条（它是本地存档，未必写进缓存）→ 这里先补一次，
   // 否则用户要等下一次服务端同步（结论视图 3s 重取）才看得见。2026-10-09
@@ -3625,7 +3768,11 @@ async function switchTopic(tid){
     if(typeof wsCheckAutoOpen==='function') wsCheckAutoOpen();   // 面板关闭时切到有标签的任务：预检自动展开
   }
   try { var bc=new BroadcastChannel('dayan'); bc.postMessage({type:'msg',tid:tid}); bc.close(); } catch(e){}
-  } finally { window._switching=false; if(_seq===switchSeq) _scheduleAutoFill();
+  } finally { window._switching=false;
+    // 切任务收口：_switching 一落，骨架的等待理由就没了。若此时仍然没有内容（缓存空 +
+    // 服务端也空/失败），必须主动再 render 一次把空态画出来，否则会留一张永远在扫的空壳。
+    if(_seq===switchSeq && !messages.length) render();
+    if(_seq===switchSeq) _scheduleAutoFill();
     // 切任务即换源：顶栏余额要立刻换成这个任务钉的模型的源。
     // 用 seq 守卫：连续切多个任务时只有最后一次能写（否则慢的旧请求会把别人的数刷上去）
     if(_seq===switchSeq) refreshBalance(tid); }
@@ -3680,18 +3827,51 @@ function dedupeMsgs(list){
   }
   return out;
 }
-// ══ 加载提示（spinner + 已耗时 / 完成信号）══════════════════════════════
+// ══ 加载提示（spinner + 剩余时间 / 完成信号）══════════════════════════════
 // 并发计数：切任务、增量同步、思考懒加载可能同时在跑，谁最后结束谁才收起，
 // 否则先回来的那个会把提示关掉，另一个还在传却看不见。
-var _loadN=0, _loadT0=0, _loadTimer=null;
+var _loadN=0, _loadT0=0, _loadTimer=null, _loadPri=0;
+// 剩余时间状态：_loadEtaS = 上次估出的"还要几秒"，_loadEtaAt = 估出的时刻，
+// _loadEtaSeen = 最近一次真的收到数据的时刻。计时器每 100ms 用这三个值把倒计时往下推，
+// 所以数字是**连续递减**的，不是每来一块数据才蹦一下。
+var _loadEtaS=0, _loadEtaAt=0, _loadEtaSeen=0;
+// 拿到倒计时话语权的那个流有多大。大活干完之后，后面的小请求（3s 增量同步）
+// 不许再把「剩 0.1s」改写成「剩 0.6s」—— 那正是用户看到的"倒计时弹回去"。
+var _loadEtaTotal=0;
+// 在途请求台账：token -> {total,got}。冷启动/切任务时常常有 3 个请求并发
+// （任务列表、对话正文、3s 一轮的增量同步），谁后到谁写倒计时就会互相踩 ——
+// 实测出现「剩 0.2s → 剩 1.2s」来回跳，看起来根本不像倒计时。
+// 规则：只有**剩余字节最多的那个流**有权报剩余时间，其余请求只贡献计数。
+var _loadSeq=0, _loadFlights={};
 function _loadHintEl(){ return document.getElementById('loadHint'); }
-function _loadBegin(txt){
+function _loadOpen(){ var tk=++_loadSeq; _loadFlights[tk]={total:0,got:0}; return tk; }
+function _loadClose(tk){ if(tk!=null){ try{ delete _loadFlights[tk]; }catch(e){} } }
+function _loadDominant(){
+  var best=null, bestLeft=-1;
+  for(var k in _loadFlights){
+    var f=_loadFlights[k]; if(!f||!f.total) continue;
+    var left=f.total-f.got;
+    if(left>bestLeft){ bestLeft=left; best=k; }
+  }
+  return best;
+}
+// pri：文案优先级（0 冷启动泛指 / 1 增量同步 / 2 正在加载对话·更早消息）
+function _loadBegin(txt, pri){
   _loadN++;
+  // pri>=2 = 正在拉对话正文（首屏 / 切任务 / 更早消息）。骨架靠它判断"值不值得等"。
+  // 必须记在下面 el 早退**之前**：提示胶囊元素缺失时请求照样在跑，骨架也得亮着。
+  if(typeof pri==='number'&&pri>=2) _chatLoading=true;
   var el=_loadHintEl(); if(!el) return;
-  if(_loadN>1) return;                        // 已在显示中，只累加计数
+  // 文案跟随「当前最该告诉用户的那件事」：冷启动先亮「正在加载…」(0)，真正开始拉对话时
+  // 升级成「正在加载对话…」(2)；之后 3s 一轮的增量同步(1) 不会再把它压回「正在同步…」。
+  // 🔴 不能简单"后到的覆盖先到的"——并发时文案会来回闪。
+  if(typeof pri!=='number') pri=1;
+  if(txt&&pri>=_loadPri){ var t0=el.querySelector('.lh-txt'); if(t0) t0.textContent=txt; _loadPri=pri; }
+  if(_loadN>1) return;                        // 已在显示中，只累加计数（文案已按优先级更新）
   el.classList.remove('done','slow');
-  var t=el.querySelector('.lh-txt'); if(t&&txt) t.textContent=txt;
-  var te=el.querySelector('.lh-time'); if(te) te.textContent='0.0s';
+  _loadEtaS=0; _loadEtaAt=0; _loadEtaSeen=0; _loadEtaTotal=0;
+  // 数字槽先给"已耗时"——算不出剩余时间时它就是那个一直在跳的数字（"系统在动"的体感）
+  var tp0=el.querySelector('.lh-time'); if(tp0) tp0.textContent='0.0s';
   // 紧贴内容区顶部：header 高度随窗口/平台变化，用实测值而不是写死
   var hd=document.querySelector('#mainPanel > header');
   if(hd) el.style.top=(hd.offsetHeight+10)+'px';
@@ -3700,20 +3880,111 @@ function _loadBegin(txt){
   if(_loadTimer) clearInterval(_loadTimer);
   _loadTimer=setInterval(function(){
     var e=_loadHintEl(); if(!e) return;
-    var s=(Date.now()-_loadT0)/1000;
-    var t2=e.querySelector('.lh-time'); if(t2) t2.textContent=s.toFixed(1)+'s';
+    var now=Date.now(), s=(now-_loadT0)/1000;
     if(s>1.2) e.classList.add('slow');
+    var t2=e.querySelector('.lh-time'); if(!t2) return;
+    // 有实测速率、且数据还在流动 → 报"还要多久"（一位小数，每 100ms 往下走）；
+    // 算不出、或卡住超过 1.2s 没新数据 → 退回已耗时。两种都是"在跳的数字"，不会干等。
+    if(_loadEtaS>0 && (now-_loadEtaSeen)<1200){
+      var left=_loadEtaS-(now-_loadEtaAt)/1000;
+      if(left<0.1) left=0.1;
+      t2.innerHTML='<span class="lh-left">剩 </span>'+left.toFixed(1)+'s';
+    } else {
+      t2.textContent=s.toFixed(1)+'s';
+    }
   },100);
+}
+// 真实进度：ps={total,got,rate}。已收字节 ÷ 响应头的 Content-Length 是硬数据，
+// 它唯一的用途是**估剩余时间**（用户要的就是"还要多久"，不是完成度）。
+// 速率采样要够长（≥0.35s 窗口）才算，短请求根本走不到这一步，不会闪"剩 0.1s"。
+function _loadProgress(ps){
+  if(_loadN<=0||!ps) return;
+  var el=_loadHintEl(); if(!el||!el.classList.contains('show')) return;
+  var total=ps.total||0, got=ps.got||0;
+  if(!total) return;
+  // 服务端将来若启用压缩，body 是解压后的字节、Content-Length 是压缩后的，量纲不一致 → 弃用
+  if(got>total*1.05) return;
+  var tk=ps.token;
+  if(tk!=null&&_loadFlights[tk]){ _loadFlights[tk].total=total; _loadFlights[tk].got=got; }
+  // 在途多个流时，「还要多久」只由剩余字节最多的那个流说了算。
+  // 否则小请求（任务列表 30KB、增量同步 200KB）一结束就把大请求的「剩 8s」改写成「剩 0.2s」。
+  if(tk!=null&&String(_loadDominant())!==String(tk)) return;
+  if(tk!=null){
+    // 大活结束后来个小的别再报一遍（它只剩几百 KB，报出来的「剩 0.6s」会让倒计时"弹回去"）
+    if(_loadEtaTotal>0&&total<_loadEtaTotal) return;
+    _loadEtaTotal=total;
+  }
+  if(got>=total) return;                                // 收尾不再重设基准，交给计自然见底
+  var now=Date.now();
+  _loadEtaSeen=now;                                     // 数据在流动，倒计时才允许继续走
+  if(!ps._pt){ ps._pt=now; ps._pg=0; }
+  var dt=(now-ps._pt)/1000;
+  // 🔴 ETA 是个「估计值 + 估计时刻」，只在**速率样本够长**时才重设基准：
+  // 否则每个 chunk（手机上约 150ms 一个）都把倒计时重置回估计值，数字就卡着不动了。
+  // 中间这 0.35s 交给 _loadTimer 每 100ms 往下推，看起来才是连续倒计时。
+  if(dt<0.35) return;
+  var inst=(got-ps._pg)/dt;
+  ps.rate=ps.rate>0?(ps.rate*0.55+inst*0.45):inst;   // 平滑，避免某一块抖动把 ETA 拉飞
+  ps._pt=now; ps._pg=got;
+  var pct=Math.min(100,got*100/total);
+  if(ps.rate>0&&pct>=2){
+    var next=Math.min(600,(total-got)/ps.rate);
+    // 限速下速率本来就在抖：新估计比屏上多 0.4s 就照单全收的话，数字会往回蹦一格
+    // （实测 4.4 → 4.9 → 4.4），看着像卡住。倒计时只认单向递减；
+    // 只有新估计比屏上多 2s 以上才改口 —— 那说明上一版估计本身就错得离谱
+    // （比如 TCP 起步时估 0.5s、真实要 8s），这种情况下硬钉着不放只会更快穿帮。
+    var cur=(_loadEtaS>0)?_loadEtaS-(now-_loadEtaAt)/1000:-1;
+    if(cur>0&&next<cur+2) next=Math.min(next,cur);
+    _loadEtaS=next;
+    _loadEtaAt=now;
+  }
+}
+// 带**真实**下载进度的 JSON 拉取。服务端 _json 恒带 Content-Length，所以
+// "已收字节/总字节"是硬数据；手机走公网时这段传输正是主要耗时。
+// 取不到总长（命中缓存/分块传输）一律退回普通 json()，提示条只转 spinner，绝不按时间猜百分比。
+async function _fetchJsonProgress(url){
+  var tk=_loadOpen();
+  try{
+    var resp=await fetch(url);
+    // 浏览器若没把 304 补成缓存正文，body 会是空的 —— 绕缓存重取一次，别让一次命中变成"加载失败"
+    if(resp.status===304) resp=await fetch(url,{cache:'no-store'});
+    // 加密链路（手机走公网）：正文在 fetch 包装层 _readEncBody 里已经流式读完并报了进度，
+    // 这里拿到的是解密后的内存 Response —— Content-Length 是密文长度、body 是明文，
+    // 再按字节算只会算出个错的比例。直接解析，进度归包装层管。
+    if(resp.headers.get('X-Encrypted')) return await resp.json();
+    var total=0;
+    try{ total=parseInt(resp.headers.get('Content-Length')||'0',10)||0; }catch(e){ total=0; }
+    var body=resp.body;
+    if(!body||typeof body.getReader!=='function'||!total){ return await resp.json(); }
+    var reader=body.getReader(), dec=new TextDecoder('utf-8'), txt='';
+    var ps={total:total,got:0,rate:0,_pt:0,_pg:0,token:tk};
+    for(;;){
+      var st=await reader.read();
+      if(st.done) break;
+      ps.got+=st.value.length;
+      txt+=dec.decode(st.value,{stream:true});   // stream:true 处理跨块的多字节 UTF-8
+      _loadProgress(ps);
+    }
+    txt+=dec.decode();
+    ps.got=total; _loadProgress(ps);
+    return JSON.parse(txt);
+  } finally { _loadClose(tk); }
 }
 function _loadEnd(){
   _loadN=Math.max(0,_loadN-1);
   if(_loadN>0) return;
+  // 一个请求都不在飞了 = 没理由再挂着骨架；下一次 render 按 messages 的真实情况收尾
+  // （有内容就清掉骨架重画，没内容就画空态）。
+  _chatLoading=false;
+  _loadPri=0;                    // 一轮结束，文案优先级归零，下一轮从 0 重新往上升
+  _loadEtaTotal=0;
   var el=_loadHintEl(); if(!el) return;
   if(_loadTimer){ clearInterval(_loadTimer); _loadTimer=null; }
   // 等了 0.7s 以上才值得给"已加载"这个完成信号（短请求一闪反而晃眼）
   if(_loadT0&&Date.now()-_loadT0>700){
     var t=el.querySelector('.lh-txt'); if(t) t.textContent='已加载';
-    var te=el.querySelector('.lh-time'); if(te) te.textContent='';
+    var tp=el.querySelector('.lh-time'); if(tp) tp.textContent='';
+    _loadEtaS=0;
     el.classList.remove('slow'); el.classList.add('done');
     var stamp=_loadT0;
     setTimeout(function(){
@@ -3721,9 +3992,49 @@ function _loadEnd(){
       if(e2&&_loadN===0&&_loadT0===stamp){ e2.classList.remove('show','done'); }
     },260);
   } else {
-    el.classList.remove('show','slow');
+    el.classList.remove('show','slow'); _loadEtaS=0;
   }
 }
+// ── 对话区骨架屏的显示判据 ─────────────────────────────────────────────
+// 判据只问"此刻屏幕上有没有东西可看、值不值得等"，不缓存任何布尔结果：
+//   ① 确实一条消息都没有（messages 为空）
+//   ② 而且确实有理由等 —— 首屏第一轮装载还没结束(!_bootDone) / 对话正文请求在飞
+//      (_chatLoading) / 正在切任务(_switching)
+// 退出不靠标志位：render() 画出真实内容的必经之路会 chatBox.innerHTML=''，
+// 骨架作为它的子节点一起消失，所以不存在"标志残留 → 骨架永久挂在屏幕上"。
+// 🔴 _bootDone 这条判据不是装饰：实测首屏期间还有别的 render 会跑（头像回调、
+//    工作态探测），那时 messages 还是空、也没有"对话请求在飞"（loadConclusions 尚未
+//    发起），骨架会被当成"没事可做"换成空态文案 —— 正是用户等待的那几秒里看到
+//    "接下来做点什么？"的由来。
+var _chatLoading=false, _bootDone=false;
+function _skelWanted(){ return !messages.length && (_chatLoading || !!window._switching || !_bootDone); }
+function _skelHTML(){
+  var rows=[[0,[100,92,64]],[1,[78,52]],[0,[96,88]],[0,[62]],[1,[56]],[0,[100,84,90,50]],[0,[88,40]],[1,[66,44]],[0,[100,76]],[0,[94,58]],[1,[52]],[0,[98,88,46]],[0,[86,54]],[1,[64,40]],[0,[100,78,52]],[1,[48]]];
+  var h='';
+  for(var i=0;i<rows.length;i++){
+    var bars='';
+    for(var j=0;j<rows[i][1].length;j++) bars+='<i class="skel-bar" style="width:'+rows[i][1][j]+'%"></i>';
+    h+='<div class="skel-row '+(rows[i][0]?'you':'ai')+'"><span class="skel-av"></span><span class="skel-lines">'+bars+'</span></div>';
+  }
+  return '<div class="skel" id="chatSkel" aria-hidden="true">'+h+'</div>';
+}
+// 正常首屏那份是静态写在 HTML 里的；这里只兜"上一个任务的 render 已把它清掉、
+// 新任务还没内容"的窗口（切任务），只在缺失时补一张。
+function _ensureSkel(){
+  if(!chatBox) return;
+  for(var i=0;i<chatBox.children.length;i++){
+    if(chatBox.children[i].id==='chatSkel') return;
+  }
+  chatBox.innerHTML=_skelHTML();
+}
+
+// 顶栏占位收尾：标题 / token / 余额三处的扫描条一次性摘掉。
+// 判据跟消息区骨架共用 _bootDone —— 两处必须同时收，否则就是"上面好了下面还在扫"。
+function _hpClear(){
+  var els=document.querySelectorAll('.hp-skel');
+  for(var i=0;i<els.length;i++) els[i].classList.remove('hp-skel');
+}
+
 // 服务端消息 → 前端消息模型。loadMessages(全量/分页) 与 loadNewMessages(增量) 共用同一套解析，
 // 避免两处各写一份、日后改一处漏一处（历史上 dedupe/错误标记清理就吃过这个亏）。
 function _mapServerMsgs(msgs, stillWorking){
@@ -3786,7 +4097,7 @@ function _mapServerMsgs(msgs, stillWorking){
   return fresh;
 }
 async function loadMessages(tid, limit, offset){
-  _loadBegin(messages.length?'正在同步…':'正在加载对话…');
+  _loadBegin(messages.length?'正在同步…':'正在加载对话…', messages.length?1:2);
   try {
     var url='/api/messages?topic_id='+tid;
     if(limit) url+='&limit='+limit+'&offset='+(offset||0);
@@ -3794,8 +4105,7 @@ async function loadMessages(tid, limit, offset){
     // /api/message-thinking 按 id 单独取。注：旧代码也发了这个参数，但后端从未实现，
     // 等于白拉——"要等好久才突然全冒出来"的主因之一。
     url+='&exclude_thinking=1';
-    var mr=await fetch(url);
-    var md=await mr.json();
+    var md=await _fetchJsonProgress(url);
     var _raw=md.messages||[];
     // 解析统一走 _mapServerMsgs；md.working 现由后端一并返回（旧实现只回 messages，
     // 前端却一直在读 md.working，导致"陈旧错误标记清理"这段其实从未生效）
@@ -3840,15 +4150,14 @@ async function loadMessages(tid, limit, offset){
 // "⚙ 过程 · N 步（点击展开）"占位，点开才拉那一段（见 _loadProcSteps）。
 // 旧后端不认识 conclusions 参数（返回里没有 concl 标记）→ 返回 null，调用方自动回退老路径。
 async function loadConclusions(tid){
-  _loadBegin(messages.length?'正在同步…':'正在加载对话…');
+  _loadBegin(messages.length?'正在同步…':'正在加载对话…', messages.length?1:2);
   try {
     // limit=1 是给"旧后端"的止损阀：旧后端不认识 conclusions，会把它当普通请求处理。
     // 若不带 limit 就会按全量返回（实测同一任务 8.9MB），而前端随后发现没有 concl 标记
     // 只能丢弃 —— 白等一场。带上 limit 后旧后端只回 1 条，几乎零代价即可判定"不支持"。
     // （新后端在结论视图下忽略 limit/offset，一次给全量结论。）
     var url='/api/messages?topic_id='+encodeURIComponent(tid)+'&conclusions=1&exclude_thinking=1&limit=1';
-    var mr=await fetch(url);
-    var md=await mr.json();
+    var md=await _fetchJsonProgress(url);
     if(!md||md.concl!==true) return null;
     var raw=md.messages||[];
     var fresh=groupProcess(_mapServerMsgs(raw, md.working&&md.working.status&&md.working.status!=='idle'));
@@ -3908,8 +4217,7 @@ async function loadNewMessages(tid){
     // 卡在边界上会漏掉紧随其后的第一条 AI 消息。多拉回来的重复项由 dedupeMsgs 去掉，
     // 且下面的 newCount 用严格大于统计，重复项不会被计进翻页游标。
     if(lastTs) url+='&after_ts='+(lastTs-5);
-    var mr=await fetch(url);
-    var md=await mr.json();
+    var md=await _fetchJsonProgress(url);
     // 结论视图模式下后端却没回 concl 标记 = 服务端已是旧代码（用户重开了大眼）。
     // 此时若继续合并，几 MB 的工具调用会混进只该有结论的消息流里 → 本次放弃，下次走老路径。
     if(_conclView&&md.concl!==true){ _conclView=false; return null; }
@@ -3976,7 +4284,7 @@ async function loadMoreMessages(){
   _loadingMore=true;
   // 外层提示包住整个循环：内部每页的 loadMessages 各自 _loadBegin/_loadEnd，
   // 有外层计数在时它们只累加不收起，于是整段加载只有一个提示、秒数连续（不会一闪一闪）
-  _loadBegin('正在加载更早的消息…');
+  _loadBegin('正在加载更早的消息…', 2);
   try {
     var tid=currentTopic.id;
     var chars=0;
@@ -4318,7 +4626,9 @@ function procSummary(m){
     }
     else if(m.tools&&m.tools.length) tail='🔧 '+m.tools[m.tools.length-1];
     else if(m.thinking) tail='💭 '+m.thinking.slice(-24).replace(/\s+/g,' ');
-    return esc((m.status||'处理中…')+(tail?' · '+tail:''));
+    // gapHint：本轮的懒占位被收编进实时泡时留下的步数（见 _collapseProcSegments）。
+    // 只在这里出现，所以不会和服务端占位的数字并列打架。
+    return esc((m.status||'处理中…')+(m.gapHint?(' · '+m.gapHint+' 步'):'')+(tail?' · '+tail:''));
   }
   var tools=[], hasThink=false, hasInter=false;
   var st=m.steps||[];
@@ -4336,7 +4646,7 @@ function procSummary(m){
 // ── live 展开体的"过程日志" ──────────────────────────────────────────
 // 内容 = ①已确认的工具轮动作叙述(inter，逐行) ②当前轮正在打的字(resp)。
 // 为什么必须有它：思考框原来只渲染 thinking，而 thinking **只有推理模型才给**。
-// 实测当前在用的 siliconflow/DeepSeek-V4-Flash 全库 thinking 长度都是 0 ——
+// 实测第三方渠道的 DeepSeek-V4-Flash 全库 thinking 长度都是 0 ——
 // 展开后是个纯空白的大盒子，用户只能从摘要行看到最后 24 字 → "思考框看不到内容"。
 // ── 气泡展开体的显示档位（用户可切）──────────────────────────────────
 //   simple（简约）＝ 只渲染 thinking，与 09-01 起的老形态一致，清爽；
@@ -4393,7 +4703,7 @@ function procBodyHTML(m){
   var h='';
   if(m.live){
     // 实时思考（reasoning_content）。注意：**很多模型压根不返回 reasoning**
-    // （实测 siliconflow/DeepSeek-V4-Flash 全库 thinking 长度都是 0），
+    // （实测第三方渠道的 DeepSeek-V4-Flash 全库 thinking 长度都是 0），
     // 所以它不能是展开体的唯一内容源。
     if(m.thinking){ var tt=m.thinking; if(tt.length>500) tt='…'+tt.slice(-500); h+='<div class="w-think md">'+fmtThink(tt)+'</div>'; }
     // 日志区按档位渲染。简约档也保留这个空容器（结构一致，切档时 syncLiveProcBody 可直接复用）；
@@ -4547,6 +4857,18 @@ function _bindProcScroll(uid, body){
     body.scrollTop=Math.min(keepTop, Math.max(0, body.scrollHeight-body.clientHeight));
     body.scrollTop;                                  // 读一次强制落位，再恢复样式
     body.style.scrollBehavior=_prevSB||'';
+  } else if(!keepUser){
+    // 自动跟底态：新节点 scrollTop 是 0，必须**瞬时**贴底。
+    // 交给下一次轮询的 _scrollToBottom(smooth) 等于"从顶部一路滑下来"——
+    // 每 3s 一次整页重建，用户在思考框里看到的就是"内容隔一会儿跳回顶部再滑下来"，
+    // 而这一跳在 chatBox 上完全看不出来（外层 scrollTop 一点没动）。
+    var _sb0=body.style.scrollBehavior;
+    body.style.scrollBehavior='auto';
+    body.scrollTop=body.scrollHeight;
+    body.scrollTop;
+    body.style.scrollBehavior=_sb0||'';
+    var _t2=_procScrollTrack[uid];
+    if(_t2) _t2.lastST=body.scrollTop;
   }
 }
 function _unbindProcScroll(uid){
@@ -4788,6 +5110,9 @@ function finalizeAllLiveProcs(){
       messages.splice(i,1); changed=true;
     }
   }
+  // 定格 = live 变成"冻结副本"。若本轮已经有服务端占位（或别的定格副本），
+  // 不归一化就会在屏幕上留下同一段过程的第二、第三个泡（§_collapseProcSegments）。
+  if(changed) _collapseProcSegments(messages);
   return changed;
 }
 // 加载缓存时的清理:丢弃旧格式残留工作泡、定格遗留实时泡、清 uid 防撞号
@@ -4875,7 +5200,107 @@ function groupProcess(list){
     flush(null); out.push(m); // you / 遗留 log / proc:原样通过(幂等)
   }
   flush(null);
-  return out;
+  return _collapseProcSegments(_dropShadowTailProcs(out));
+}
+// ── 同一段过程只能有一个泡 ────────────────────────────────────────────────
+// 末尾那条 lazy 占位（toId===0）代表"最后一条结论之后到现在"的**全部**过程；
+// 但界面上还可能同时存在第二个描述同一段的泡：
+//   ①实时泡收尾定格出来的静态泡（按 intermediate 行数+工具数算，实测 197 步）
+//   ②上一版占位被点开后物化的泡
+// 两者一旦同时在场，groupProcess 会把前者拆回 steps 重新成一个泡、把后者当边界原样插入
+// ⇒ 屏幕上一个用户消息下面挂着两个过程泡，数字还不同源（197 vs 服务端 133 条记录），
+// 用户只会读成"又坏了一个"（2026-10-19 实测截图）。
+// 规则：从末尾占位往前扫到最近一条 you / 有正文的 ai 为止，中间的过程泡都是影子，丢掉；
+// 留下服务端那条占位 = 唯一真相（gap/最后一步/在跑没跑都来自它）。
+function _dropShadowTailProcs(list){
+  var tail=-1;
+  for(var i=list.length-1;i>=0;i--){
+    var m=list[i];
+    if(m&&m.type==='proc'&&m.lazy&&m.toId===0){ tail=i; break; }
+  }
+  if(tail<0) return list;
+  var cut=-1;
+  for(var j=tail-1;j>=0;j--){
+    var q=list[j];
+    if(!q) continue;
+    if(q.type==='proc'){ cut=j; continue; }      // 影子泡（同段的第二种画法）
+    if(q.role==='you') break;                    // 上一轮用户消息 = 段边界
+    if((q.text||'').trim()) break;               // 有正文的 ai = 上一段结论，到此为止
+  }
+  if(cut>=0&&cut<tail) list.splice(cut, tail-cut);
+  return list;
+}
+// ── 同一段过程只能有一个泡（当前轮归一化）────────────────────────────────
+// 上面 _dropShadowTailProcs 只覆盖"末尾占位正好排在最后"这一种排列。可现实里占位常常
+// **不在最后**：增量合并把它留在中间，后面又追加了别的画法 —— 那时它什么也不删。
+//
+// 三种画法来自三条互不知情的路径，各自都能单独出现：
+//   ① lazy 占位 —— 服务端结论视图给的（gap = 这一段的过程记录条数，权威口径）
+//   ② live 实时泡 —— 正在跑时 workingPoll 建/喂（口径 = 本次累积的工具名）
+//   ③ 静态泡 —— live 被 finalize / cleanupLiveMsgs 定格出的冻结副本（口径 = 定格那一刻的 tools 数）
+// 于是"切任务回来 / 别的设备发起 / 服务端某瞬间报 idle 之后又继续跑"就会叠出 2~4 个泡，
+// 数字还各不相同（2026-10-19 实测：过程·58步 + 94步泡 + 处理中 + 4步泡 并列在同一轮里）。
+// 重开前端之所以能"排回去"，只是因为那条路走 loadConclusions 整份替换，天然只有一个。
+//
+// 归一化必须做在**所有产出过程泡的收口处**：groupProcess 末尾 / push live 之后 / 定格之后。
+// 只动"当前轮"（最后一条 user 消息之后）：更早的段各自有占位，是合法的一对一关系，不能碰。
+// 保留规则：
+//   用户展开着的（open=true）一律保留 —— 是他自己点开的，不能从眼前抽走；
+//   有 live   → 留 live（正在跑，实时体最有用），删本轮 lazy 与未展开的静态泡；
+//   无 live   → 留最后一个 lazy（服务端权威、点开可拉全量），删未展开的静态泡；
+//   连 lazy 都没有 → 留最后一个静态泡。
+// 返回同一个数组（就地 splice），调用方可以 messages=_collapseProcSegments(messages)。
+function _collapseProcSegments(list){
+  if(!list||list.length<2) return list;
+  var from=-1;
+  for(var i=list.length-1;i>=0;i--){ if(list[i]&&list[i].role==='you'){ from=i+1; break; } }
+  if(from<0||from>=list.length) return list;   // 没有 user 消息 = 不是对话轮，不动
+  var idx=[];
+  for(var j=from;j<list.length;j++){ if(list[j]&&list[j].type==='proc') idx.push(j); }
+  if(idx.length<2) return list;
+  // ⚠️ 只在**连续的 proc 簇**内归一。中间隔着一条结论正文的两个泡，是两段不同的过程
+  // （例如：过程·6步 → 结论"用户已停止" → 过程·N步），各自都要留 —— 一刀"本轮只留一个"
+  // 会把上一段的过程整段吞掉。重影永远是**相邻**的。
+  var clusters=[], cur=[idx[0]];
+  for(var a=1;a<idx.length;a++){
+    if(idx[a]===idx[a-1]+1) cur.push(idx[a]);
+    else { clusters.push(cur); cur=[idx[a]]; }
+  }
+  clusters.push(cur);
+  var drop={};
+  for(var ci=0;ci<clusters.length;ci++){
+    var cl=clusters[ci];
+    if(cl.length<2) continue;
+    var liveAt=-1, liveFlight=-1, lazyAt=-1, staticAt=-1, staticN=-1;
+    for(var k2=0;k2<cl.length;k2++){
+      var m=list[cl[k2]];
+      if(m.live){ liveAt=cl[k2]; if(m.inflight) liveFlight=cl[k2]; }
+      else if(m.lazy){ lazyAt=cl[k2]; }   // 多个占位 = 取最后一个（时间上最新的那一段）
+      else if(!m.open){
+        // 定格副本可能有好几个（每次误判 idle 各冻结一次）。留 steps 最多的那个：
+        // 它累积得最久，信息最全；留"最后一个"会让步数看起来凭空倒退。
+        var n=(m.steps&&m.steps.length)||0;
+        if(n>=staticN){ staticN=n; staticAt=cl[k2]; }
+      }
+    }
+    var keep = liveFlight>=0 ? liveFlight : (liveAt>=0 ? liveAt : (lazyAt>=0 ? lazyAt : staticAt));
+    if(keep<0) continue;                 // 全是展开着的泡：一个都不删
+    for(var k3=0;k3<cl.length;k3++){
+      var j2=cl[k3];
+      if(j2===keep||drop[j2]) continue;
+      if(list[j2]&&list[j2].open) continue;   // 用户展开着的不动
+      // 被收编的占位：把"这一段跑了多少步"留在 live 泡的摘要上。
+      // 否则用户会以为"刚才那个 58 步不见了"（信息不是被删了，只是换了承载者）。
+      if(list[j2]&&list[j2].lazy&&list[keep]&&list[keep].live){
+        var g=list[j2].gap||0;
+        if(g>(list[keep].gapHint||0)) list[keep].gapHint=g;
+      }
+      drop[j2]=1;
+    }
+  }
+  var dl=Object.keys(drop).map(Number).sort(function(x,y){ return y-x; });
+  for(var d=0;d<dl.length;d++) list.splice(dl[d],1);
+  return list;
 }
 function _seenKey(m){ return (m.role||m.type||'')+'|'+String(m.text||m.name||(m.steps?('p'+m.steps.length):'' )).slice(0,48); }
 // [5] 重发按消息 uid 查找原文,避免把用户文本内联进 onclick
@@ -6883,9 +7308,20 @@ function fbArCurMode(sc){
 // 用户此刻的手势：拖文件 / 长按菜单 / 框选中 / 排序菜单开着 / 有模态框。
 // 这些状态下重排网格会把用户正按着的东西换掉 ⇒ 一律跳过，等下一轮。
 function fbArUserBusy(){
-  if(window.__fbDragItem) return true;
+  // 🔴 判据必须是"此刻真的还在发生"，不能只看一个布尔标志 —— 标志一旦没被清掉，
+  //    自动刷新会**永久停摆且没有任何提示**（实测：AI 产出文件的整段时间里一个请求都没发，
+  //    日志里 /api/mission-files 连续 16 分钟为 0，用户看到的就是"产出了新文件但不刷新"）。
+  //    所以拖拽 / 框选改成问 DOM：正在被拖的那张卡带着 .fb-grabbing，正在框选才有 .fb-lasso 框。
+  //    标志残留时顺手清掉，免得同一份残留把别的地方也带坏。
+  if(window.__fbDragItem){
+    if(document.querySelector('.fb-item.fb-grabbing')) return true;
+    window.__fbDragItem=null;                        // 残留：拖拽其实早已结束
+  }
   if(document.getElementById('fbCtxMenu')) return true;
-  if(document.body.classList.contains('fb-lassoing')) return true;
+  if(document.body.classList.contains('fb-lassoing')){
+    if(document.querySelector('.fb-lasso')) return true;
+    document.body.classList.remove('fb-lassoing');   // 残留：框选其实早已结束
+  }
   if(typeof _fbMenuEl!=='undefined'&&_fbMenuEl) return true;
   if(document.querySelector('.modal-overlay.show')) return true;
   return false;
@@ -6915,6 +7351,23 @@ function fbArStart(){ if(!FB_AR.timer) FB_AR.timer=setInterval(function(){ fbArT
 function fbArStop(){ if(FB_AR.timer){ clearInterval(FB_AR.timer); FB_AR.timer=0; } }
 // 手动刷新 / 切回前台：force=true 时即便指纹没变也重查（覆盖"同指纹但 DOM 被人动过"）
 function fbArKick(force){ fbArTick(!!force); }
+
+// AI 这一轮刚结束（working 由 true 翻成 false）时补刷一次。
+// 为什么不能只靠 2.5s 轮询：轮询会被手势 / 弹窗 / 标签避让跳过，而"AI 刚写完文件"
+// 正是用户最容易盯着文件浏览器看的时刻 —— 等下一次命中就等于"看起来没刷新"。
+// 面板没开时什么都不做：用户点开时 openFileBrowser() 会全量加载，不需要这里预支请求。
+function fbArAfterTurn(){
+  try{
+    if(typeof fbOpen==='undefined'||!fbOpen) return;
+    if(document.hidden) return;          // 后台没人看，切回前台 visibilitychange 会补
+    // 三路写者可能在同一瞬间各报一次"收工"，400ms 内只认一次（多出来的请求纯属浪费）
+    var now=Date.now();
+    if(FB_AR.turnKickAt&&now-FB_AR.turnKickAt<400) return;
+    if(fbArUserBusy()) return;           // 用户正按着东西，交给轮询：手势结束后下一轮自然补上
+    FB_AR.turnKickAt=now;
+    fbArKick(true);
+  }catch(e){}
+}
 
 // 工具栏那颗刷新按钮。走内联 onclick ⇒ 不经过网格的委托，作用域可能停在上一次点过的
 // 另一栏上 —— 必须先按按钮自身反查所属栏，否则会刷错那一栏（§25 的老坑）。
@@ -11102,12 +11555,12 @@ function loadThemeSettings(){
   // 无本地缓存时，从打开到首批消息渲染完这段是"纯空白且无任何反馈"，先把加载提示亮出来；
   // 有缓存的话下面会立刻渲染出内容，就不用提示了（否则闪一下反而吵）
   var _initHintShown=!((cache&&cache.messages&&cache.messages.length));
-  if(_initHintShown) _loadBegin('正在加载…');
+  if(_initHintShown) _loadBegin('正在加载…', 0);
   var cachedTopicId=null;
   var cachedMsgs=[];
   if(cache&&cache.messages&&cache.messages.length){
     cachedTopicId=cache.topicId;
-    messages=cleanupLiveMsgs(groupProcess(dedupeMsgs(Array.isArray(cache.messages)?cache.messages.slice():[])));
+    messages=groupProcess(cleanupLiveMsgs(dedupeMsgs(Array.isArray(cache.messages)?cache.messages.slice():[])));
     for(var ci3=0;ci3<messages.length;ci3++) messages[ci3]._seen=true;
     cachedMsgs=messages.slice();
     if(cache.topics) topics=cache.topics;
@@ -11183,6 +11636,7 @@ function loadThemeSettings(){
     var _initMemC=loadMemCache(loadTid);
     if(_initCacheFresh&&_initMemC){
       messages=_initMemC.messages.slice();
+      _collapseProcSegments(messages);   // 内存缓存也只允许"本轮一个过程表示"
       msgOffset=_initMemC.msgOffset; allLoaded=_initMemC.allLoaded;
       if(_initMemC.conclView!==undefined) _conclView=!!_initMemC.conclView;
       for(var ci4=0;ci4<messages.length;ci4++) messages[ci4]._seen=true;
@@ -11192,7 +11646,7 @@ function loadThemeSettings(){
     } else if(_initCacheFresh){
       // localStorage 缓存新鲜但无内存缓存:从 localStorage 恢复
       var _lc=loadCache(loadTid);
-      messages=cleanupLiveMsgs(groupProcess(dedupeMsgs(_lc&&_lc.messages?_lc.messages:[])));
+      messages=groupProcess(cleanupLiveMsgs(dedupeMsgs(_lc&&_lc.messages?_lc.messages:[])));
       for(var ci5=0;ci5<messages.length;ci5++) messages[ci5]._seen=true;
       if(_lc&&_lc.msgOffset!==undefined){ msgOffset=_lc.msgOffset; allLoaded=_lc.allLoaded; } else { msgOffset=0; allLoaded=false; }
       if(_lc&&_lc.conclView!==undefined) _conclView=!!_lc.conclView;
@@ -11230,6 +11684,11 @@ function loadThemeSettings(){
     }
     topicTitle.textContent=dispTitle(currentTopic);
   }
+  // 首屏第一轮装载到此结束：此后 messages 还是空，才算"真的没有内容"，该画空态了。
+  // 在这之前（含头像回调、工作态探测这些旁路里的 render）一律按住空态 ——
+  // 否则"接下来做点什么？"会提前顶掉骨架，用户正在等的那几秒反而被告知没事可做。
+  _bootDone=true;
+  _hpClear();      // 顶栏占位与消息区骨架同一时刻收
   render();
   setupScrollLoad();
   // 刷新路径不经过 switchTopic：这里补一次工作区探测，决定“文件”标签是否显示
@@ -11273,6 +11732,7 @@ function loadThemeSettings(){
             var vp=makeLiveProc();
             applyWorkingData(vp, wd);
             messages.push(vp);
+            _collapseProcSegments(messages);   // 同上：本轮只留一个过程表示
             render();
           }
           // Restart poll if stopped
@@ -11308,7 +11768,7 @@ function loadThemeSettings(){
       }
     };
   } catch(e){}
-  } catch(e){ chatBox.innerHTML='<div class="empty"><div>⚠️ 初始化失败<br><small>'+esc(e.message||'')+'</small></div></div>'; }
+  } catch(e){ _bootDone=true; _hpClear(); chatBox.innerHTML='<div class="empty"><div>⚠️ 初始化失败<br><small>'+esc(e.message||'')+'</small></div></div>'; }
 setInterval(function(){ fetch('/api/usage').then(r=>r.json()).then(d=>{ updateToken(d); }).catch(()=>{}); fetch('/api/cost').then(r=>r.json()).then(d=>{ updateCost(d); }).catch(()=>{}); refreshBalance(); updateWmDisplay(); checkSvcStatus(); if(!document.hidden) loadTopics(); }, 8000);
 })();
 
@@ -11408,6 +11868,9 @@ function checkTopicWorking(){
           var np=makeLiveProc();
           applyWorkingData(np, wd);
           messages.push(np);
+          // 新建实时泡前，本轮可能已经有服务端占位 / 上一次定格出的静态泡：
+          // 不归一化就是截图里那串"过程·58步 → 94步 → 处理中 → 4步"的来源。
+          _collapseProcSegments(messages);
           render();
         }
         // lw 为旧格式 working 泡的情况:不更新,交由上面的完成分支整体替换
@@ -11512,6 +11975,8 @@ async function pollTopicTail(){
     var d=await r.json();
     if(!currentTopic||currentTopic.id!==tid||!d) return;
     var busy=_wBusy(d.working);
+    // 上一轮的状态要在 _tailState 被覆盖前先记下来（下面要用它判"AI 刚结束"）
+    var _wasWorking=(_tailState.tid===tid)&&!!_tailState.working;
     // 先把这个事实落到 _topicBusy 能看见的地方：末尾占位要从"未给出结论"翻成"正在执行"，
     // 这一步不能排在 refreshCurrentTopic 之后（那一次 render 才是让它生效的机会）
     _tailWorking=busy;
@@ -11532,6 +11997,8 @@ async function pollTopicTail(){
       _tailMiss=(_tailMiss||0)+1;
       changed=first||(_tailMiss%5===0);
     }
+    // AI 刚收工：不管 last_id 有没有变，都把文件列表对齐一次（产出文件正是这一轮干的活）
+    if(_wasWorking&&!busy&&typeof fbArAfterTurn==='function') fbArAfterTurn();
     _syncSendBtn(tid);   // _tailWorking 刚被这一路写过，按钮跟着服务端走
     applyTailStep(tid,d);
     // agent 在别处被触发（手机端 / 另一个窗口）→ 把实时泡与 500ms 轮询接上
@@ -11787,6 +12254,12 @@ function fcApplyRouter(key){
   localStorage.setItem('fc_router', key);
   fcReRender();
 }
+// 一键全览：打开时默认会保底 70% 可读缩放，图比画布大时只能看到局部；
+// 这个按钮是显式的「缩到整图入画」出口（双击画布空白处同效，但没人记得住）。
+function fcZoomToFit(){
+  if(!_fcGraph) return;
+  try{ _fcGraph.zoomToFit({ padding:30, maxScale:1.2 }); }catch(_){}
+}
 // 编辑模式切换
 function fcToggleSettings(){
   var panel=document.getElementById('fcSettingsPanel');
@@ -11911,11 +12384,11 @@ function fcShowNodeEditor(cell, currentText, origId){
   var apply=function(){
     var newText=ta.value.trim();
     if(newText && newText!==currentText){
-      // 更新节点显示
-      var lines=fcWrapText(newText,16,4);
+      // 更新节点显示（折行规则与批量渲染一致；宽度沿用节点当前宽度，避免一个节点被改窄破坏整图对齐）
+      var lines=fcWrapText(newText,236,10);
       var h=lines.length*19+20;
       cell.attr('label/text', lines.join('\n'));
-      cell.resize(220, h);
+      cell.resize(cell.size().width, h);
       // 标记有未保存改动
       var sb=document.getElementById('fcSaveBtn');
       if(sb){ sb.textContent='💾 保存*'; sb.style.color='#f2b84b'; }
@@ -11930,20 +12403,22 @@ function fcShowNodeEditor(cell, currentText, origId){
   };
 }
 
-// 文本换行辅助（与 wrap 函数一致，但独立可用）
-function fcWrapText(text, maxChars, maxLines){
-  var words=String(text||'').split('');
-  var lines=[]; var cur='';
-  for(var i=0;i<words.length;i++){
-    if(cur.length>=maxChars){ lines.push(cur); cur=''; }
-    cur+=words[i];
+// 文本换行辅助（与 buildFlowChartX6 内的折行规则保持一致：按视觉字宽，不按固定字数）
+// maxPx = 正文像素宽上限；maxLines = 行数上限（真的超出才在末行补「…」）
+function fcWrapText(text, maxPx, maxLines){
+  var FONT=13;
+  function cw(ch){ return (ch.charCodeAt(0) < 0x2E80 ? 0.55 : 1) * FONT; }
+  var t=String(text||''), ls=[], cur='', w=0;
+  for(var i=0;i<t.length;i++){
+    var c=cw(t[i]);
+    if(w+c > maxPx && cur){
+      ls.push(cur); cur=''; w=0;
+      if(ls.length >= maxLines){ ls[maxLines-1]=ls[maxLines-1].slice(0,-1)+'…'; return ls; }
+    }
+    cur+=t[i]; w+=c;
   }
-  if(cur) lines.push(cur);
-  if(lines.length>maxLines){
-    lines=maxLines.slice?lines.slice(0,maxLines):lines.splice(0,maxLines);
-    lines[maxLines-1]=lines[maxLines-1].substr(0,maxChars-1)+'…';
-  }
-  return lines;
+  if(cur) ls.push(cur);
+  return ls.length?ls:[' '];
 }
 
 // 右键菜单（节点）
@@ -12135,6 +12610,7 @@ var FC_THEMES = {
 };
 
 var FC_LAYOUTS = {
+  'auto':     { name: '自动(按形状)', auto: true },
   'dagre-tb': { name: '树形(上→下)', rankdir: 'TB', nodesep: 50, ranksep: 75 },
   'dagre-lr': { name: '横向(左→右)', rankdir: 'LR', nodesep: 40, ranksep: 100 },
   'dagre-bt': { name: '反向(下→上)', rankdir: 'BT', nodesep: 50, ranksep: 75 },
@@ -12148,24 +12624,71 @@ var FC_ROUTERS = {
   orth:      { name: '正交直角', router: { name:'orth', args:{ padding:8 } },   connector: { name:'normal' } }
 };
 
-// 当前主题/布局/连线（从 localStorage 恢复，默认暗色+树形+正交圆角）
+// 当前主题/布局/连线（从 localStorage 恢复，默认暗色+自动布局+正交圆角）
 var _fcThemeKey  = localStorage.getItem('fc_theme')  || (getTheme()==='white'?'light':'dark');
-var _fcLayoutKey = localStorage.getItem('fc_layout') || 'dagre-tb';
+// 布局改用新键 fc_layout_v2：老键里存的是写死的 'dagre-tb'，直接沿用会让「自动」永远不生效。
+// 一次性迁移：v2 不存在则落 'auto'（用户之后手动选的方向仍会正常持久化）。
+var _fcLayoutKey = localStorage.getItem('fc_layout_v2');
+if(_fcLayoutKey === null){ _fcLayoutKey = 'auto'; try{ localStorage.setItem('fc_layout_v2', _fcLayoutKey); }catch(_){} }
 var _fcRouterKey = localStorage.getItem('fc_router') || 'manhattan';
 var _fcEditable  = localStorage.getItem('fc_editable') === '1';
 if(!FC_THEMES[_fcThemeKey])  _fcThemeKey='dark';
-if(!FC_LAYOUTS[_fcLayoutKey]) _fcLayoutKey='dagre-tb';
+if(!FC_LAYOUTS[_fcLayoutKey]) _fcLayoutKey='auto';
 if(!FC_ROUTERS[_fcRouterKey]) _fcRouterKey='manhattan';
+
+// ── 自动布局方向（2026-10-20）──
+// 显式规则（不是启发式猜测）：用节点真实宽高 + 分层后的「层数/最宽层节点数」估算
+// 两种方向的包围盒，再算各自 fit 进画布需要的缩放比，取缩放比更大（字更能看清）的方向。
+// 同一张图每次必然得到同一答案；判定只用结构与尺寸，不看运气。
+function fcPickAutoLayoutDir(nodes, edges, cw, ch){
+  if(!nodes || !nodes.length) return 'dagre-tb';
+  var maxW = 0, sumH = 0;
+  nodes.forEach(function(n){ if(n.w > maxW) maxW = n.w; sumH += n.h; });
+  var avgH = sumH / nodes.length;
+  // 分层：按有向边 BFS（入度为 0 的当根，环/孤立节点容错为第 0 层）
+  var out = {}, indeg = {};
+  nodes.forEach(function(n){ out[n.id]=[]; indeg[n.id]=0; });
+  (edges||[]).forEach(function(e){
+    if(out[e.source] && out[e.target] !== undefined){ out[e.source].push(e.target); indeg[e.target]++; }
+  });
+  var roots = nodes.filter(function(n){ return !indeg[n.id]; }).map(function(n){ return n.id; });
+  if(!roots.length) roots = [nodes[0].id];
+  var depth = {}, seen = {}, q = roots.slice();
+  roots.forEach(function(id){ depth[id]=0; seen[id]=1; });
+  while(q.length){
+    var id = q.shift();
+    for(var i=0;i<out[id].length;i++){
+      var t = out[id][i];
+      if(seen[t]) continue;
+      seen[t]=1; depth[t]=(depth[id]||0)+1; q.push(t);
+    }
+  }
+  var layers = {}, maxLayer = 0, maxDepth = 0;
+  nodes.forEach(function(n){
+    var d = depth[n.id] === undefined ? 0 : depth[n.id];
+    layers[d] = (layers[d]||0)+1;
+    if(layers[d] > maxLayer) maxLayer = layers[d];
+    if(d > maxDepth) maxDepth = d;
+  });
+  maxDepth += 1;
+  var nodesep = 45, ranksep = 85;
+  // 纵向(TB)：宽 ∝ 最宽层节点数，高 ∝ 层数；横向(LR)：宽高互换
+  var wTB = maxLayer * (maxW + nodesep), hTB = maxDepth * (avgH + ranksep);
+  var wLR = maxDepth * (maxW + ranksep), hLR = maxLayer * (avgH + nodesep);
+  var sTB = Math.max(wTB / Math.max(cw,1), hTB / Math.max(ch,1));
+  var sLR = Math.max(wLR / Math.max(cw,1), hLR / Math.max(ch,1));
+  return sLR < sTB ? 'dagre-lr' : 'dagre-tb';
+}
 
 function buildFlowChartX6(container, x6data, editable){
   if(!x6data||!x6data.nodes||!x6data.nodes.length || typeof X6==='undefined') return null;
 
   var theme = FC_THEMES[_fcThemeKey] || FC_THEMES.dark;
-  var layout = FC_LAYOUTS[_fcLayoutKey] || FC_LAYOUTS['dagre-tb'];
+  var layoutCfg = FC_LAYOUTS[_fcLayoutKey] || FC_LAYOUTS['auto'];
   var routerCfg = FC_ROUTERS[_fcRouterKey] || FC_ROUTERS.manhattan;
   var STATUS_COLOR = theme.statusColor;
   var STATUS_STROKE = theme.statusStroke;
-  var FONT=13, LINE_H=19, PAD_Y=10, NODE_W=220;
+  var FONT=13, LINE_H=19, PAD_Y=10, PAD_X=14;
   editable = !!editable;
 
   var rawNodes=x6data.nodes, rawEdges=x6data.edges||[];
@@ -12178,12 +12701,46 @@ function buildFlowChartX6(container, x6data, editable){
     nodeMap[rn.id]=n; idIndex[n.id]=n; nodes.push(n);
   });
 
+  // ── 文本换行 + 节点宽度（2026-10-20 重写）──
+  // 旧实现：每 16 个字硬切、最多 4 行、超 64 字补「…」⇒ 实测 12 个节点里 10 个被截断，
+  //        平均原文 82 字只露出 63 字，任务描述基本读不全。
+  // 新规则（显式、不看运气）：
+  //   · 按「视觉字宽」折行：CJK 记 1 个字宽，ASCII/数字记 0.55 个字宽
+  //   · 折行目标正文宽 FC_TARGET_W，10 行以内完整显示（不加省略号）；
+  //     只有真的超过 10 行才在末行补「…」，避免极端长文本把节点撑爆
+  //   · 全部节点共用同一宽度（取最长行像素宽再夹到 [180,360]），保证版式对齐
+  var FC_TARGET_W = 236, FC_MIN_W = 180, FC_MAX_W = 360, FC_MAX_LINES = 10;
+  function _charW(ch){ return (ch.charCodeAt(0) < 0x2E80 ? 0.55 : 1) * FONT; }
   function wrap(t){
-    var ls=[];
-    for(var i=0;i<t.length&&ls.length<4;i+=16) ls.push(t.substring(i,i+16));
-    if(t.length>64) ls[3]=ls[3].substring(0,15)+'…';
-    return ls.length?ls:[' '];
+    t = String(t || '');
+    if(!t) return [' '];
+    var ls=[], cur='', wsum=0;
+    for(var i=0;i<t.length;i++){
+      var cw=_charW(t[i]);
+      if(wsum+cw > FC_TARGET_W && cur){
+        ls.push(cur); cur=''; wsum=0;
+        if(ls.length >= FC_MAX_LINES){ ls[FC_MAX_LINES-1]=ls[FC_MAX_LINES-1].slice(0,-1)+'…'; return ls; }
+      }
+      cur += t[i]; wsum += cw;
+    }
+    if(cur) ls.push(cur);
+    return ls.length ? ls : [' '];
   }
+  var _maxLineW=0;
+  nodes.forEach(function(n){
+    var ls=wrap(n.task);
+    n.lines=ls;
+    n.h=ls.length*LINE_H+PAD_Y*2;
+    var w=0;
+    for(var i=0;i<ls.length;i++){
+      var s=0;
+      for(var j=0;j<ls[i].length;j++) s+=_charW(ls[i][j]);
+      if(s>w) w=s;
+    }
+    if(w>_maxLineW) _maxLineW=w;
+  });
+  var NODE_W = Math.round(Math.min(FC_MAX_W, Math.max(FC_MIN_W, _maxLineW + PAD_X*2)));
+  nodes.forEach(function(n){ n.w = NODE_W; });
 
   // 保留外部设置的高度；若没设则用 flex 撑满
   container.style.width='100%';
@@ -12249,15 +12806,19 @@ function buildFlowChartX6(container, x6data, editable){
   }
 
   try{
-    // 添加节点
+    // 批量建图（2026-10-20）：addNode/addEdge/定位全部放进 freeze…unfreeze，
+    // 否则每加一个 cell 都触发一次全图重排重绘 —— 26 个节点的图打开时有 ~0.5s 长任务，
+    // 用户感知就是「点开先顿一下」。
+    graph.freeze();
+
+    // 添加节点（文本行/宽高已在上面统一算好，避免二次折行算出不一致的行数）
     nodes.forEach(function(n){
-      var lines=wrap(n.task);
+      var lines=n.lines;
       var color=STATUS_COLOR[n.status]||STATUS_COLOR.pending;
       var sw=STATUS_STROKE[n.status]||1.2;
-      var h=lines.length*LINE_H+PAD_Y*2;
-      n.h=h;
+      var h=n.h;
       var nodeSpec={
-        id:n.id, shape:'rect', width:NODE_W, height:h,
+        id:n.id, shape:'rect', width:n.w, height:h,
         attrs:{
           body:{ fill:theme.nodeFill, stroke:color, strokeWidth:sw, rx:theme.nodeRx, ry:theme.nodeRx, strokeDasharray:(n.status==='blocked'?'5,3':'') },
           label:{ text:lines.join('\n'), fill:color, fontSize:FONT, fontFamily:theme.fontFamily, textAnchor:'middle', textVerticalAnchor:'middle', lineHeight:LINE_H }
@@ -12303,12 +12864,20 @@ function buildFlowChartX6(container, x6data, editable){
       graph.addEdge(edgeSpec);
     });
 
+    // 解析布局方向：'auto' 按图形状选（TB/LR），手选则直接用所选方向
+    // 注意边要先按 origId→内部 id 归一，否则 fcPickAutoLayoutDir 的分层会用错键（等于全图无根）
+    var _autoEdges = rawEdges.map(function(e){
+      var s=nodeMap[e.source], t=nodeMap[e.target];
+      return (s && t) ? { source:s.id, target:t.id } : null;
+    }).filter(function(x){ return !!x; });
+    var layout = layoutCfg.auto ? (FC_LAYOUTS[fcPickAutoLayoutDir(nodes, _autoEdges, cw, ch)] || FC_LAYOUTS['dagre-tb']) : layoutCfg;
+
     // dagre 布局（使用所选布局方向）
     if(typeof dagre!=='undefined' && dagre.graphlib){
       var g=new dagre.graphlib.Graph();
       g.setGraph({ rankdir:layout.rankdir, nodesep:layout.nodesep, ranksep:layout.ranksep, marginx:40, marginy:40 });
       g.setDefaultEdgeLabel(function(){ return {}; });
-      nodes.forEach(function(n){ g.setNode(n.id, { width:NODE_W, height:n.h }); });
+      nodes.forEach(function(n){ g.setNode(n.id, { width:n.w, height:n.h }); });
       rawEdges.forEach(function(e){
         var srcNode=nodeMap[e.source], tgtNode=nodeMap[e.target];
         if(srcNode&&tgtNode) g.setEdge(srcNode.id, tgtNode.id);
@@ -12317,9 +12886,12 @@ function buildFlowChartX6(container, x6data, editable){
       g.nodes().forEach(function(id){
         var dn=g.node(id);
         var n=idIndex[id];
-        if(n && dn) graph.getCellById(id).position(dn.x-NODE_W/2+40, dn.y-n.h/2+40);
+        if(n && dn) graph.getCellById(id).position(dn.x-n.w/2+40, dn.y-n.h/2+40);
       });
     }
+
+    // 建图结束，一次性渲染出来
+    try{ graph.unfreeze(); }catch(_){}
 
     // 缩放百分比同步
     graph.on('scale', function(){
@@ -12362,6 +12934,14 @@ function buildFlowChartX6(container, x6data, editable){
         }
         graph.resize(w,h);
         graph.zoomToFit({ padding:30, maxScale:1.2 });
+        // 可读性保底（2026-10-20）：zoomToFit 优先让全图入画，但节点一多就会压到 40% 上下
+        // （实测 26 节点 → 41%，13px 字只剩 5px，打开即糊）。低于 0.7 时改为 0.7 + 居中，
+        // 宁可让用户拖一下看其余部分，也不要一屏缩略图。小图（12 节点 73%）不受影响。
+        var FC_MIN_READABLE = 0.7;
+        if(graph.zoom() < FC_MIN_READABLE){
+          graph.zoomTo(FC_MIN_READABLE);
+          graph.centerContent();
+        }
       }catch(_){}
     }
     doFit();
@@ -12902,6 +13482,7 @@ async function openFlowChart(){
     html+='<div style="flex:1 1 auto;min-height:0;display:flex;flex-direction:column;border:1px solid var(--border2);border-radius:var(--radius-md);overflow:hidden;background:transparent;position:relative">'
        // ── 极简顶栏：只有缩放% + 设置 + 关闭 ──
        +'<div id="fcTopBar" style="flex:0 0 auto;padding:4px 10px;border-bottom:1px solid var(--border);display:flex;justify-content:flex-end;align-items:center;gap:6px;background:transparent;user-select:none">'
+       +'<button id="fcFitBtn" onclick="fcZoomToFit()" style="font-size:12px;line-height:1;padding:3px 7px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="全览（缩到整图入画）">⤢</button>'
        +'<span id="fcZoomLabel" style="font-size:11px;color:var(--tdim);font-variant-numeric:tabular-nums;min-width:36px;text-align:right">100%</span>'
 +'<button id="fcSettingsBtn" onclick="fcToggleSettings()" style="font-size:11px;padding:2px 8px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="画布设置"> 设置</button>'
        +'<button id="fcEditBtn" onclick="fcToggleEdit()" style="font-size:11px;padding:3px 8px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer" title="切换编辑模式">✏️ 编辑</button>'
@@ -13330,10 +13911,16 @@ async function loadCompressConfig() {
     var html = '';
     html += '<div class="sp-section"><h4>工作记忆容量</h4>';
     html += '<label class="cfg-label">容量值(tokens)</label>';
-    var wmMin = resp.wm_min ?? 1200, wmMax = resp.context_window ?? 1000000;
+    var wmMin = resp.wm_min ?? 1200, wmMax = resp.wm_max ?? 2000000;
     html += '<input id="cfgTokenLimit" type="number" min="' + wmMin + '" max="' + wmMax + '" step="1000" value="' + esc(String(resp.token_limit ?? 200000)) + '" class="cfg-input">';
     html += '<div class="cfg-hint" style="color:var(--accent)">当前系统状态不建议低于 ' + wmMin.toLocaleString() + ' 值</div>';
-    html += '<div class="cfg-hint">不能超过当前模型的最大上下文窗口。数值越小，注意力越集中、逻辑推理越强，但装不下太多记忆，AI 会更频繁地检索内容，经济性和效益变差；数值越大，记忆力越强，但注意力被稀释，复杂任务的逻辑能力下降。请根据模型实际情况适当调整，建议20000~100000区间。</div>';
+    if (resp.ctx_source === 'unknown') {
+      html += '<div class="cfg-hint">当前模型 <b>' + esc(String(resp.model_name || '')) + '</b> 的上下文窗口未登记（推定 ' + Number(resp.context_window || 0).toLocaleString() + '，仅用于估算），上限按 ' + Number(wmMax).toLocaleString() + ' 处理。设得超过模型真实窗口时，请求会被服务端拒绝。</div>';
+    } else {
+      var _ctxSrcLabel = resp.ctx_source === 'provider' ? '模型源设置' : (resp.ctx_source === 'local' ? '本地模型实测' : '内置登记');
+      html += '<div class="cfg-hint">当前模型上下文窗口 ' + Number(resp.context_window || 0).toLocaleString() + ' tokens（来源：' + _ctxSrcLabel + '），容量不能超过它。</div>';
+    }
+    html += '<div class="cfg-hint">数值越小，注意力越集中、逻辑推理越强，但装不下太多记忆，AI 会更频繁地检索内容，经济性和效益变差；数值越大，记忆力越强，但注意力被稀释，复杂任务的逻辑能力下降。请根据模型实际情况适当调整，建议20000~100000区间。</div>';
     html += '</div>';
     html += '<div style="margin:8px 16px 0;padding-top:16px;border-top:1px solid var(--border);font-size:13px;font-weight:600;opacity:.9">整理设置</div>';
     html += '<div class="sp-section"><h4>单条消息整理</h4>';
@@ -13640,12 +14227,9 @@ var cpCurrentProvider = ''; // 当前正在用的 provider id：进设置页时�
 // 协议/地址仍会被后端实测校正，所以填错了也不至于卡死。
 // 只收已验证过官方文档的站点（其余走手动添加，能力完全一样）。
 var CP_PRESETS = [
-  { name: '基元律动',   base: 'https://tokenrhythm.studio/v1',                tip: 'TokenRhythm（OpenAI + Anthropic 双协议）' },
-  { name: '硅基流动',   base: 'https://api.siliconflow.cn/v1',                 tip: 'SiliconFlow 模型广场' },
   { name: '火山方舟',   base: 'https://ark.cn-beijing.volces.com/api/v3',      tip: '豆包 / 火山引擎方舟' },
   { name: 'Kimi',       base: 'https://api.moonshot.cn/v1',                    tip: '月之暗面 Moonshot' },
-  { name: '阿里云百炼', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', tip: '通义千问 · OpenAI 兼容模式' },
-  { name: '阶跃星辰',   base: 'https://api.stepfun.com/v1',                    tip: 'StepFun' }
+  { name: '阿里云百炼', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', tip: '通义千问 · OpenAI 兼容模式' }
 ];
 
 function cpProtoLabel(p){ return p === 'anthropic' ? 'Anthropic' : 'OpenAI 兼容'; }
@@ -13654,13 +14238,25 @@ function cpProtoLabel(p){ return p === 'anthropic' ? 'Anthropic' : 'OpenAI 兼�
    站点有没有余额接口、字段叫什么，各家都不一样，所以后端是"三层降级"去试。
    前端只负责三件事：显示值 / 说明为什么没有值 / 允许手填。
    手填的值始终优先显示（用户明确填的就算数），但会标注「手填」以示区别。 */
+/* 积分制站点（LeaderAI 立得AI 这类）：余额就是积分，没有货币符号。
+   硬套 ¥ 会显示成「¥4823.00」—— 看着像四千多块钱，其实只是四千多积分。
+   统一用 PTS 这个币种码表示「积分」，渲染时只加「积分」二字。 */
+function cpIsPts(cur){
+  var c = (cur || '').toUpperCase();
+  return c === 'PTS' || c === 'POINTS' || c === 'CREDIT';
+}
 function cpSym(cur){
   var c = (cur || '').toUpperCase();
+  if(cpIsPts(c)) return '';
   if(c === 'USD' || c === 'USDT') return '$';
   if(c === 'EUR') return '€';
   return '¥';
 }
-function cpMoney(v, cur){ return cpSym(cur) + (Number(v) || 0).toFixed(2); }
+function cpMoney(v, cur){
+  var n = Number(v) || 0;
+  if(cpIsPts(cur)) return Math.round(n).toLocaleString() + ' 积分';
+  return cpSym(cur) + n.toFixed(2);
+}
 
 function cpBalBadge(p){
   // 手填优先：站点没接口时这是唯一的数字来源
@@ -13729,7 +14325,7 @@ function cpFind(id){
 
 // ── 源的身份标签 ────────────────────────────────────────────────
 // 现象：同一个站点注册两个号（不同 key）很常见，界面上只显示内部 id
-// （tokenrhythm-2 这种）或者只显示站点名，两个源就"打架"分不清谁是谁。
+// （如 xxx-2 这种）或者只显示站点名，两个源就"打架"分不清谁是谁。
 // 规则：备注是人填的、也是区分依据，所以一律以备注为主显示，同站点再补域名。
 function cpHost(u){
   var s = String(u || '').replace(/^https?:\/\//i, '');
@@ -13840,6 +14436,9 @@ function openCustomProviderForm(id){
     balAuthUser: (p && p.balance_auth && p.balance_auth.user_id) ? String(p.balance_auth.user_id) : '',
     // 已保存的用户 ID（用来判断"这个 ID 是不是用户刚改的"）
     balAuthUserSaved: (p && p.balance_auth && p.balance_auth.user_id) ? String(p.balance_auth.user_id) : '',
+    // 续期令牌（LeaderAI 这类会轮换登录令牌的站点）：与登录令牌同待遇，永不回显
+    balAuthRt: '',
+    balAuthHasRt: !!(p && p.balance_auth && p.balance_auth.has_refresh),
     balAuthClear: false,
     balAuthSaved: false,   // 本次会话里凭据是否已落盘（查询成功后自动保存会点亮）
     bal: null,        // 本次"查询余额"的结果
@@ -13912,6 +14511,7 @@ function cpReadForm(){
   var bt = g('cpBalTok');
   if(bt){ cpForm.balAuthTok = bt; cpForm.balAuthClear = false; }   // 填了新令牌 = 不是要清除
   cpForm.balAuthUser = g('cpBalUser');
+  cpForm.balAuthRt = g('cpBalRt') || '';
 }
 
 function cpClearKey(){
@@ -13941,7 +14541,7 @@ function cpParseHeaders(){
 }
 
 /* 表单里的余额区块：查询 + 结果 + 手填。
-   手填的存在理由：像 tokenrhythm 这类自研网关只提供 models/chat/messages/embeddings
+   手填的存在理由：像 one-api / new-api 这类自建网关只提供 models/chat/messages/embeddings
    四个接口，余额根本不在 API 里（只在报错码里体现），再努力也拉不到 ——
    这时"能填一个数自己看得见"比"什么都查不到"有用。 */
 function cpBalFormHtml(){
@@ -13954,9 +14554,14 @@ function cpBalFormHtml(){
   var r = f.bal;
   if(r){
     if(r.ok && typeof r.remaining === 'number'){
-      h += '<div class="cp-bal-big">' + cpMoney(r.remaining, r.currency)
+      // 积分：大数字只放数值，单位交给后面那个小字（否则会「4,823 积分 积分」）
+      var _pts = cpIsPts(r.currency);
+      h += '<div class="cp-bal-big">'
+         + (_pts ? Math.round(Number(r.remaining) || 0).toLocaleString()
+                 : cpMoney(r.remaining, r.currency))
          + '<span style="font-size:11px;font-weight:400;color:var(--tdim);margin-left:7px">'
-         + esc(r.currency || '') + (r.provider ? ' · ' + esc(r.provider) : '') + '</span></div>';
+         + (_pts ? '积分' : esc(r.currency || ''))
+         + (r.provider ? ' · ' + esc(r.provider) : '') + '</span></div>';
       var kv = [];
       if(typeof r.total === 'number') kv.push('总额度 ' + r.total);
       if(typeof r.used === 'number') kv.push('已用 ' + r.used);
@@ -13973,8 +14578,8 @@ function cpBalFormHtml(){
          + (r.advice ? '：' + esc(r.advice) : '') + '</div>';
     }
   } else {
-    h += '<div class="cp-bal-kv">各家余额接口没有统一标准：这里会先试已知厂商（DeepSeek / 硅基流动 / Kimi / '
-       + '阶跃 / OpenRouter / Novita / 智谱 / DMXAPI），再试 one-api、new-api 系中转站的账单接口，'
+    h += '<div class="cp-bal-kv">各家余额接口没有统一标准：这里会先试已知厂商（DeepSeek / Kimi / '
+       + 'OpenRouter / Novita / 智谱 等），再试 one-api、new-api 系中转站的账单接口，'
        + '最后试几个常见路径。都拿不到的话，可以手动填一个值显示在列表里。</div>';
   }
   // 凭据状态：说清楚"在本地了没有"。用户踩过的坑就是查询成功 -> 以为配好了 ->
@@ -13985,43 +14590,61 @@ function cpBalFormHtml(){
     h += '<div class="cp-bal-note">⚠️ 平台凭据还没保存：点下面的「保存」，或再点一次「查询余额」'
        + '（查到余额时会自动帮你存下来）。</div>';
   }
-  // 平台凭据：只对「余额接口认的钥匙 ≠ 模型密钥」的站点有用（目前是 DMXAPI）。
+  // 平台凭据：只对「余额接口认的钥匙 ≠ 模型密钥」的站点有用（DMXAPI / LeaderAI）。
   // 常显而不按域名藏起来 —— 藏起来用户根本不知道去哪儿填，反而更迷惑。
-  h += '<div class="cp-bal-kv" style="margin-top:10px;font-weight:700">平台凭据（仅 DMXAPI 这类站点需要，不用就留空）</div>';
+  // 两家要的东西不一样，所以第二格按站点换：DMX 要「用户 ID」，LeaderAI 要
+  // 「refresh_token」（它根本没有用户 ID 这种东西）。
+  var _isLdr = /leaderai\.top/i.test(f.base_url || '');
+  h += '<div class="cp-bal-kv" style="margin-top:10px;font-weight:700">平台凭据（仅 DMXAPI / LeaderAI 这类站点需要，不用就留空）</div>';
   // 凭据状态**常显**：令牌框出于安全永不回显明文，用户没法从"空框"判断到底还在不在 ——
   // 于是每次打开都以为丢了、又重填一遍（2026-09-25 用户实测抱怨的正是这个体感）。
   // 这一行直接给结论，别让人去猜。
   var _hasTok = !!f.balAuthHasTok, _uidv = (f.balAuthUser || '').trim();
-  if(_hasTok && _uidv){
-    h += '<div class="cp-bal-note" style="color:var(--success)">🔑 凭据已保存在本地：系统令牌 '
-       + esc(f.balAuthTokMasked || '••••••') + ' · 用户 ID ' + esc(_uidv)
+  var _needUid = !_isLdr;                 // LeaderAI 只要登录令牌
+  if(_hasTok && (_uidv || !_needUid)){
+    h += '<div class="cp-bal-note" style="color:var(--success)">🔑 凭据已保存在本地：登录令牌 '
+       + esc(f.balAuthTokMasked || '••••••')
+       + (_uidv ? (' · 用户 ID ' + esc(_uidv)) : '')
+       + (f.balAuthHasRt ? ' · 续期令牌已存' : '')
        + '（令牌框留空 = 不改动）</div>';
   } else if(_hasTok){
-    h += '<div class="cp-bal-note" style="color:var(--success)">🔑 系统令牌已保存，但还缺「用户 ID」—— 补上才能查到余额。</div>';
+    h += '<div class="cp-bal-note" style="color:var(--success)">🔑 登录令牌已保存，但还缺「用户 ID」—— 补上才能查到余额。</div>';
   } else if(_uidv){
-    h += '<div class="cp-bal-note">⚠️ 只保存了「用户 ID」，还缺「系统访问令牌」—— '
+    h += '<div class="cp-bal-note">⚠️ 只保存了「用户 ID」，还缺登录令牌 —— '
        + '令牌要补填一次并保存（点「查询余额」查到就会自动存）。</div>';
   }
   h += '<div class="cp-inline" style="margin-top:5px">'
      + '<input id="cpBalTok" class="cfg-input sm" type="password" style="flex:1;min-width:150px" placeholder="'
      + (f.balAuthHasTok
-          ? ('系统访问令牌（已保存 ' + (f.balAuthTokMasked || '') + '，留空不改）')
-          : (f.balAuthTok ? '系统访问令牌（本次已填，保存后生效）'
-                          : '系统访问令牌（DMXAPI：个人资料 → 安全 → 访问令牌）'))
+          ? ('登录令牌（已保存 ' + (f.balAuthTokMasked || '') + '，留空不改）')
+          : (f.balAuthTok ? '登录令牌（本次已填，保存后生效）'
+                          : (_isLdr ? '主站 token：F12 → Application → Local Storage'
+                                    : '系统访问令牌（DMXAPI：个人资料 → 安全 → 访问令牌）')))
      + '" value="">'
-     + '<input id="cpBalUser" class="cfg-input sm" style="width:118px" placeholder="用户 ID" value="' + escAttr(f.balAuthUser) + '">'
+     + (_isLdr
+          ? ('<input id="cpBalRt" class="cfg-input sm" type="password" style="width:158px" placeholder="'
+             + (f.balAuthHasRt ? 'refresh_token 已存，留空不改' : 'refresh_token（可选，自动续期）')
+             + '" value="">')
+          : ('<input id="cpBalUser" class="cfg-input sm" style="width:118px" placeholder="用户 ID" value="' + escAttr(f.balAuthUser) + '">'))
      + '</div>';
-  if(f.balAuthHasTok || f.balAuthTok){
+  if(f.balAuthHasTok || f.balAuthTok || f.balAuthHasRt || f.balAuthRt){
     h += '<div class="cp-inline" style="margin-top:4px"><span class="cp-chip" onclick="cpClearBalAuth()">清除平台凭据</span></div>';
   }
-  h += '<div class="cp-bal-kv">DMXAPI 的余额记在<b>账号</b>上，要用上面两项（系统访问令牌 + 用户 ID，'
-     + '都要、且属于同一个账号）才查得到，sk- 开头的模型密钥查不到。</div>';
+  if(_isLdr){
+    h += '<div class="cp-bal-kv">LeaderAI 的积分记在<b>主站账号</b>上，要用主站登录后的 <b>token</b>（一长串 JWT）才查得到；'
+       + 'sk- 开头的模型密钥只用来调模型，查不到积分。复制方法：主站登录后按 F12 → Application → Local Storage → '
+       + '找 <b>token</b>；同处的 <b>refresh_token</b> 顺手填上，登录令牌过期后会自动续期（不填就得每次过期重新复制）。</div>';
+  } else {
+    h += '<div class="cp-bal-kv">DMXAPI 的余额记在<b>账号</b>上，要用上面两项（系统访问令牌 + 用户 ID，'
+       + '都要、且属于同一个账号）才查得到，sk- 开头的模型密钥查不到。</div>';
+  }
   h += '<div class="cp-inline" style="margin-top:9px">'
      + '<input id="cpManualBal" class="cfg-input sm" type="number" step="0.01" style="flex:1;min-width:88px"'
      + ' placeholder="手动填写余额" value="' + escAttr(f.manualVal != null ? f.manualVal : '') + '">'
      + '<select id="cpManualCur" class="cfg-input sm" style="width:82px">'
      + '<option value="CNY"' + (f.manualCur === 'CNY' ? ' selected' : '') + '>CNY</option>'
      + '<option value="USD"' + (f.manualCur === 'USD' ? ' selected' : '') + '>USD</option>'
+     + '<option value="PTS"' + (f.manualCur === 'PTS' ? ' selected' : '') + '>积分</option>'
      + '</select></div>';
   h += '<div class="cp-bal-kv">手动填的值会显示在源列表的余额徽标上；站点自己能查到时就以站点为准。留空 = 不手填。</div>';
   h += '</div>';
@@ -14184,7 +14807,7 @@ function renderCustomProviderForm(){
   // 不提示的话用户会以为保存没生效（第二个源被当成覆盖/被拦下都见过）。
   var _sames = cpSameSiteOthers(f.id, f.base_url);
   h += '<label>备注（同站点多个源靠它区分；留空则取域名）</label>';
-  h += '<input id="cpName" class="cfg-input sm" placeholder="例如：基元律动 / 基元律动·小号" value="' + escAttr(f.name) + '">';
+  h += '<input id="cpName" class="cfg-input sm" placeholder="例如：我的站点 / 我的站点·小号" value="' + escAttr(f.name) + '">';
   if(_sames.length){
     var _desc = '';
     for(var _s=0;_s<_sames.length;_s++){
@@ -14196,7 +14819,7 @@ function renderCustomProviderForm(){
        + '<span class="cp-chip" onclick="cpAutoName()">自动起个不重名的备注</span></div>';
   }
   h += '<label>Base URL *</label>';
-  h += '<input id="cpBase" class="cfg-input sm mono" placeholder="https://tokenrhythm.studio/v1" value="' + escAttr(f.base_url) + '">';
+  h += '<input id="cpBase" class="cfg-input sm mono" placeholder="https://api.example.com/v1" value="' + escAttr(f.base_url) + '">';
   h += '<label>API Key' + (f.has_key ? '（已保存 ' + esc(f.key_masked) + '，留空表示不改）' : (f.api_key ? '（本次已填，保存后生效）' : '（本地服务可留空）')) + '</label>';
   h += '<input id="cpKey" class="cfg-input sm" type="password" placeholder="' + (f.has_key ? '留空保持不变' : 'sk-…') + '">';
   if(f.has_key || f.api_key){
@@ -14287,6 +14910,7 @@ function cpBalAuthPayload(){
   if(cpForm.balAuthTok) o.system_token = cpForm.balAuthTok;
   var u = (cpForm.balAuthUser || '').trim();
   if(u) o.user_id = u;
+  if(cpForm.balAuthRt) o.refresh_token = cpForm.balAuthRt;
   // 有新填的值就发新值 —— 且**优先于清除标记**。
   // 踩过的坑（2026-09-24 实测）：先点「清除平台凭据」、之后重新填令牌再保存，
   // 原来的写法第一句就是 `if(balAuthClear) return {}`，会把刚填的令牌当成
@@ -14300,7 +14924,9 @@ function cpClearBalAuth(){
   if(!cpForm) return;
   cpForm.balAuthTok = '';
   cpForm.balAuthUser = '';
+  cpForm.balAuthRt = '';
   cpForm.balAuthHasTok = false;
+  cpForm.balAuthHasRt = false;
   cpForm.balAuthTokMasked = '';
   cpForm.balAuthClear = true;
   renderCustomProviderForm();
@@ -14313,6 +14939,7 @@ function cpPendingBalAuth(){
   if(!cpForm || !cpForm.id) return false;          // 新源还没保存，无从"顺手存"
   if(cpForm.balAuthClear) return true;             // 想清空也是一次待落盘的改动
   if(cpForm.balAuthTok) return true;               // 填了新令牌（输入框不回显，非空即新填）
+  if(cpForm.balAuthRt) return true;                // 填了续期令牌同理
   var u = (cpForm.balAuthUser || '').trim();
   return u !== (cpForm.balAuthUserSaved || '').trim();
 }
@@ -14333,7 +14960,9 @@ async function cpAutoSaveBalAuth(){
       cpForm.balAuthTokMasked = pub.token_masked || '';
       cpForm.balAuthUser = pub.user_id ? String(pub.user_id) : '';
       cpForm.balAuthUserSaved = cpForm.balAuthUser;
+      cpForm.balAuthHasRt = !!pub.has_refresh;
       cpForm.balAuthTok = '';          // 已落盘，明文不必再留在页面里
+      cpForm.balAuthRt = '';
       cpForm.balAuthClear = false;
       cpForm.balAuthSaved = true;
       return true;
@@ -14382,8 +15011,15 @@ async function cpSave(){
     else {
       alert('保存失败：' + (r.error || '未知错误'));
       if(r.kind === 'duplicate'){
-        var ni = document.getElementById('cpName');
-        if(ni){ ni.focus(); if(ni.select) ni.select(); }
+        // 判重可能因为「站点+密钥」已存在：如果文案在讲协议，该把视线引到协议
+        // 选择器（同一把密钥换协议是允许的），而不是让人反复改备注 ——
+        // 备注改多少次都没用，因为判重压根不看备注（2026-10-20 用户实测踩到）。
+        var pr = document.getElementById('cpProtoRow');
+        if(pr && /协议/.test(r.error || '')){ pr.scrollIntoView({block:'center'}); }
+        else {
+          var ni = document.getElementById('cpName');
+          if(ni){ ni.focus(); if(ni.select) ni.select(); }
+        }
       }
     }
   }catch(e){ alert('请求失败：' + (e.message || '')); }
