@@ -1422,13 +1422,21 @@ def _trim_context_to_budget(messages, token_limit, store=None, topic_id=None, on
     而裁剪是从前往后按对话边界切的，于是每轮都会先砍摘要：
     「刚整理出来的精华，下一轮就被自己裁掉」，整理等于白做（2026-10-21 实测发现）。
     摘要体积很小（两个节点约 1.1k 字 ≈ 600 tok），价值却最高，因此固定保留。
+
+    🔴 但**只钉最近 _CT_PIN_MAX 个**（2026-10-22 复盘）：节点每整理 200 项就多一个，
+    无限钉住等于给上下文开后门 —— 实测攒到十几个节点后，墙设 20 却仍放行 55 条，
+    token 预算也被这些"永不参与裁剪"的消息架空。旧节点照常参与裁剪，
+    真要用还能 expand_compressed 展开（原文一直在库里）。
     """
     history = messages[1:] if len(messages) > 1 else []
-    pinned = [m for m in history if m.get("_ct_node")]
+    _all_nodes = [m for m in history if m.get("_ct_node")]
+    # 取 anchor 最大的若干个（越靠后越新）
+    pinned = sorted(_all_nodes, key=lambda m: m.get("_anchor") or 0)[-_CT_PIN_MAX:]
     if not pinned:
         return _trim_context_to_budget_raw(messages, token_limit, store=store,
                                            topic_id=topic_id, on_dropped=on_dropped)
-    rest = [m for m in history if not m.get("_ct_node")]
+    _pin_ids = {id(m) for m in pinned}
+    rest = [m for m in history if id(m) not in _pin_ids]
     trimmed, n = _trim_context_to_budget_raw([messages[0]] + rest, token_limit,
                                              store=store, topic_id=topic_id,
                                              on_dropped=on_dropped)
@@ -1523,6 +1531,11 @@ def _trim_context_to_budget_raw(messages, token_limit, store=None, topic_id=None
 _ORGANIZE_INFLIGHT = set()
 _ORGANIZE_LOCK = threading.Lock()
 _ORGANIZE_MAX_CHARS = 40000   # 一次整理的原文上限，超出按最早的一段截
+_CT_PIN_MAX = 6               # 裁剪时固定保留的整理摘要个数（最近的 N 个）
+_ORGANIZE_MAX_ITEMS = 200    # 单次整理区间上限（锚点数）。超了只整理最早的一段：
+                              # 摘要 LLM 的输入被截到 24000 字，标着「2316 项」的节点
+                              # 实际只总结了最早一小段 —— 覆盖区间与摘要内容不符，
+                              # 等于静默丢信息（2026-10-22 实测）。
 
 
 def _schedule_organize_dropped(topic_id, dropped):
@@ -1544,6 +1557,13 @@ def _schedule_organize_dropped(topic_id, dropped):
         if len(anchors) < 5:          # 与 MIN_COMPRESSION_ITEMS 对齐
             return
         a0, a1 = min(anchors), max(anchors)
+        # 区间闸：超过上限只整理最早的一段。剩下等下一轮被挤出时再整理，
+        # 否则「一个节点盖住两千项、摘要只写了前 40 项」比不整理更误导。
+        if a1 - a0 + 1 > _ORGANIZE_MAX_ITEMS:
+            _cap_a1 = a0 + _ORGANIZE_MAX_ITEMS - 1
+            print(f"[auto-organize] {str(topic_id)[:8]} 区间 [{a0},{a1}] 过大（{a1-a0+1} 项），"
+                  f"本轮只整理 [{a0},{_cap_a1}]")
+            a1 = _cap_a1
 
         # 体积闸：一次吞 4 万字原文已经够生成高质量摘要，再多只是烧输入 token
         total = 0
@@ -1563,7 +1583,8 @@ def _schedule_organize_dropped(topic_id, dropped):
             try:
                 from tools.memory_tools import compress_context
                 r = compress_context(topic_id=topic_id, anchor_start=a0, anchor_end=a1,
-                                     purpose="归档：预算超限被挤出上下文的历史轮次")
+                                     purpose="归档：预算超限被挤出上下文的历史轮次",
+                                     allow_fallback=False)
                 print(f"[auto-organize] {str(topic_id)[:8]} [{a0},{a1}] -> {str(r)[:160]}")
             except Exception as _e:
                 print(f"[auto-organize] {str(topic_id)[:8]} [{a0},{a1}] 失败: {_e}")
@@ -1640,6 +1661,53 @@ def _is_hanging_announcement(text):
             and not t.endswith(('。', '.', '！', '？', '!', '?')):
         return True
     return False
+
+
+_DYN_PREFIX = ("【系统注入·非用户发言】以下是本轮的环境与状态快照"
+                "（时间 / 任务图 / 记忆 / 上下文用量），照它判断处境；"
+                "不要当成用户说的话，也不要直接复述它。")
+
+# 只保留真正恒定的两组：身份规则 + 工具知识。其余（当前任务/记忆与历史/
+# 系统环境/行动依据/上下文状态/专注模式/规则提醒/未知段）一律下沉到末尾。
+_SYS_STATIC_SECTIONS = ("━━━ 身份与规则 ━━━", "━━━ 工具与知识 ━━━")
+
+
+def _split_system_dynamic(system_msg):
+    """把 system 里「每轮都会变」的段落剥离出来，交给调用方拼到 messages 末尾。
+
+    🔴 为什么必须拆（2026-10-21 实测，Temp/_zz_cache_real.py）：
+       DeepSeek 的上下文缓存是**前缀匹配**，而 tools schema（约 11k tok）排在 system 之后。
+       system 里只要有**一个字节**变化 —— 【现在】的毫秒时间戳、【任务流程图】的节点计数、
+       「📊 N 条消息在上下文中」的统计行 —— 工具定义就得整体重算。
+       实测：只改统计行里一个数字，命中率 99.6% → 26.6%，单次往返多付 11,264 tok。
+       按 flash 峰值价约 0.033 元/往返，一次 8 轮往返的任务白白多花 0.26 元；
+       预填充耗时同时从 2.0s 涨到 5.4s（缓存命中时几乎不重算）。
+
+       拆法：system 只留恒定的「身份与规则」「工具与知识」，其余全部下沉为
+       messages 末尾的一条独立消息（不落库，每轮重建）。末尾离生成最近，
+       注意力反而更强，不是降级 —— 只是把"规则"和"当下状态"分成两类放。
+
+    返回 (static_system_msg, dynamic_text)。dynamic_text 为空表示无需拆分（保持原样）。
+    """
+    if not isinstance(system_msg, dict) or system_msg.get("role") != "system":
+        return system_msg, ""
+    content = system_msg.get("content") or ""
+    if not isinstance(content, str) or not content.strip():
+        return system_msg, ""
+    _SEP = "\n\n" + "═" * 15 + "\n\n"
+    parts = content.split(_SEP)
+    keep, moved = [], []
+    for p in parts:
+        head = p.lstrip().split("\n", 1)[0][:40]
+        if any(head.startswith(s) for s in _SYS_STATIC_SECTIONS):
+            keep.append(p)
+        else:
+            moved.append(p)
+    # 没有可动的段，或没有可留的段 —— 都保持原样，绝不把 system 掏空
+    if not moved or not keep:
+        return system_msg, ""
+    _static = {**system_msg, "content": _SEP.join(keep)}
+    return _static, "\n\n".join(moved)
 
 
 def _inject_context_hints(msgs, topic_id, limit_truncated=False):
@@ -4328,7 +4396,85 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         _ws_abs = os.path.abspath(_resolve_workspace(_ws_rel, _tid))
                     except Exception:
                         _ws_abs = ""
-                self._json(200, {"allow_outside": _allow, "workspace": _ws_abs})
+                # 产出文件夹（用户为这个任务额外指定的交付目录，与工作区并存）。
+                # 目录后来被删/拔盘时仍原样回报（用户在菜单里要能看到"我设过它"），
+                # 由前端标"不可用"，运行时另有 isdir 兜底 —— 绝不静默当成没设置。
+                _od = (self.db.get_topic_meta(_tid, "output_dir") or "").strip() if _tid else ""
+                self._json(200, {"allow_outside": _allow, "workspace": _ws_abs,
+                                 "output_dir": _od,
+                                 "output_dir_ok": bool(_od) and os.path.isdir(_od)})
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+
+        # ── 目录选择器（输入框「选择本地项目」专用）──
+        # 只列目录、不列文件。刻意不复用 /api/mission-files：后者 subdir 不存在时会
+        # 静默回退到工作区，在选择器里会表现成"点了 D:\xxx 却跳到工作区"的错目录。
+        # path 为空 = 此电脑（Windows 返回所有存在的盘符根）。
+        elif path == "/api/dir-picker":
+            try:
+                import string as _string
+                _roots = []
+                if os.name == "nt":
+                    for _d in _string.ascii_uppercase:
+                        _rp = _d + ":\\"
+                        try:
+                            if os.path.isdir(_rp):
+                                _roots.append({"name": _d + ":", "path": _rp})
+                        except OSError:
+                            pass
+                else:
+                    _roots = [{"name": "/", "path": "/"}]
+                _p = (params.get("path", [""])[0] or "").strip()
+                # 从资源管理器"复制路径"常带引号；'C:' 无反斜杠在 Windows 上指该盘当前目录，补成根
+                _p = _p.strip('"').strip("'")
+                if os.name == "nt" and len(_p) == 2 and _p[1] == ":":
+                    _p = _p + "\\"
+                if not _p:
+                    self._json(200, {"path": "", "parent": "", "crumbs": [],
+                                     "dirs": [], "roots": _roots})
+                    return
+                _p = os.path.abspath(_p)
+                if not os.path.isdir(_p):
+                    self._json(200, {"path": "", "parent": "", "crumbs": [], "dirs": [],
+                                     "roots": _roots,
+                                     "error": "目录不存在或无法访问: " + _p})
+                    return
+                _dirs, _err = [], ""
+                try:
+                    with os.scandir(_p) as _it:
+                        for _e in _it:
+                            try:
+                                if not _e.is_dir(follow_symlinks=False):
+                                    continue
+                            except OSError:
+                                continue
+                            if _e.name in ("$RECYCLE.BIN", "System Volume Information"):
+                                continue
+                            _dirs.append({"name": _e.name, "path": os.path.join(_p, _e.name)})
+                except PermissionError:
+                    _err = "没有权限访问这个目录"
+                except OSError as _oe:
+                    _err = f"无法读取目录: {_oe}"
+                _dirs.sort(key=lambda x: x["name"].lower())
+                # 面包屑：从盘符根逐级到当前目录，每段都带绝对路径好回跳
+                _crumbs, _cur, _guard = [], _p, 0
+                while _cur and _guard < 64:
+                    _trimmed = _cur.rstrip("\\/")
+                    _name = os.path.basename(_trimmed) or (_trimmed[:2] if _trimmed[1:2] == ":" else _trimmed)
+                    _crumbs.insert(0, {"name": _name, "path": _cur})
+                    _up = os.path.dirname(_trimmed)
+                    if not _up or _up == _cur or _up == _trimmed:
+                        break
+                    _cur = _up
+                    _guard += 1
+                _parent = os.path.dirname(_p.rstrip("\\/"))
+                # 盘符根（'D:\'）的 dirname 是 'D:' 它自己（Windows 的怪癖），
+                # 这里必须归一成空 —— 空 = 此电脑；否则前端会画出一个点不动的"上一级"。
+                if (not _parent or _parent == _p
+                        or os.path.normcase(_parent) == os.path.normcase(_p.rstrip("\\/"))):
+                    _parent = ""
+                self._json(200, {"path": _p, "parent": _parent, "crumbs": _crumbs,
+                                 "dirs": _dirs, "roots": _roots, "error": _err})
             except Exception as e:
                 self._json(500, {"error": str(e)})
         elif path.startswith("/api/mission-files"):
@@ -5840,6 +5986,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         db.set_topic_meta(tid, "workspace", ws_store)
                     if allow_outside is not None:
                         db.set_topic_meta(tid, "allow_outside", "1" if allow_outside else "0")
+                    # 产出文件夹：只认"真的存在且是目录"，避免存进一个错路径后
+                    # 任务里再也看不到它、也删不掉（前端拿不到这个键）。
+                    # 传空字符串 = 清除；键不传 = 不动。
+                    if "output_dir" in data:
+                        _od = (data.get("output_dir") or "").strip().strip('"').strip("'")
+                        if _od:
+                            if os.name == 'nt' and len(_od) == 2 and _od[1] == ':':
+                                _od = _od + '\\'
+                            _od = os.path.abspath(_od)
+                            if not os.path.isdir(_od):
+                                self._json(400, {"error": f"目录不存在或无法访问: {_od}"})
+                                return
+                            db.set_topic_meta(tid, "output_dir", _od)
+                        else:
+                            db.delete_topic_meta(tid, "output_dir")
                 self._json(200, {"success": True})
             except Exception as e:
                 self._json(500, {"error": str(e)})
@@ -6962,6 +7123,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             ws_short = ws
         if len(ws_short) > 60: ws_short = "..." + ws_short[-57:]
+        # 产出文件夹：用户为这个任务额外指定的交付目录（工作区不变，只是多一个可读写目录）。
+        # 目录已不存在（拔盘/被删）时本轮按"没设置"处理 —— 但 meta 值保留，
+        # 前端仍能看到"我设过它"，不至于静默丢失。
+        _output_dir = (self.db.get_topic_meta(tid, "output_dir") or "").strip()
+        if _output_dir and not os.path.isdir(_output_dir):
+            print(f"[workspace] ⚠️ 产出文件夹不可用，本轮忽略: {_output_dir}")
+            _output_dir = ""
         # Normal flow — add message and build history
 
         store = _get_memory_store()
@@ -7036,6 +7204,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # Block 2: 当前任务
         task_header = f'任务: {topic.get("title", "新任务")}\nID: {tid[:8]}\n工作区: {ws_short}'
+        # ── 路径句柄（2026-10-22）──
+        # 让模型手拼长绝对路径必然出错（层级/中文名/反斜杠各有各的错法），所以给两个
+        # 短句柄由执行端展开：工作区/ 、产出/ 。出口侧工具返回的路径也是句柄形式，
+        # 模型"看到什么写什么"即可闭环。详见 tools/file_tools._ref_path。
+        _path_hint = '\n路径写法: 路径参数优先用句柄 —— "工作区/<相对路径>"'
+        if _output_dir:
+            _path_hint += '，产出文件夹用 "产出/<相对路径>"'
+        _path_hint += '；bash 里用 $BIGEYE_WS' + (' / $BIGEYE_OUT' if _output_dir else '') \
+                    + '。别手拼整条绝对路径（层级和中文名最容易错）。'
+        task_header += _path_hint
+        if _output_dir:
+            _od_show = _output_dir if len(_output_dir) <= 90 else "..." + _output_dir[-87:]
+            task_header += (
+                "\n产出文件夹: " + _od_show
+                + "\n  · 这是用户为本任务指定的交付目录（在工作区之外，同样可读写）。成品、交付物优先写这里，"
+                "引用它用 \"产出/<文件名>\" 即可，不用抄下面这行绝对路径。"
+            )
         blocks.append(_vocab("task_title") + "\n" + task_header)
 
         # Block 2.05: 交互（一行提示，省上下文；需要时 discover_tools('interaction')）
@@ -7686,6 +7871,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         _allow_outside = (self.db.get_topic_meta(tid, "allow_outside") == "1")
         tools.file_tools.set_allow_outside(_allow_outside)
         tools.bash.set_allow_outside(_allow_outside)
+        # 产出文件夹：不是拆围墙，是在墙上多开一扇门 —— 只放开这一个目录，
+        # 其余越权判定仍按 allow_outside。bash 走 file_tools._check_boundary，自动生效。
+        try:
+            tools.file_tools.set_extra_roots([_output_dir] if _output_dir else [])
+        except Exception as _od_err:
+            print(f"[workspace] ⚠️ set_extra_roots 失败（老工具模块？）: {_od_err}")
         # Cancel event — allows /api/stop-thinking to interrupt streaming
         cancel_evt = threading.Event()
         with _cancel_lock:
@@ -7723,6 +7914,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "est": _est}
 
         turn = 0
+        # 系统注入的动态状态（时间/任务图/记忆/上下文用量）：每轮变，只能追在 messages 末尾，
+        # 不能进 system —— 否则前缀缓存全废。用可变容器让 loop 内降级时也能更新。
+        _dyn_state = {"text": "", "injected": False}
+
+        def _send_view(_msgs):
+            """实际发给模型的 messages：首次发送前把动态状态追到末尾。
+
+            ⚠ 只追加**一次**：若每次工具往返都重追，模型会看到
+            「tool 结果 → 又一条 user 消息」，容易误判成用户插话而中断当前动作。
+            首次追加后它就是历史的一部分（位置在末尾，裁剪不会先切它），
+            后续轮次自然带着，前缀仍然连续。
+            """
+            if _dyn_state.get("injected"):
+                return _msgs
+            _t = _dyn_state.get("text") or ""
+            if not _t:
+                return _msgs
+            _msgs.append({"role": "user", "content": _DYN_PREFIX + "\n\n" + _t})
+            _dyn_state["injected"] = True
+            return _msgs
+
         msgs = _build_messages(system_msg=system_msg, history=history_msgs, new_msg=message)
         current_msg = msgs[-1]
         old_msgs = _compress_context(msgs[:-1], tid, store, self.db)
@@ -7744,6 +7956,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             msgs = strip_image_content(msgs, llm_config.model,
                                        vision_ok=_vision_capable(llm_config))
         _inject_context_hints(msgs, tid, limit_truncated=limit_truncated)
+        # 🔴 system 必须是恒定前缀，否则 tools schema（约 11k tok）每轮重算，
+        # 缓存命中率从 99.6% 掉到 26.6%。动态段下沉到末尾单独一条（见 _split_system_dynamic）。
+        msgs[0], _dyn_state["text"] = _split_system_dynamic(msgs[0])
+        if _dyn_state["text"]:
+            print(f"[cache] system 已拆：恒定 {len(msgs[0]['content'])} 字 / "
+                  f"动态 {len(_dyn_state['text'])} 字（下沉到末尾，保住 tools 前缀缓存）")
         # 缓存调试快照：包含 messages + tools + token 拆解
         # 之前只存 msgs，导致工具 schema（可达 13k+ tokens）不可见，调试时对不上 token 数
         _active_tools = _get_enabled_tool_defs(tid)
@@ -7751,13 +7969,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         _snapshot = {
             "model": llm_config.model,
             "provider": llm_config.provider,
-            "messages": msgs,
+            "messages": _send_view(msgs),
             "tools": _active_tools,
             "tool_count": len(_active_tools),
             "estimate": {
-                "messages_tokens": _estimate_tokens(msgs),
+                "messages_tokens": _estimate_tokens(_send_view(msgs)),
                 "tools_tokens": _tools_tokens,
-                "total_estimated": _estimate_tokens(msgs) + _tools_tokens,
+                "total_estimated": _estimate_tokens(_send_view(msgs)) + _tools_tokens,
             },
         }
         _last_request_body[tid] = json.dumps(_snapshot, ensure_ascii=False, indent=2)
@@ -7817,6 +8035,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     tools.image_gen_tool.set_workspace(ws)
                     tools.file_tools.set_allow_outside(_allow_outside)
                     tools.bash.set_allow_outside(_allow_outside)
+                    try:
+                        tools.file_tools.set_extra_roots([_output_dir] if _output_dir else [])
+                    except Exception:
+                        pass
                     print(f"[agent] task context re-bound -> {tid[:8]} (turn {remaining})")
             except Exception as _ctx_rebind_err:
                 print(f"[agent] task context self-check failed: {_ctx_rebind_err}")
@@ -7851,11 +8073,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         _m.setdefault("reasoning_content", _m.get("_thinking") or "")
             _tool_defs = _get_enabled_tool_defs(tid)
             try:
-                _est_input += _estimate_tokens(msgs) + _estimate_tools_tokens(_tool_defs)
+                _est_input += _estimate_tokens(_send_view(msgs)) + _estimate_tools_tokens(_tool_defs)
             except Exception:
                 pass
 
-            for event in chat_stream_cached(llm_config, msgs, tools=_tool_defs, cancel_event=cancel_evt, verify_ssl=_VERIFY_SSL):
+            for event in chat_stream_cached(llm_config, _send_view(msgs), tools=_tool_defs, cancel_event=cancel_evt, verify_ssl=_VERIFY_SSL):
                 et = event["type"]
                 if et == "thinking_delta":
                     full_thinking += event["delta"]
@@ -8386,6 +8608,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     _new_system, _removed2 = _compose_system(blocks, _focus_level, _focus_custom, "（上下文压力自动降级）")
                     if _removed2:
                         msgs[0] = {"role": "system", "content": _new_system}
+                        # 降级重组会把动态段又塞回 system —— 重新拆一次，否则缓存当轮失效
+                        msgs[0], _dyn_state["text"] = _split_system_dynamic(msgs[0])
                         _auto_downgraded = True
                         print(f"[context-wall] 自动降级 system → focus {_focus_level}, 移除: {_removed2}")
                         continue  # 重新估算

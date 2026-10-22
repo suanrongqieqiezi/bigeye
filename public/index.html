@@ -2219,8 +2219,15 @@ function _slimForCache(list){
 function saveCache(tid){ try { var id=tid||(currentTopic?currentTopic.id:null); if(!id) return; var payload=JSON.stringify({topicId:id,messages:_slimForCache(typeof dedupeMsgs==='function'?dedupeMsgs(messages):messages),ts:Date.now(),msgOffset:msgOffset,allLoaded:allLoaded,conclView:_conclView,scrollTop:chatBox.scrollTop,atBottom:(typeof chatAtBottom==='function'?chatAtBottom():false)}); try { localStorage.setItem(LS_KEY+'_'+id,payload); } catch(e1){ try { // 配额满:清掉其他话题的持久缓存(内存缓存不受影响),保住当前话题,否则切任务永远全量重拉
   for(var qi=localStorage.length-1;qi>=0;qi--){ var qk=localStorage.key(qi); if(qk&&qk.indexOf(LS_KEY)===0&&qk!==LS_KEY+'_'+id) localStorage.removeItem(qk); } localStorage.setItem(LS_KEY+'_'+id,payload); } catch(e2){} } localStorage.setItem(LS_KEY+'_topics',JSON.stringify(topics)); localStorage.setItem(LS_KEY+'_active',id); saveMemCache(id); } catch(e){} }
 // ── 输入框草稿自动保存（独立前缀，避开 pruneCache 按 LS_KEY 清理）──
+// 键 = 任务 id ⇒ 草稿天然跟随任务。🔴 三条不变量，缺任何一条都会表现成"草稿没跟随任务独立"：
+//   ① 切走前必须显式传**旧** tid 保存（切换过程中 currentTopic 可能已被别处改写，不能靠它推断）；
+//   ② 切到新任务必须**覆盖**输入框 —— 新任务没有草稿也要清空。否则上一个任务的字留在框里，
+//      用户看到的就是"我打的字跟着我跑到别的任务去了"；
+//   ③ 切换时必须取消 pending 的防抖定时器 —— 否则它 400ms 后用**新** currentTopic 把**旧**文本
+//      写进新任务的键，那是真的串任务污染（不只是显示问题）。
 var DRAFT_KEY_PREFIX='dayan_draft_';
 var draftTimer=null;
+function _draftCancel(){ if(draftTimer){ clearTimeout(draftTimer); draftTimer=null; } }
 function saveDraft(tid){
   try{
     if(!tid){ tid=currentTopic?currentTopic.id:null; }
@@ -2239,14 +2246,19 @@ function loadDraft(tid){
     return (d && typeof d.text==='string') ? d.text : '';
   }catch(e){ return ''; }
 }
-function restoreDraft(tid, doFocus){
+// onlyIfEmpty：首屏收尾用。启动时 initApp 会再恢复一次草稿，而那时用户可能已经开打了
+// —— 无条件覆盖会把刚敲的字抹掉。emptyOnly 时框里已有内容就直接让路（切换任务绝不传它）。
+function restoreDraft(tid, doFocus, onlyIfEmpty){
   try{
+    if(!msgInput) return;
+    if(onlyIfEmpty && msgInput.value){ return; }   // 用户已经在写了：别动他的字
+    _draftCancel();                    // ③ 先掐掉还没落盘的那次保存，别让它写到新任务键上
     var txt=loadDraft(tid);
-    if(!txt || !msgInput) return;
-    msgInput.value=txt;
+    msgInput.value=txt;                // ② 空草稿也要覆盖：清掉上一个任务留在框里的字
     msgInput.style.height='auto';
-    msgInput.style.height=Math.min(msgInput.scrollHeight,120)+'px';
-    if(doFocus){ msgInput.focus(); msgInput.setSelectionRange(txt.length,txt.length); }
+    if(txt) msgInput.style.height=Math.min(msgInput.scrollHeight,120)+'px';
+    // 只有"本来就在写草稿"时才还焦点：没草稿就别抢（切换常常发生在用户翻消息时）
+    if(doFocus && txt){ msgInput.focus(); msgInput.setSelectionRange(txt.length,txt.length); }
   }catch(e){}
 }
 
@@ -3057,6 +3069,11 @@ async function deleteTopicItem(tid){
   topics=topics.filter(function(t){return t.id!==tid;});
   var wasCurrent=currentTopic&&currentTopic.id===tid;
   if(wasCurrent){
+    // 草稿跟随任务：下面直接改 currentTopic，随后的 switchTopic(next.id) 会被
+    // 开头「currentTopic.id===tid 就 return」短路掉 ⇒ 那边负责的存档/恢复都不会跑，
+    // 所以这里必须自己补上，否则输入框会一直留着**被删任务**的字。
+    saveDraft(tid);
+    _draftCancel();
     var next=topics[0];
     if(next){
       // Immediate: update UI from local state, don't wait for server
@@ -3064,11 +3081,14 @@ async function deleteTopicItem(tid){
       topicTitle.textContent=dispTitle(next);
       var cached=loadCache(next.id);
       messages=cached&&cached.messages?cached.messages:[];
+      restoreDraft(next.id,false);   // 换成下一个任务的草稿（没有就清空）
       render(); renderTopics(); if(window.innerWidth<=768) closeSidebar(true);
       // Background: sync switch with server (fire-and-forget)
       switchTopic(next.id).catch(function(){});
     } else {
-      currentTopic=null; messages=[]; topicTitle.textContent='任务'; renderTopics(); render();
+      currentTopic=null; messages=[]; topicTitle.textContent='任务';
+      restoreDraft(null,false);      // 一个任务都不剩 ⇒ 输入框必须是空的
+      renderTopics(); render();
     }
   } else {
     renderTopics();
@@ -3577,16 +3597,30 @@ async function loadTopics(){
     }
     await syncWorkingDots();
     renderTopics();
+    // 冷启动兜底：boot 的两次定时可能都赶在任务恢复之前（库大时 /api/topics 要 1s+）。
+    // 这里补一次，保证标签条一存在就带着 outdir/其它常驻标签。
+    try {
+      if (currentTopic && typeof wsTabsLoad === 'function'
+          && window._tabsColdDone !== currentTopic.id) {
+        window._tabsColdDone = currentTopic.id;
+        setTimeout(function () { try { wsTabsLoad(); } catch (e) {} }, 0);
+      }
+    } catch (e) {}
     return true;
   } catch(e){ return false; }
 }
 
 async function newTopic(){
   if(_searchMode) ssClear();   // 新建任务时退出搜索态，让新任务出现在列表里
+  // 草稿跟随任务：先把旧任务的字落回**旧**键，再清空输入框 —— 新任务是一张白纸，
+  // 不能让上一个任务没发出去的残留跟进来（不处理的话 400ms 防抖还会把它写进新任务的键）。
+  saveDraft(currentTopic?currentTopic.id:null);
+  _draftCancel();
   window._creatingTopic=true;  // 互斥标志：阻止 loadTopics 轮询覆盖 currentTopic
   msgOffset=0; allLoaded=false;
   currentTopic=null;
   messages=[];
+  if(msgInput){ msgInput.value=''; msgInput.style.height='auto'; }
   topicTitle.textContent='新任务';
   // ⚠️ 必须和 switchTopic 一样停掉上一个任务的工作轮询。
   // 否则那个轮询（tid 还是旧任务）会在自己的 await 返回后继续往下走，把旧任务的
@@ -3631,7 +3665,7 @@ async function switchTopic(tid){
   // 只有切换前焦点本来就在输入框（正在写草稿）时才还给它。
   var _keepInputFocus=(document.activeElement===msgInput);
   saveCache();
-  saveDraft(); // 切走前保存旧话题草稿
+  saveDraft(currentTopic?currentTopic.id:null); // ① 切走前把旧任务的字存回**旧**键（显式传 tid）
   var _seq=++switchSeq;
   chatStick=false; _userUp=false; // 不抢焦点:切任务时让用户保留滚动位置,后续 render 按实际位置决定
   // 从内存缓存恢复分页状态:已加载完的话题不重置游标
@@ -3766,6 +3800,9 @@ async function switchTopic(tid){
     // 面板没开也要先探一次：否则用户点开工作区时状态未知，标签会先闪一下再隐藏
     if(typeof wsProbeFiles==='function') wsProbeFiles();
     if(typeof wsCheckAutoOpen==='function') wsCheckAutoOpen();   // 面板关闭时切到有标签的任务：预检自动展开
+    // 产出文件夹的"当前值"只在 wsTabsLoad 里重置，面板关着时它不会跑 —— 留上一个任务的
+    // 路径在这里，任何一次别处触发的 wsTabsRender 都会把别人的产出标签画到新任务上。
+    if(typeof fbOutputDir!=='undefined') fbOutputDir = fbOutputDirByTid[tid] || '';
   }
   try { var bc=new BroadcastChannel('dayan'); bc.postMessage({type:'msg',tid:tid}); bc.close(); } catch(e){}
   } finally { window._switching=false;
@@ -6696,7 +6733,12 @@ function renderFileBrowser(data, mode){
   if(!grid) return;
   var files=(data&&data.files)||[];
   var subdir=data&&data.subdir||'';
-  if(mode==='explorer'){ fbExplorerPath=subdir; if(!fbCurrentPath) fbCurrentPath=''; }
+  if(mode==='explorer'){
+    fbExplorerPath=subdir;
+    if(!fbCurrentPath) fbCurrentPath='';
+    // outdir 标签记住自己浏览到哪一层：切走再回来不能跳回根，也不能把路径串给别的标签
+    try{ var _ot=(fbScope==='main')?wsPaneActive(0):null; if(_ot&&_ot.type==='outdir') _ot.path=subdir; }catch(e){}
+  }
   else fbCurrentPath=subdir;
   fbLastListDir=subdir||'';
   fbLastListMode=mode;
@@ -6717,20 +6759,42 @@ function renderFileBrowser(data, mode){
       // 落在资产根之上的那几段不再重复渲染（否则 D: › vivo › vivo 会出现两遍）。
       var _pp=(fbScope==='ab')?fbPathPrefix:null;
       var _skip=0;
-      if(_pp&&_pp.root){
+      // outdir 标签：面包屑只画「文件夹名 › 子目录…」，不给"此电脑"入口 ——
+      // 这个标签的语义就是"看这一个目录"，能漫游到 C:\ 根反而让人以为它坏了。
+      var _odTab=(fbScope==='main')?(function(){try{var _t=wsPaneActive(0);return (_t&&_t.type==='outdir')?_t:null;}catch(e){return null;}})():null;
+      // 分隔符归一：格子里的 data-dir 是 subdir+'/'+name 拼的，和 ref 的反斜杠对不上
+      var _odRoot=_odTab?String(_odTab.ref||'').replace(/[\\/]+/g,'\\'):'';
+      var _odCur=String(showPath||'').replace(/[\\/]+/g,'\\');
+      var _inOut=!!(_odRoot && (_odCur.toLowerCase()===_odRoot.toLowerCase()
+                   || _odCur.toLowerCase().indexOf((_odRoot+'\\').toLowerCase())===0));
+      if(_inOut){
+        var _rp=_odRoot.split(/[\\\/]/).filter(function(x){return x.length>0;});
+        var _rest=parts0.slice(_rp.length);
+        var _acc=_odRoot;
+        html+='<span class="fb-ws-crumb'+(_rest.length?'':' active')+'"'
+             +(_rest.length?' onclick="loadWorkspaceFiles(\''+_acc.replace(/\\/g,'\\\\')+'\',\'explorer\')"':'')
+             +' title="'+esc(_odTab.ref)+'">'+esc(_odTab.title||'产出文件夹')+'</span>';
+        _rest.forEach(function(pname,pi){
+          _acc=_acc+'\\'+pname;
+          var _isLast=(pi===_rest.length-1);
+          html+='<span class="fb-ws-sep">›</span><span class="fb-ws-crumb'+(_isLast?' active':'')
+               +'"'+(_isLast?'':' onclick="loadWorkspaceFiles(\''+_acc.replace(/\\/g,'\\\\')+'\',\'explorer\')"')
+               +'>'+esc(pname)+'</span>';
+        });
+      } else if(_pp&&_pp.root){
         var _rp=_pp.root.replace(/[\\\/]$/,'').split(/[\\\/]/).filter(function(x){return x.length>0;});
         if(_rp.length&&parts0.slice(0,_rp.length).join('\\').toLowerCase()===_rp.join('\\').toLowerCase()) _skip=_rp.length;
         html+='<span class="fb-ws-crumb" onclick="abBackToShelf()" title="返回资产库书架">资产库</span>'
              +'<span class="fb-ws-sep">›</span><span class="fb-ws-crumb'+(_skip>=parts0.length?' active':'')+'" onclick="abBrowseGoto(\'\')" title="'+escAttr(_pp.root)+'">'+esc(_pp.name)+'</span>';
       }else{
         html+='<span class="fb-ws-crumb" onclick="loadWorkspaceFiles(\'\',\'explorer\')">此电脑</span>';
+        parts0.forEach(function(pname,pi){
+          if(pi<_skip) return;   // 资产根及其之上的段不重复画
+          var acc=parts0.slice(0,pi+1).join('\\');
+          if(/^[A-Za-z]:$/.test(acc)) acc=acc+'\\';
+          html+='<span class="fb-ws-sep">›</span><span class="fb-ws-crumb'+(pi===parts0.length-1?' active':'')+'" onclick="loadWorkspaceFiles(\''+acc.replace(/\\/g,'\\\\')+'\',\'explorer\')">'+esc(pname)+'</span>';
+        });
       }
-      parts0.forEach(function(pname,pi){
-        if(pi<_skip) return;   // 资产根及其之上的段不重复画
-        var acc=parts0.slice(0,pi+1).join('\\');
-        if(/^[A-Za-z]:$/.test(acc)) acc=acc+'\\';
-        html+='<span class="fb-ws-sep">›</span><span class="fb-ws-crumb'+(pi===parts0.length-1?' active':'')+'" onclick="loadWorkspaceFiles(\''+acc.replace(/\\/g,'\\\\\\\\')+'\',\'explorer\')">'+esc(pname)+'</span>';
-      });
       ws.innerHTML=html;
     }else{
     // workspace 模式：只渲染相对路径。地址栏首段固定是「工作区」，子目录时它可点回根；
@@ -7727,12 +7791,15 @@ var WS_TAB_META = {
   file:    { icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8992a8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>', label: '文件' },
   mindmap: { icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>', label: '导图' },
   draft:   { icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3ddc84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>', label: '草稿纸' },
-  temp:    { icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffa657" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>', label: '临时件' }
+  temp:    { icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffa657" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>', label: '临时件' },
+  // 产出文件夹（2026-10-22）：用户为任务选的外部目录。title 用文件夹名覆盖，图标用青色
+  // 与「工作区」（琥珀色）区分 —— 两者都是文件夹，靠颜色一眼分清是任务内还是任务外。
+  outdir:  { icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2fe0c6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9.2 13.2h5.6"/><path d="M12.6 10.6 15.2 13.2l-2.6 2.6"/></svg>', label: '产出文件夹' }
 };
 function wsTabMeta(t) { return WS_TAB_META[t] || { icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8992a8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>', label: String(t || '') }; }
 // 标签分类（2026-09-20 定稿）：常驻产出类=任务产出物本体，不提供“关闭”（不渲染×、关闭被拦截）；
 // 窗口查看类=本体在资产库/文件系统，标签只是预览窗口，可随时关闭。判定口径=关掉后东西是否还在。
-var WS_TAB_RESIDENT = { mindmap: 1, draft: 1, temp: 1 };
+var WS_TAB_RESIDENT = { mindmap: 1, draft: 1, temp: 1, outdir: 1 };
 function wsTabIsResident(type) { return !!WS_TAB_RESIDENT[type]; }
 // 钉死标签（节点⑰ 2026-09-22 用户拍板再反转）：工作区(files)是常驻底座——不可关闭、
 // 不可拖拽移出、永远排第一位；空任务隐藏（无产出不显示）。文件浏览器(explorer)退为普通标签："+"号按需打开，可关闭。
@@ -7850,7 +7917,11 @@ function wsSanitizeLayout(lay) {
 }
 function wsTabsLoad() {
   if (!currentTopic) { wsTabsRender(); return; }
-  fetch('/api/canvas?tid=' + encodeURIComponent(currentTopic.id))
+  // 先按本任务（可能没有）定住产出文件夹，避免把上一个任务的标签画到新任务上
+  fbOutputDir = fbOutputDirByTid[currentTopic.id] || '';
+  fbLoadOutputDir(currentTopic.id);
+  // 同上：布局决定标签条长什么样，读到空/旧值就等于标签凭空消失
+  fetch('/api/canvas?tid=' + encodeURIComponent(currentTopic.id), { cache: 'no-store' })
     .then(function (r) { return r.json(); })
     .then(function (d) {
       var c = d && d.canvas;
@@ -7875,13 +7946,18 @@ function wsTabsLoad() {
 }
 function wsTabsSave() {
   if (!currentTopic) return;
+  // 并发保存时旧回包后到会把带 outdir 的新布局覆盖掉（标签于是"自己消失"）
+  var _seq = wsTabsSave._seq = (wsTabsSave._seq || 0) + 1;
   // 只回存布局三件套；windows 字段由服务端从旧档补齐（迁移期兼容）
   fetch('/api/canvas/save', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tid: currentTopic.id,
       canvas: { layout: wsTabs.layout, ratio: wsTabs.ratio, assetWidth: wsTabs.assetWidth, assetWidthUser: wsTabs.assetWidthUser } })
   }).then(function (r) { return r.json(); })
-    .then(function (d) { if (d && d.canvas && d.canvas.layout) wsTabs.layout = d.canvas.layout; })
+    .then(function (d) {
+      if (wsTabsSave._seq !== _seq) return;   // 已有更新的保存在路上，这份回包作废
+      if (d && d.canvas && d.canvas.layout) wsTabs.layout = d.canvas.layout;
+    })
     .catch(function () {});
 }
 
@@ -7926,8 +8002,107 @@ function wsSyncFilesTab() {
   if (ei >= 0) p.tabs.splice(ei, 0, tab); else p.tabs.push(tab);
   if (!p.active) p.active = tab.id;
 }
+
+// ── 产出文件夹标签（2026-10-22）──────────────────────────────────────
+// 用户给任务选了外部目录后，文件浏览器里多一个以该文件夹命名的标签：点它直接浏览那个目录。
+// 数据源是 /api/workspace.output_dir；按 tid 缓存，避免每次 wsTabsRender 都打接口。
+// 标签存在性由 fbOutputDir 决定（而不是存档）：存档里残留的 outdir 会被对账掉，
+// 换了目录也能立刻跟着改 —— 存档只负责记住"上次停在哪个标签、浏览到哪一层"。
+var fbOutputDir = '';                 // 当前任务的产出文件夹绝对路径（空 = 没设）
+var fbOutputDirByTid = {};            // tid → 路径（'' 也算已知，避免反复请求）
+var fbOutputDirWaiters = {};          // tid → [cb]（并发请求合并）
+
+function wsOutdirName(p) {
+  if (!p) return '';
+  var x = String(p).replace(/[\\/]+$/, '');
+  var i = Math.max(x.lastIndexOf('\\'), x.lastIndexOf('/'));
+  return (i >= 0 ? x.slice(i + 1) : x) || x;
+}
+
+function fbLoadOutputDir(tid, cb) {
+  tid = tid || (currentTopic && currentTopic.id) || '';
+  if (!tid) { fbOutputDir = ''; if (cb) cb(); }
+  else if (fbOutputDirByTid[tid] !== undefined) { fbOutputDir = fbOutputDirByTid[tid]; if (cb) cb(); }
+  else if (fbOutputDirWaiters[tid]) { if (cb) fbOutputDirWaiters[tid].push(cb); }
+  else {
+    fbOutputDirWaiters[tid] = cb ? [cb] : [];
+    // no-store：这个接口只有几百字节，省流量毫无意义；吃 ETag 304 反而会在
+    // WebView 缓存缺失时拿到空 body，表现就是「产出标签时有时无」。
+    fetch('/api/workspace?topic_id=' + encodeURIComponent(tid), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var p = (d && d.output_dir) || '';
+        // 空值不入缓存：读不到 ≠ 用户清空了。缓存空会让这个任务再也不发请求，
+        // 表现就是「标签出现一次后再也不出现」（服务端慢启动/旧版接口最容易踩）。
+        if (p) fbOutputDirByTid[tid] = p; else delete fbOutputDirByTid[tid];
+        if (currentTopic && currentTopic.id === tid) { fbOutputDir = p; wsTabsRender(); }
+      })
+      .catch(function () { /* 读不到就当没设：标签不出现，但绝不清掉服务端已存的值 */ })
+      .then(function () {
+        var q = fbOutputDirWaiters[tid] || []; delete fbOutputDirWaiters[tid];
+        q.forEach(function (f) { try { f(); } catch (e) {} });
+      });
+  }
+}
+
+function wsFindOutdirTab() {
+  var p = wsPaneAt(0);
+  if (!p || !p.tabs) return null;
+  for (var i = 0; i < p.tabs.length; i++) { if (p.tabs[i] && p.tabs[i].type === 'outdir') return p.tabs[i]; }
+  return null;
+}
+
+function wsSyncOutdirTab() {
+  var p = wsPaneAt(0);
+  if (!p || !p.tabs) return;
+  // 只允许一个：存档被拖成两个时保留最后一个（离当前配置最近）
+  var idx = [];
+  for (var i = 0; i < p.tabs.length; i++) { if (p.tabs[i] && p.tabs[i].type === 'outdir') idx.push(i); }
+  for (var d = idx.length - 1; d >= 1; d--) p.tabs.splice(idx[d], 1);
+  var has = idx.length > 0;
+  var want = fbOutputDir || '';
+  var cur = has ? p.tabs[idx[0]] : null;
+
+  if (!want) {
+    if (!has) return;
+    var wasActive = cur.id === p.active;
+    p.tabs.splice(idx[0], 1);
+    if (wasActive) p.active = (p.tabs[0] || {}).id || '';
+    return;
+  }
+  var name = wsOutdirName(want);
+  if (cur) {
+    if (cur.ref !== want) { cur.ref = want; cur.path = ''; }   // 换了目录：回到新目录的根
+    cur.title = name;
+    return;
+  }
+  var tab = { id: 't_outdir', type: 'outdir', title: name, ref: want, path: '' };
+  // 紧跟在「工作区」后面：两者是同一件事的里/外两面
+  var fi = -1;
+  for (var k = 0; k < p.tabs.length; k++) { if (p.tabs[k].type === 'files') { fi = k; break; } }
+  if (fi >= 0) p.tabs.splice(fi + 1, 0, tab); else p.tabs.push(tab);
+  if (!p.active) p.active = tab.id;
+}
+
+// 输入框那边选完/清除后调这里（task-composer.js 主动通知，跨文件唯一入口）
+window.__onOutputDirChanged = function (p) {
+  p = p || '';
+  var tid = currentTopic && currentTopic.id;
+  if (tid) fbOutputDirByTid[tid] = p;
+  fbOutputDir = p;
+  wsTabsRender();
+  if (p) {
+    // 刚选完就切过去：这是用户此刻刚发起的动作，默认他想看一眼
+    var t = wsFindOutdirTab();
+    var pane = wsPaneAt(0);
+    if (t && pane) { pane.active = t.id; wsTabs.activePane = 0; wsTabsRender(); }
+  }
+  wsTabsSave();
+  if (typeof fbArTick === 'function') { try { fbArTick(); } catch (e) {} }
+};
 function wsTabsRender() {
   wsSyncFilesTab();
+  wsSyncOutdirTab();
   wsPanes().forEach(wsPinFirst);
   wsRenderStrip(document.getElementById('wsTabs'), 0);
   wsRenderStrip(document.getElementById('wsPane1Tabs'), 1);
@@ -7949,7 +8124,7 @@ function wsRenderStrip(box, idx) {
     return '<div class="ws-tab' + (on ? ' on' : '') + (pinned ? ' pinned' : '') + '" data-tab="' + esc(t.id) + '" data-pane="' + idx + '" draggable="' + (pinned ? 'false' : 'true') + '"'
       + ' onclick="wsTabActivate(\'' + esc(t.id) + '\')"'
       + ' oncontextmenu="return wsTabMenu(event,\'' + esc(t.id) + '\')"'
-      + ' title="' + esc(t.title || m.label) + (pinned ? '（常驻底座：不可关闭）' : '（右键：分屏 / 合并）') + '">'
+      + ' title="' + (t.type === 'outdir' && t.ref ? esc(t.ref) : esc(t.title || m.label)) + (pinned ? '（常驻底座：不可关闭）' : '（右键：分屏 / 合并）') + '">'
       + '<span class="ws-tab-ic">' + m.icon + '</span>'
       + '<span class="ws-tab-tx">' + esc(t.title || m.label) + '</span>'
       + ((wsTabIsResident(t.type) || pinned) ? '' : '<span class="ws-tab-x" onclick="wsTabClose(event,\'' + esc(t.id) + '\')" title="关闭标签">✕</span>')
@@ -8004,15 +8179,17 @@ function wsTabBody() {
     if (wsEl) wsEl.style.display = '';
     if (bar) bar.style.display = '';
     loadWorkspaceFiles(fbCurrentPath || '', 'workspace');
-  } else if (tab.type === 'explorer') {
+  } else if (tab.type === 'explorer' || tab.type === 'outdir') {
     // 文件浏览器（2026-09-22）：完整路径+可去任意盘，底座常驻
+    // outdir（2026-10-22）：同一个渲染器，但浏览根钉在本任务的产出文件夹上
     if (mm) mm.style.display = 'none';
     if (body) { body.style.display = 'none'; body.className = ''; body.innerHTML = ''; }
     if (row) row.style.display = '';
     if (grid) grid.style.display = '';
     if (wsEl) wsEl.style.display = '';
     if (bar) bar.style.display = '';
-    loadWorkspaceFiles(fbExplorerPath || 'C:\\', 'explorer');
+    if (tab.type === 'outdir') loadWorkspaceFiles(tab.path || tab.ref || '', 'explorer');
+    else loadWorkspaceFiles(fbExplorerPath || 'C:\\', 'explorer');
   } else if (tab.type === 'mindmap') {
     if (body) { body.style.display = 'none'; body.className = ''; body.innerHTML = ''; }
     if (row) row.style.display = 'none';
@@ -8580,8 +8757,17 @@ function wsMergePane(fromIdx) {
 // 首次进入文件管理且标签未初始化时兜底渲染
 (function () {
 function boot() {
-  if (typeof fbOpen !== 'undefined' && fbOpen) { wsTabsLoad(); return; }
-  wsCheckAutoOpen();   // 冷启动预检：有显式标签的任务在移动端自动展开工作区
+  // 不管面板开合都拉一次布局：标签的身份不该等到「用户点开文件面板」才存在，
+  // 那样一开面板还要等一次往返，中途任何一次 render 都会把它画丢。
+  // 面板依然不会自己弹出（2026-09-20 的决定），只是划开时立刻就有内容。
+  try {
+    if (typeof currentTopic !== 'undefined' && currentTopic && typeof wsTabsLoad === 'function') {
+      window._tabsColdDone = currentTopic.id;
+      wsTabsLoad();
+    }
+  } catch (e) {}
+  if (typeof fbOpen !== 'undefined' && fbOpen) return;
+  wsCheckAutoOpen();   // 冷启动预检（自动展开已于 2026-09-20 撤除，保留调用点）
 }
   window.addEventListener('load', function () { setTimeout(boot, 60); setTimeout(boot, 900); });
 })();
@@ -8589,7 +8775,7 @@ function boot() {
 function _fbMode(){
   if(fbScope==='ab') return 'explorer';   // 右栏资产库浏览永远是绝对路径漫游，与左栏激活哪类标签无关
   // 当前激活标签是文件浏览器→explorer 模式，否则 workspace 模式
-  try{ var t=wsPaneActive(0); return (t&&t.type==='explorer')?'explorer':'workspace'; }catch(e){ return 'workspace'; }
+  try{ var t=wsPaneActive(0); return (t&&(t.type==='explorer'||t.type==='outdir'))?'explorer':'workspace'; }catch(e){ return 'workspace'; }
 }
 // 面板"当前正在浏览的目录" —— 上传/粘贴的唯一目标基准。必须按激活标签分流：
 //   · workspace 标签 → fbCurrentPath（任务工作区相对路径）
@@ -8614,6 +8800,15 @@ function navigateBack(){
   var mode=_fbMode();
   var cur=(mode==='explorer')?fbExplorerPath:fbCurrentPath;
   if(!cur) return;
+  // outdir 标签的根就是产出文件夹：已经在根上时再往上就是越界，直接不动
+  try{
+    var _ot=(fbScope==='main')?wsPaneActive(0):null;
+    if(_ot&&_ot.type==='outdir'){
+      var _root=String(_ot.ref||'').replace(/[\\/]+/g,'\\').toLowerCase();
+      var _now=String(cur).replace(/[\\/]+/g,'\\').toLowerCase();
+      if(!_root || _now===_root || _now.indexOf(_root+'\\')!==0) return;
+    }
+  }catch(e){}
   fbNavigateAnim='back';
   var base=cur.replace(/[\\\\/]+$/,'');   // 去尾斜杠：'D:\\'→'D:'，否则盘根返回原地踏步
   var parent=base.replace(/[\\\\/][^\\\\/]+$/,'');
@@ -11630,7 +11825,7 @@ function loadThemeSettings(){
   }
   var loadTid=currentTopic?currentTopic.id:cachedTopicId;
   if(loadTid){
-    restoreDraft(loadTid,false); // 初始化恢复当前话题草稿(不抢焦点)
+    restoreDraft(loadTid,false,true); // 初始化恢复当前话题草稿(不抢焦点；用户已开打则不覆盖)
     // 缓存命中且新鲜:直接用缓存,不拉服务端(旧代码无条件拉取)
     var _initCacheFresh=cacheFresh(loadTid);
     var _initMemC=loadMemCache(loadTid);
@@ -14590,17 +14785,19 @@ function cpBalFormHtml(){
     h += '<div class="cp-bal-note">⚠️ 平台凭据还没保存：点下面的「保存」，或再点一次「查询余额」'
        + '（查到余额时会自动帮你存下来）。</div>';
   }
-  // 平台凭据：只对「余额接口认的钥匙 ≠ 模型密钥」的站点有用（DMXAPI / LeaderAI）。
+  // 平台凭据：只对「余额接口认的钥匙 ≠ 模型密钥」的站点有用（DMXAPI / LeaderAI / TokenRhythm）。
   // 常显而不按域名藏起来 —— 藏起来用户根本不知道去哪儿填，反而更迷惑。
-  // 两家要的东西不一样，所以第二格按站点换：DMX 要「用户 ID」，LeaderAI 要
-  // 「refresh_token」（它根本没有用户 ID 这种东西）。
+  // 三家要的东西都不一样，所以第二格按站点换：DMX 要「用户 ID」，LeaderAI 要
+  // 「refresh_token」（它根本没有用户 ID 这种东西），TokenRhythm 两样都不要、
+  // 只要一条浏览器 Cookie（它的控制台接口只认登录态）。
   var _isLdr = /leaderai\.top/i.test(f.base_url || '');
-  h += '<div class="cp-bal-kv" style="margin-top:10px;font-weight:700">平台凭据（仅 DMXAPI / LeaderAI 这类站点需要，不用就留空）</div>';
+  var _isTr  = /tokenrhythm\.studio/i.test(f.base_url || '');
+  h += '<div class="cp-bal-kv" style="margin-top:10px;font-weight:700">平台凭据（仅 DMXAPI / LeaderAI / TokenRhythm 这类站点需要，不用就留空）</div>';
   // 凭据状态**常显**：令牌框出于安全永不回显明文，用户没法从"空框"判断到底还在不在 ——
   // 于是每次打开都以为丢了、又重填一遍（2026-09-25 用户实测抱怨的正是这个体感）。
   // 这一行直接给结论，别让人去猜。
   var _hasTok = !!f.balAuthHasTok, _uidv = (f.balAuthUser || '').trim();
-  var _needUid = !_isLdr;                 // LeaderAI 只要登录令牌
+  var _needUid = !(_isLdr || _isTr);       // LeaderAI / TokenRhythm 都不需要用户 ID
   if(_hasTok && (_uidv || !_needUid)){
     h += '<div class="cp-bal-note" style="color:var(--success)">🔑 凭据已保存在本地：登录令牌 '
        + esc(f.balAuthTokMasked || '••••••')
@@ -14619,13 +14816,16 @@ function cpBalFormHtml(){
           ? ('登录令牌（已保存 ' + (f.balAuthTokMasked || '') + '，留空不改）')
           : (f.balAuthTok ? '登录令牌（本次已填，保存后生效）'
                           : (_isLdr ? '主站 token：F12 → Application → Local Storage'
-                                    : '系统访问令牌（DMXAPI：个人资料 → 安全 → 访问令牌）')))
+                                    : (_isTr ? '浏览器 Cookie：F12 → Network → 任意 /api 请求'
+                                             : '系统访问令牌（DMXAPI：个人资料 → 安全 → 访问令牌）'))))
      + '" value="">'
      + (_isLdr
           ? ('<input id="cpBalRt" class="cfg-input sm" type="password" style="width:158px" placeholder="'
              + (f.balAuthHasRt ? 'refresh_token 已存，留空不改' : 'refresh_token（可选，自动续期）')
              + '" value="">')
-          : ('<input id="cpBalUser" class="cfg-input sm" style="width:118px" placeholder="用户 ID" value="' + escAttr(f.balAuthUser) + '">'))
+          : (_isTr
+              ? ''   // TokenRhythm 只要一条 Cookie，没有第二格（cpReadForm 取不到元素会得空串，安全）
+              : ('<input id="cpBalUser" class="cfg-input sm" style="width:118px" placeholder="用户 ID" value="' + escAttr(f.balAuthUser) + '">')))
      + '</div>';
   if(f.balAuthHasTok || f.balAuthTok || f.balAuthHasRt || f.balAuthRt){
     h += '<div class="cp-inline" style="margin-top:4px"><span class="cp-chip" onclick="cpClearBalAuth()">清除平台凭据</span></div>';
@@ -14634,6 +14834,12 @@ function cpBalFormHtml(){
     h += '<div class="cp-bal-kv">LeaderAI 的积分记在<b>主站账号</b>上，要用主站登录后的 <b>token</b>（一长串 JWT）才查得到；'
        + 'sk- 开头的模型密钥只用来调模型，查不到积分。复制方法：主站登录后按 F12 → Application → Local Storage → '
        + '找 <b>token</b>；同处的 <b>refresh_token</b> 顺手填上，登录令牌过期后会自动续期（不填就得每次过期重新复制）。</div>';
+  } else if(_isTr){
+    h += '<div class="cp-bal-kv">TokenRhythm（基元律动）的余额只在它<b>控制台</b>的接口上，那个接口只认浏览器登录态，'
+       + '<b>sk_tr_ 开头的模型密钥查不到</b>（发过去一律 401）。复制方法：浏览器登录 tokenrhythm.studio → '
+       + 'F12 → Network → 点开任意一条 <b>/api/...</b> 请求 → Request Headers 里把整条 <b>Cookie</b>'
+       + '（形如 tr_session=…; tr_csrf=…）粘到上面第一格。Cookie 会过期，失效了就重新复制一次；'
+       + '嫌麻烦也可以直接在下面手填余额。</div>';
   } else {
     h += '<div class="cp-bal-kv">DMXAPI 的余额记在<b>账号</b>上，要用上面两项（系统访问令牌 + 用户 ID，'
        + '都要、且属于同一个账号）才查得到，sk- 开头的模型密钥查不到。</div>';
@@ -17534,7 +17740,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
  <div id="wpChip" onclick="wpMinimize(false)">
    <img id="wpChipFav" alt="" onerror="this.style.visibility='hidden'" onload="this.style.visibility='visible'"><span class="wp-chip-t" id="wpChipT"></span><span class="wp-chip-x" onclick="event.stopPropagation();wpChipClose()">✕</span>
  </div>
-<script src="/task-composer.js?v=20261016-recentmodel"></script>
+<script src="/task-composer.js?v=20261022-outdirtab"></script>
 <script src="/composer-floating.js?v=20261007-ios-smooth2"></script>
 <script>
 /* [2026-10-18] 安卓 WebView 返回键钩子：没有可退的网页历史时，先关最上层浮层，而不是直接退出 App */
