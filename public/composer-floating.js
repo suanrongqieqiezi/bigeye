@@ -16,6 +16,9 @@
 /* ===== 悬浮输入区：无底座、无黑色方块，只有玻璃边 ===== */
 #mainPanel > footer{background:transparent!important;border:0!important;box-shadow:none!important;position:absolute!important;left:0;right:0;bottom:0;z-index:20;padding:6px 12px calc(8px + env(safe-area-inset-bottom))!important;pointer-events:none}
 #mainPanel > footer .input-row{pointer-events:auto}
+/* 引用条（#quoteBar）的排版规则在 public/index.html 的内联 <style> 里 —— 本文件靠
+   <script src="/composer-floating.js?v=…"> 引入，版本号不 bump 时手机 WebView 会用旧缓存，
+   引用条就丢约束被排进弹性列（压住发送按钮）。别再往这里加 #quoteBar 的 grid 规则。 */
 #mainPanel > footer .input-row > #attachPreview{pointer-events:auto;grid-column:1/-1;grid-row:1}
 footer .input-row:has(#attachPreview[style*="display: flex"]) textarea{grid-row:2!important}
 footer .input-row:has(#attachPreview[style*="display: flex"]) .attach-btn,footer .input-row:has(#attachPreview[style*="display: flex"]) .send,footer .input-row:has(#attachPreview[style*="display: flex"]) .task-model-btn,footer .input-row:has(#attachPreview[style*="display: flex"]) .task-outside-btn{grid-row:3!important}
@@ -59,23 +62,38 @@ footer:not(.composer-compact) .task-model-btn,footer:not(.composer-compact) .tas
 `;
   document.head.appendChild(css);
 
-  /* 把面板高度写进 CSS 变量，供 #btnJump 让位 */
+  /* 把面板高度写进 CSS 变量，供 #btnJump 让位；同时让正文的底部留白跟着长高。
+     为什么必须跟着长：footer 是 position:absolute 悬浮的，正文的 padding-bottom
+     如果还停在写死的 110px，输入框长高后就把底部内容压在底下，而且 scrollHeight
+     也不再增长 —— 用户原话“对话内容还已经拉到尽头了不能再拉”。2026-10-23 */
   var lastComposerHeight = 0;
   function syncComposerHeight() {
     var f = document.querySelector('#mainPanel > footer') || document.querySelector('footer');
     if (!f) return;
     var h = Math.round(f.getBoundingClientRect().height) || 68;
-    if (h !== lastComposerHeight) {
-      lastComposerHeight = h;
-      document.documentElement.style.setProperty('--composer-h', h + 'px');
-    }
+    if (h === lastComposerHeight) return;
+    var prev = lastComposerHeight;
+    lastComposerHeight = h;
+    document.documentElement.style.setProperty('--composer-h', h + 'px');
+    document.documentElement.style.setProperty('--composer-space', h + 'px');
+    if (prev) keepViewAboveComposer(prev, h);
+  }
+  /* 输入框长高后重算滚动视野：贴底就重新钉到底，正在翻历史就按多占的高度补偿，
+     保证“最后一行”始终在输入框上沿之上，而不是被盖住。 */
+  function keepViewAboveComposer(prevH, newH) {
+    var box = document.getElementById('chatBox');
+    if (!box) return;
+    var stick = (typeof window.chatStick === 'boolean') ? window.chatStick : true;
+    if (stick) { box.scrollTop = box.scrollHeight; return; }
+    var d = newH - prevH;
+    if (d > 0) box.scrollTop = Math.min(box.scrollTop + d, box.scrollHeight - box.clientHeight);
   }
   var composer = document.querySelector('#mainPanel > footer');
   var chat = document.getElementById('chatBox');
   var compact = false, lastTop = chat ? chat.scrollTop : 0;
   var frame = 0, composerAnimation = null, jumpAnimation = null;
-  // Keep the scrollable area stable while the overlay animates; otherwise
-  // changing bottom padding can falsely look like a user scroll.
+  // 不再写死 110px：由 syncComposerHeight() 按真实面板高度设置（初始值先给一个
+  // 保守值，避免首帧 padding 从 0 长起来时抖一下）。
   document.documentElement.style.setProperty('--composer-space', '110px');
   function setComposerCompact(value) {
     if (!composer || compact === value) return;

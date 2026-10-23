@@ -189,11 +189,16 @@ def _stream_consumer_thread(q, stop_event, on_output, tool_id, out_ringbuf, max_
     }
 )
 def bash(command: str, timeout: int = 120, workdir: str = "", confirm: bool = False):
-    from .file_tools import _safe_path, _check_boundary
+    from .file_tools import _safe_path, _check_boundary, _alias_map
     from .shell_router import _pick_shell, _build_argv, _why
     # Resolve workdir through safe path + boundary check
     if workdir:
-        cwd = _safe_path(workdir)
+        try:
+            cwd = _safe_path(workdir)
+        except Exception as _we:
+            # 句柄没注册/写错：原样把可读原因给模型，别让它靠猜
+            return {"error": str(_we), "command": command,
+                    "hint": "workdir 也支持句柄：'工作区'、'产出'（本任务要设了产出文件夹才有）"}
         # 用户开关开启时放行；否则边界检查
         if not _get_allow_outside():
             allowed, err = _check_boundary(cwd, for_write=True)
@@ -232,6 +237,16 @@ def bash(command: str, timeout: int = 120, workdir: str = "", confirm: bool = Fa
 
 
     env = {**os.environ, 'PYTHONIOENCODING': 'utf-8', 'LANG': 'en_US.UTF-8', **env_extra}
+    # 路径句柄的环境变量版：shell 里写 "$BIGEYE_OUT/成品.mp4" 永远不会拼错。
+    # 手写整条绝对路径是路径事故的头号来源（中文名、层级、反斜杠各有各的错法）。
+    try:
+        _amap = _alias_map() or {}
+        if _amap.get('工作区'):
+            env['BIGEYE_WS'] = _amap['工作区']
+        if _amap.get('产出'):
+            env['BIGEYE_OUT'] = _amap['产出']
+    except Exception:
+        pass
     # Windows: CREATE_NEW_PROCESS_GROUP 让 taskkill /T 能 kill 整个进程树；
     # CREATE_NO_WINDOW 抑制黑窗口弹出（否则每次调用都闪一下控制台，抢用户焦点）
     creationflags = 0

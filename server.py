@@ -108,7 +108,8 @@ PORT = 8765
 # ── Imports ─────────────────────────────────────────
 sys.path.insert(0, BASE_DIR)
 from db import (get_db, Database,
-                recycle_items, recycle_take, recycle_clear, recycle_put)  # 回收站（deleted_topics_backup.jsonl）
+                recycle_items, recycle_take, recycle_clear, recycle_put,  # 回收站（deleted_topics_backup.jsonl）
+                ERR_CARD_TAG)  # 失败事件卡的固定开场白（写入/读时兼容共用，见 db.py）
 from llm import LLMConfig, chat_stream, chat_stream_cached, _build_messages, is_transient_conn_error, is_retryable_llm_error, build_multimodal_content, strip_image_content, image_mime_type, is_vision_model
 from tools.registry import get_tool_defs, execute_tool, register_tool
 import loop_detector  # 目标级打转检测（探索类占比高且零落地 → 注入提醒）
@@ -136,6 +137,8 @@ import tools.important_matters
 import tools.perspective
 
 import tools.asset_lib  # 资产索引层：库=索引登记制（data/assets/index.json，不搬文件）
+import tools.tts_manager  # 语音朗读：StreamVox TTS 子进程管理 + 代理（手机走主服务转发）
+import tools.tts_lite  # 轻量朗读：系统 OneCore/SAPI5（零模型零显存，实测 100~400ms 出整段）
 import tools.asset_v3   # 资产库 v3：混合仓（笔记/速记/链接实体入库，文件≤10MB拷入，大文件记引用）
 import tools.canvas  # 工作区画布布局：画布+窗口（data/missions/{tid}/canvas.json）
 import tools.canvas_tools  # AI 画布工具（读布局/摆窗口/收窗口/导图节点）
@@ -1532,6 +1535,7 @@ _ORGANIZE_INFLIGHT = set()
 _ORGANIZE_LOCK = threading.Lock()
 _ORGANIZE_MAX_CHARS = 40000   # 一次整理的原文上限，超出按最早的一段截
 _CT_PIN_MAX = 6               # 裁剪时固定保留的整理摘要个数（最近的 N 个）
+_QUOTE_MAXN = 8               # 单条消息最多带几条引用（前端上限 5，服务端留点余量防旧客户端）
 _ORGANIZE_MAX_ITEMS = 200    # 单次整理区间上限（锚点数）。超了只整理最早的一段：
                               # 摘要 LLM 的输入被截到 24000 字，标着「2316 项」的节点
                               # 实际只总结了最早一小段 —— 覆盖区间与摘要内容不符，
@@ -2090,6 +2094,30 @@ def _custom_provider(provider: str):
         return custom_providers.runtime_config(ROOT_DIR, provider)
     except Exception:
         return None
+
+
+def _build_resume_note(ctx):
+    """「继续」按钮走的那条提示：本轮的新 user 轮，**不落库**。
+
+    为什么不是"重新发一遍用户消息"：模型需要知道「我上一轮没写完、停在哪、哪些步骤已经真实发生」。
+    不知道就会做三件蠢事——重新开头、重述进度、把已经推过的包/写过的文件再跑一次（真副作用）。
+    带上断点后它才能"接着写"，这也是这条链路唯一能省下整轮白跑的地方。
+    """
+    ctx = ctx or {}
+    steps = [s for s in (ctx.get("steps") or []) if s]
+    try:
+        n = int(ctx.get("step_count") or 0)
+    except (TypeError, ValueError):
+        n = 0
+    lines = ["[系统提示] 上一轮因模型侧持续不可用中断了，现在继续把它做完。"
+             "这是同一轮任务的续写，不是新任务：不要重新开头，不要复述中断原因，不要道歉。"]
+    if n:
+        lines.append(f"· 这一轮此前已完成 {n} 步工具调用"
+                     + (f"，最近几步是：{'、'.join(steps)}" if steps else "") + "。")
+        lines.append("· 已完成的步骤不要重做 —— 文件已写、命令已执行，重跑会产生重复副作用。")
+        lines.append("· 若最后一步是写文件/执行命令而结果不确定，先确认现场（读回文件、查进程）再决定要不要重做。")
+    lines.append("· 直接从断点继续输出剩余部分。")
+    return "\n".join(lines)
 
 
 def _fallback_llm_config(cfg, tried):
@@ -2689,6 +2717,59 @@ def get_working(tid):
             w["loop_active"] = _la
             return w
     return {"status": "idle", "thinking": "", "intermediate": "", "response": "", "tool_calls": [], "turn": 0, "remaining": None, "loop_active": _la}
+
+# ── 「本任务有没有任务流程图」探测 ────────────────────────────────
+# 标题栏的流程图入口按钮只在 AI 真给这个任务建过 DAG 时才出现。判据必须极轻：
+# /api/topic/tail 每 3 秒调一次，若走 task/dag.py 的 DAG 类，光 __init__ 就有
+# _ensure_schema()（executescript + 一串 SELECT + commit）+ 独立连接；WAL 库的
+# open/close 开销远大于查询本身。所以这里绕开 DAG 类：
+#   ① 只读 URI 连接（实测比普通 connect+close 快一个数量级）
+#   ② 一条 EXISTS 查询，命中即返回
+#   ③ 3 秒 TTL 缓存，和轮询节奏对齐
+# 任何异常都当"没有"——按钮不出现比整个轮询 500 好得多。
+_HAS_DAG_TTL = 3.0
+_has_dag_lock = threading.Lock()
+_has_dag_cache = {}   # tid -> (ts, bool)
+
+
+def _topic_has_dag(tid):
+    if not tid:
+        return False
+    now = time.time()
+    with _has_dag_lock:
+        hit = _has_dag_cache.get(tid)
+        if hit and (now - hit[0]) < _HAS_DAG_TTL:
+            return hit[1]
+    val = False
+    conn = None
+    try:
+        import sqlite3
+        dbp = os.path.join(ROOT_DIR, "data", "chat.db")
+        try:
+            uri = "file:%s?mode=ro" % urllib.parse.quote(
+                dbp.replace("\\", "/"), safe="/:()+,._-")
+            conn = sqlite3.connect(uri, uri=True, timeout=5)
+        except Exception:
+            conn = sqlite3.connect(dbp, timeout=5)
+        row = conn.execute(
+            "SELECT 1 FROM task_nodes n JOIN task_instances t ON n.task_id=t.id "
+            "WHERE t.topic_id=? LIMIT 1", (tid,)).fetchone()
+        val = bool(row)
+    except Exception:
+        val = False
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    with _has_dag_lock:
+        _has_dag_cache[tid] = (now, val)
+        if len(_has_dag_cache) > 600:      # 别随任务数无限长大
+            for k in list(_has_dag_cache.keys())[:300]:
+                _has_dag_cache.pop(k, None)
+    return val
+
 
 def clear_working(tid):
     with _working_lock:
@@ -3672,6 +3753,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             payload["working"] = w
                     except Exception:
                         pass
+                    # 这个任务当前有没有"可续跑的断点"（失败时写、续跑成功/用户停手/发新消息时清）。
+                    # 前端据此决定错误卡上要不要给「继续 / 用备用源继续」——旧版留下的卡没有断点，
+                    # 就不该长出一个点了会 409 的按钮。
+                    try:
+                        payload["resume_ok"] = bool(self.db.get_topic_meta(tid, "resume_ctx"))
+                    except Exception:
+                        payload["resume_ok"] = False
                 self._json(200, payload)
             except Exception as e:
                 self._json(500, {"error": str(e)})
@@ -3690,6 +3778,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self._json(400, {"error": "topic_id required"})
                 else:
                     d = self.db.get_topic_tail(tid)
+                    d["has_dag"] = _topic_has_dag(tid)
                     try:
                         w = get_working(tid)
                         if isinstance(w, dict):
@@ -3830,6 +3919,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/settings/devmode":
             db = get_db()
             self._json(200, {"dev_mode": db.get_meta("dev_mode") == "1"})
+
+        # ── 付费搜索引擎（DeepSeek Search）：是否开启 / 地址 / key 脱敏 ──
+        elif path == "/api/settings/web_search":
+            try:
+                import tools.web_search as _ws
+                cfg = _ws.paid_config()
+                try:
+                    key_masked = custom_providers.mask_key(cfg["key"])
+                except Exception:
+                    key_masked = ""
+                self._json(200, {
+                    "enabled": bool(cfg["enabled"]),
+                    "base": cfg["base"],
+                    "has_key": bool(cfg["key"]),
+                    "key_masked": key_masked,
+                    "default_base": _ws.DEFAULT_PAID_BASE,
+                    "cost_per_1k": _ws.PAID_COST_PER_1K,
+                    "free_engines": ["bing", "ddg", "ddg-lite"],
+                })
+            except Exception as e:
+                self._json(500, {"error": f"读取搜索配置失败: {e}"})
 
         # ── LLM 响应本地缓存 ──
         elif path == "/api/settings/llm_cache":
@@ -4219,6 +4329,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 parts = path.split("/")
                 topic_id = parts[3]
+                # lite=1：只回「有没有图」，给标题栏入口按钮用（切任务时立即纠正，不拉整图）
+                if (params.get("lite", ["0"])[0] or "0") in ("1", "true", "yes"):
+                    has = _topic_has_dag(topic_id)
+                    self._json(200, {"topic_id": topic_id, "has_dag": has})
+                    return
                 from task.dag import DAG
                 task_id, task_info = DAG.get_task_by_topic(topic_id)
                 if not task_id:
@@ -4280,6 +4395,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(200, {"matters": _get_matter_items(_m_tid)})
 
         # ── 互动基调 ──
+        elif path == "/api/message-feedback":
+            # 消息反馈（喜欢 / 不喜欢 / 收藏）。
+            #   带 topic_id → 回该任务的 {msgId:{kind:1}}，前端渲染选中态用；
+            #   不带 → 回回顾列表（可按 kind 过滤）。
+            try:
+                _tid_fb = params.get("topic_id", [""])[0]
+                _kind_fb = params.get("kind", [""])[0]
+                if _tid_fb:
+                    self._json(200, {"items": self.db.get_topic_feedback(_tid_fb)})
+                else:
+                    self._json(200, {"items": self.db.list_message_feedback(_kind_fb or None),
+                                     "counts": self.db.message_feedback_counts()})
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+
         elif path == "/api/tone":
             try:
                 from tools.important_matters import get_tone
@@ -4430,6 +4560,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if os.name == "nt" and len(_p) == 2 and _p[1] == ":":
                     _p = _p + "\\"
                 if not _p:
+                    # 盘符容量（2026-10-23）：选择器在"此电脑"这一级要显示每个盘还剩多少。
+                    # 只在这一级查 —— 浏览具体目录时前端不画容量，没必要为几个盘符每次都问
+                    # 一遍系统（映射盘 Q: 走网络，一次可能几十毫秒）。
+                    # 拿不到（驱动器刚拔出/无介质/网络盘断链）就整个字段不给，前端不画，
+                    # 绝不用 0 冒充 —— "0 字节可用"会让人以为盘满了。
+                    import shutil as _shutil
+                    for _r in _roots:
+                        try:
+                            _u = _shutil.disk_usage(_r["path"])
+                            _r["total"] = int(_u.total)
+                            _r["free"] = int(_u.free)
+                        except (OSError, ValueError):
+                            pass
                     self._json(200, {"path": "", "parent": "", "crumbs": [],
                                      "dirs": [], "roots": _roots})
                     return
@@ -4710,6 +4853,137 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(body)
             except Exception as e:
                 self._json(502, {"error": "代理加载失败：%s" % e})
+
+        # ── 语音朗读（StreamVox TTS 子进程代理）──
+        # 前端只需 /api/tts/*；子进程在 127.0.0.1:8765，手机/远端访问不到，
+        # 所以流式和整段都从主服务转发。
+        elif path == "/api/tts/status":
+            self._json(200, tools.tts_manager.status())
+        elif path == "/api/tts/start":
+            t0 = time.time()
+            r = tools.tts_manager.start()
+            r["elapsed"] = round(time.time() - t0, 2)
+            self._json(200 if r.get("ok") else 500, r)
+        elif path == "/api/tts/stop":
+            self._json(200, tools.tts_manager.stop())
+
+        # ── 轻量朗读：系统 OneCore / SAPI5，零模型零显存 ──
+        # 为什么单独一条：StreamVox 留着以后做实时语音对话（低延迟+音色克隆是它强项），
+        # 日常“点一下把这段念出来”用系统语音足够，且不吃显存、不冷启动。
+        elif path == "/api/tts/lite/voices":
+            try:
+                self._json(200, {"voices": tools.tts_lite.list_voices()})
+            except Exception as e:
+                self._json(500, {"error": "取音色失败: %s" % e})
+        elif path == "/api/tts/lite":
+            txt = (params.get("text") or [""])[0].strip()
+            voice = (params.get("voice") or ["yaoyao"])[0]
+            engine = (params.get("engine") or ["onecore"])[0]
+            if not txt:
+                self._json(400, {"error": "missing text"})
+            elif len(txt) > 2000:
+                self._json(400, {"error": "文本过长（轻量朗读上限 2000 字）", "len": len(txt)})
+            else:
+                try:
+                    wav, hd = tools.tts_lite.synth_wav(txt, voice=voice, engine=engine)
+                except Exception as e:
+                    self._json(503, {"error": "轻量朗读失败: %s" % e})
+                else:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "audio/wav")
+                    self.send_header("Content-Length", str(len(wav)))
+                    self.send_header("Cache-Control", "no-store")
+                    for k in ("X-TTS-Engine", "X-TTS-Voice", "X-TTS-Ms", "X-Audio-S",
+                              "X-TTS-Rtf", "X-TTS-Total-Ms"):
+                        if hd.get(k) is not None:
+                            self.send_header(k, hd[k])
+                    self.end_headers()
+                    self.wfile.write(wav)
+        elif path == "/api/tts/lite/pcm":
+            # 与 /api/tts/pcm?model=lite:<音色> 等价。保留这个显式路径是为了给
+            # 前端/调试一个不会被 model 字符串拼错的入口，但主链路不用它
+            # （新路由要重启才加载，而前端要的是“刷新就能好”）。
+            txt = (params.get("text") or [""])[0].strip()
+            voice = (params.get("voice") or ["yaoyao"])[0]
+            engine = (params.get("engine") or ["onecore"])[0]
+            if not txt:
+                self._json(400, {"error": "missing text"})
+            elif len(txt) > 2000:
+                self._json(400, {"error": "文本过长（轻量朗读上限 2000 字）", "len": len(txt)})
+            else:
+                try:
+                    wav, hd = tools.tts_lite.synth_wav(txt, voice=voice, engine=engine)
+                except Exception as e:
+                    self._json(503, {"error": "轻量朗读失败: %s" % e})
+                else:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "audio/wav")
+                    self.send_header("Content-Length", str(len(wav)))
+                    self.send_header("Cache-Control", "no-store")
+                    for k in ("X-TTS-Engine", "X-TTS-Voice", "X-Audio-S", "X-TTS-Rtf", "X-TTS-Total-Ms"):
+                        if hd.get(k) is not None:
+                            self.send_header(k, hd[k])
+                    self.end_headers()
+                    self.wfile.write(wav)
+        elif path == "/api/tts/pcm":
+            # 真流式 PCM：边合成边推，首字节实测 109ms
+            qs = urllib.parse.urlparse(self.path).query
+            txt = (params.get("text") or [""])[0]
+            if not txt.strip():
+                self._json(400, {"error": "missing text"})
+            else:
+                try:
+                    gen = tools.tts_manager.proxy_pcm(qs)
+                except Exception as e:
+                    self._json(503, {"error": "TTS 未就绪: %s" % e})
+                else:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "audio/wav")
+                    self.send_header("Transfer-Encoding", "chunked")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Accel-Buffering", "no")
+                    self.end_headers()
+                    try:
+                        for chunk in gen:
+                            self.wfile.write(("%X\r\n" % len(chunk)).encode("ascii"))
+                            self.wfile.write(chunk)
+                            self.wfile.write(b"\r\n")
+                            self.wfile.flush()
+                        self.wfile.write(b"0\r\n\r\n")
+                    except (BrokenPipeError, ConnectionResetError):
+                        print("[tts] 前端断开（pcm）")
+                    except Exception as e:
+                        print("[tts] pcm 转发出错:", e)
+
+        elif path == "/api/tts/lines":
+            # 逐句 NDJSON 流式：必须自己写 raw socket（_json 会加 Content-Length）
+            qs = urllib.parse.urlparse(self.path).query
+            txt = (params.get("text") or [""])[0]
+            if not txt.strip():
+                self._json(400, {"error": "missing text"})
+            else:
+                try:
+                    gen = tools.tts_manager.proxy_stream(qs)
+                except Exception as e:
+                    self._json(503, {"error": "TTS 未就绪: %s" % e})
+                else:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+                    self.send_header("Transfer-Encoding", "chunked")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Accel-Buffering", "no")
+                    self.end_headers()
+                    try:
+                        for chunk in gen:
+                            self.wfile.write(("%X\r\n" % len(chunk)).encode("ascii"))
+                            self.wfile.write(chunk)
+                            self.wfile.write(b"\r\n")
+                            self.wfile.flush()
+                        self.wfile.write(b"0\r\n\r\n")
+                    except (BrokenPipeError, ConnectionResetError):
+                        print("[tts] 前端断开")
+                    except Exception as e:
+                        print("[tts] 流转发出错:", e)
 
         # ── 资产索引层（库=索引，登记制）──
         elif path == "/api/assets":
@@ -5699,6 +5973,74 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 pass
             self._json(200, {"ok": True, "dev_mode": on})
 
+        # ── 付费搜索引擎：探活（必须放在主路由前，前缀匹配） ──
+        elif path == "/api/settings/web_search/test":
+            try:
+                import tools.web_search as _ws
+                # 用临时覆盖值测试（不落库）：用户先在面板里填 key，点测试，确认可用再保存
+                tmp_key = (data.get("api_key") or "").strip()
+                tmp_base = (data.get("base_url") or "").strip() or _ws.paid_config()["base"]
+                q = (data.get("query") or "DeepSeek").strip()[:128] or "DeepSeek"
+                if not tmp_key:
+                    tmp_key = _ws.paid_config()["key"]
+                if not tmp_key:
+                    self._json(200, {"ok": False, "stage": "config",
+                                     "error": "未配置 API Key，请先填入 key"})
+                    return
+                url = f"{tmp_base.rstrip('/')}/v1/tools/search"
+                payload = {"query": q, "count": 3, "need_content": False}
+                status, body, err = _ws._http_post_json(
+                    url, payload, {"Authorization": f"Bearer {tmp_key}"})
+                if err:
+                    self._json(200, {"ok": False, "stage": "network",
+                                     "error": f"网络请求失败：{err}"})
+                    return
+                if status != 200:
+                    self._json(200, {"ok": False, "stage": "http", "http_status": status,
+                                     "error": _ws._paid_err_reason(status, body)})
+                    return
+                items = (body or {}).get("results") or []
+                sample = [{"title": (it.get("title") or "")[:60],
+                           "url": (it.get("url") or "")[:100]} for it in items[:3]]
+                self._json(200, {"ok": True, "stage": "done", "count": len(items),
+                                 "sample": sample, "query": q,
+                                 "hint": "本次探活会计入一次搜索调用（$0.75/千次）"})
+            except Exception as e:
+                self._json(200, {"ok": False, "stage": "exception", "error": f"{type(e).__name__}: {e}"})
+
+        # ── 付费搜索引擎：保存开关 / key / 地址 ──
+        elif path == "/api/settings/web_search":
+            try:
+                import tools.web_search as _ws
+                db = get_db()
+                if "enabled" in data:
+                    db.set_meta(_ws.PAID_META_ENABLED, "1" if data["enabled"] else "0")
+                # key：留空=不改；传 __CLEAR__ = 清空
+                if "api_key" in data:
+                    k = (data.get("api_key") or "").strip()
+                    if k == "__CLEAR__":
+                        db.set_meta(_ws.PAID_META_KEY, "")
+                    elif k:
+                        db.set_meta(_ws.PAID_META_KEY, k)
+                if "base_url" in data:
+                    b = (data.get("base_url") or "").strip()
+                    db.set_meta(_ws.PAID_META_BASE, b or _ws.DEFAULT_PAID_BASE)
+                cfg = _ws.paid_config()
+                try:
+                    masked = custom_providers.mask_key(cfg["key"])
+                except Exception:
+                    masked = ""
+                ready = bool(cfg["enabled"] and cfg["key"])
+                note = ""
+                if cfg["enabled"] and not cfg["key"]:
+                    note = "开关已开但没填 key，搜索会自动落回免费引擎"
+                self._json(200, {"ok": True, "enabled": bool(cfg["enabled"]),
+                                 "base": cfg["base"], "has_key": bool(cfg["key"]),
+                                 "key_masked": masked, "ready": ready, "note": note})
+            except Exception as e:
+                self._json(500, {"ok": False, "error": f"保存搜索配置失败: {e}"})
+
+
         # ── LLM 响应本地缓存：开关 + 清空 ──
         elif path == "/api/settings/llm_cache":
             db = get_db()
@@ -5729,6 +6071,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                              "stats": stats})
 
         # ── AI 自动建议分析：开关/频率/立即生成/预览 ──
+        elif path == "/api/message-feedback":
+            # 写入 / 取消一条消息反馈。on=False 是取消（只删自己那一面）。
+            try:
+                self.db.set_message_feedback(
+                    data.get("topic_id", ""), data.get("msg_id", 0), data.get("kind", ""),
+                    bool(data.get("on", True)), data.get("snippet", ""), data.get("topic_title", ""))
+                self._json(200, {"success": True, "counts": self.db.message_feedback_counts()})
+            except Exception as e:
+                self._json(400, {"success": False, "error": str(e)})
+
         elif path == "/api/settings/suggestions":
             db = get_db()
             cfg = _suggestion_cfg()
@@ -6002,6 +6354,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         else:
                             db.delete_topic_meta(tid, "output_dir")
                 self._json(200, {"success": True})
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+
+        # ── 目录选择器：新建文件夹（2026-10-23）──
+        # 与 /api/dir-picker 配对：选产出目录时"就地建一个专属文件夹"比"切到资源管理器
+        # 建好再回来找"少三步，手机端尤其明显（切出去就回不到这个面板了）。
+        # 🔴 只允许在**给定父目录下**建一层：name 里出现分隔符或 .. 一律拒，
+        #    否则这就是个"在磁盘任意位置建目录"的后门。
+        elif path == "/api/dir-mkdir":
+            try:
+                _parent = (data.get("parent") or "").strip().strip('"').strip("'")
+                _name = (data.get("name") or "").strip()
+                if not _parent or not os.path.isdir(_parent):
+                    self._json(400, {"error": "当前目录不可用，无法新建"})
+                    return
+                if not _name:
+                    self._json(400, {"error": "文件夹名不能为空"})
+                    return
+                if _name in (".", "..") or any(_c in _name for _c in '\\/:*?"<>|'):
+                    self._json(400, {"error": '名字里不能包含 \\ / : * ? " < > |'})
+                    return
+                if _name[-1] in (" ", "."):
+                    self._json(400, {"error": "名字不能以空格或点结尾"})
+                    return
+                _parent = os.path.abspath(_parent)
+                _new = os.path.join(_parent, _name)
+                # 同名（含同名文件）直接 409：不静默复用，否则用户以为建了新目录
+                if os.path.exists(_new):
+                    self._json(409, {"error": "已经有同名的文件或文件夹: " + _name})
+                    return
+                os.makedirs(_new)          # 已判过重名，不用 exist_ok
+                self._json(200, {"success": True, "path": _new, "name": _name})
+            except PermissionError:
+                self._json(403, {"error": "没有权限在这个目录下新建"})
+            except OSError as e:
+                self._json(500, {"error": "新建失败: %s" % e})
             except Exception as e:
                 self._json(500, {"error": str(e)})
 
@@ -6522,6 +6910,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(500, {"error": str(e)})
 
         # ── 资产索引层（登记/更新/删除/设库位）──
+        # ── 语音朗读：整段合成（返回 audio/wav）──
+        elif path == "/api/tts":
+            txt = (data.get("text") or "").strip()
+            model = data.get("model") or "moss"
+            gap_ms = int(data.get("gap_ms") or 200)
+            if not txt:
+                self._json(400, {"error": "missing text"})
+            elif len(txt) > 4000:
+                self._json(400, {"error": "文本过长（上限 4000 字）", "len": len(txt)})
+            else:
+                try:
+                    wav, hd = tools.tts_manager.synth_wav(txt, model=model, gap_ms=gap_ms)
+                except Exception as e:
+                    self._json(503, {"error": "TTS 合成失败: %s" % e})
+                else:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "audio/wav")
+                    self.send_header("Content-Length", str(len(wav)))
+                    self.send_header("Cache-Control", "no-store")
+                    for k in ("X-TTFB-Ms", "X-RTF", "X-Audio-S", "X-Sents"):
+                        if hd.get(k) is not None:
+                            self.send_header(k, hd[k])
+                    self.end_headers()
+                    self.wfile.write(wav)
+
         elif path == "/api/assets/add":
             try:
                 rec = tools.asset_lib.add_asset(data)
@@ -6993,12 +7406,67 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # 客户端幂等键：同一次"发送"的稳定 id（前端每次点击发送生成一个，网络层重放时不变）
         _cmid = str(data.get("client_msg_id") or "").strip()
         _image_abs_paths = []  # 图片附件绝对路径（用于 vision 多模态）
-        if not message and not attachments:
+        # ── 引用块（微信/飞书式，2026-10-23）─────────────────────────────────
+        # 前端的引用是**独立字段**，不混进 message 文本：落库的 text 保持用户原话，
+        # 界面画成气泡顶部的引用块（读 args.quotes）。只在"喂给模型"时拼前缀块
+        # （_qnote → _llm_msg），否则模型根本不知道用户这句是针对哪段说的。
+        # 别改成"把前缀拼进 message 再落库"：那样气泡正文会被污染，
+        # 前端还得反过来从 text 里剥前缀（附件那套就是被逼成这样的）。
+        # 🔴 一次可以引用**多条**：入参 quotes（数组）优先；老客户端只发 quote（单对象）也认。
+        _qraw = data.get("quotes")
+        if not isinstance(_qraw, list):
+            _qraw = [data.get("quote")] if isinstance(data.get("quote"), dict) else []
+        _quotes = []
+        for _item in _qraw[:_QUOTE_MAXN]:
+            if not isinstance(_item, dict):
+                continue
+            _qt = str(_item.get("text") or "").strip()
+            if not _qt:
+                continue
+            if len(_qt) > 800:
+                _qt = _qt[:800].rstrip() + "…"
+            try:
+                _qmid = int(_item.get("mid") or 0)
+            except (TypeError, ValueError):
+                _qmid = 0
+            _quotes.append({"text": _qt, "mid": _qmid,
+                            "from": "you" if _item.get("from") == "you" else "ai"})
+        _qnote = ""
+        for _q in _quotes:
+            _qnote += "[引用" + ("我" if _q["from"] == "you" else "AI") + "]\n" + _q["text"] + "\n[/引用]\n"
+        _qnote = _qnote.rstrip("\n")
+        # ── 「继续」= 续跑**同一轮**，而不是替用户发一句"继续" ──
+        # 差别在四处，少一处就等于没改进：
+        #   ① 不落 user 消息（不污染历史、不占条数墙、不给模型"用户又提新要求"的错觉）
+        #   ② 沿用原轮起点计时（否则一次任务被中断切成两段，成本报表看成两个任务）
+        #   ③ 带断点快照（已完成 N 步、最近几步是什么）→ 模型不会重读文件、重述进度
+        #   ④ 明确"上一轮没写完"，它才不会先道歉/重新开头
+        # 断点存在 topic meta `resume_ctx`（失败时写、续跑成功/用户停手/发新消息时清）。
+        _resume = bool(data.get("resume"))
+        _resume_fb = bool(data.get("force_fallback"))
+        _resume_ctx = None
+        if _resume:
+            try:
+                _resume_ctx = json.loads(self.db.get_topic_meta(tid, "resume_ctx") or "null")
+            except Exception:
+                _resume_ctx = None
+            if not _resume_ctx:
+                self._json(409, {"error": "没有可续跑的断点了：这个任务已经续跑过，或者你发过新消息/已停手。"})
+                return
+        if not message and not attachments and not _resume:
             self._json(400, {"error": "message required"})
             return
         topic = self.topics.get_or_create(tid)
         tid = topic["id"]
         _task_config = get_task_model_config(tid)
+        if _resume:
+            if _resume_fb and _fallback_llm_config(_task_config, set())[0] is None:
+                self._json(409, {"error": "没有配好的备用源可切 —— 请到 设置 → 模型 加一个，或直接点「继续」用当前模型续跑。"})
+                return
+            try:
+                _chat_t0 = float(_resume_ctx.get("ts_start") or _chat_t0)  # 接着原轮算耗时
+            except (TypeError, ValueError):
+                pass
         _configured_budget = int(self.db.get_topic_meta(tid, 'context_budget') or self.db.get_meta('compress_token_limit') or TOKEN_LIMIT)
         _cp = _custom_provider(_task_config.provider) or {}
         # 预算上限同样走 _wm_setting_ceiling：原来直接查 _MODEL_CONTEXT_WINDOWS，
@@ -7041,13 +7509,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             _msg_args["attachments"] = attachments
         if _cmid:
             _msg_args["cmid"] = _cmid
+        if _quotes:
+            _msg_args["quotes"] = _quotes  # 气泡里的引用块靠它渲染；历史给模型看的是 _qnote
         _msg_args = _msg_args or None
 
         # ―― 客户端幂等键（cmid）：同一次发送被网络层重放时，不看时间窗、精确拦截 ――
         # 场景（2026-09-22 实证）：链路在 agent 跑完前超时断连（守卫 600s 超时 → ERR upstream /api/chat: timed out），
         # 手机端浏览器在 app 重开时把这条 POST 原样重放（Chromium 对"已复用连接在收到任何响应字节前被关闭"的请求会重发）。
         # 文本守卫只能靠时间窗猜（且会漏 42 分钟这种长间隔），cmid 是精确命中，与间隔无关。
-        if _cmid:
+        if _cmid and not _resume:
             _hit_id, _hit_ts = self._find_user_msg_by_cmid(tid, _cmid)
             if _hit_id:
                 _rep_txt, _rep_ok = self._reply_after(tid, _hit_ts)
@@ -7066,14 +7536,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         #              → 不入库、不跑 agent、只把旧 ⚠️ 文本当回执返回
         #              → 前端因回执与已有 AI 消息同文而跳过渲染 ⇒ 界面彻底静默
         #   （guard.log 2026-10-07 18:24:41 实证；2026-09-30 连吞三条"继续"同因。）
-        if _cmid:
+        if _cmid and not _resume:
             # 仅在"文本守卫本会命中"时留痕：日后回看"这次为什么没被拦"有据可查，平时不刷日志。
             # quiet=True：预检不得写"已拦截"日志，否则真放行的也会在 guard.log 里留下假拦截。
             if self._dup_check(tid, message, quiet=True) is not None:
                 self._log_guard(
                     f"[chat] 文本守卫本会命中但已放行（带新cmid={_cmid[:12]} "
                     f"topic {tid[:8]} 首句{message[:30]!r}）")
-        else:
+        elif not _resume:
             _dup = self._dup_check(tid, message)
             if _dup is not None:
                 self._json(200, _dup)
@@ -7082,6 +7552,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # 消息落库后进入注入队列，运行中的循环会在轮次边界取出、插入上下文继续思考。
         with _cancel_lock:
             _loop_active = _cancel_events.get(tid) is not None
+        if _loop_active and _resume:
+            # 续跑只能落在"真的没有任何循环在跑"的那一刻，否则会起第二个并行循环
+            self._json(409, {"error": "这个任务正在运行中，无需续跑 —— 等它自己跑完或先点停止。"})
+            return
         if _loop_active:
             # agent 运行中收到的同文本必是幽灵重发/重复提交（差异文本才是真插话）：
             # 不二次入库、不注入，返回空回复让前端转入恢复轮询等最终结果。
@@ -7097,24 +7571,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.db.add_message(tid, "user", message, args=_msg_args, ts=time.time())
             self.db.update_topic(tid, updated_at=time.time())
             with _inject_lock:
-                _inject_queues.setdefault(tid, []).append(message)
+                # 插话也要带上引用提示：模型在轮次边界取到的是这句话，
+                # 少了前缀它就不知道用户是针对哪段在补充要求（落库的 text 仍干净）。
+                _inject_queues.setdefault(tid, []).append(
+                    (_qnote + "\n" + message) if _qnote else message)
             print(f"[agent] message injected into running loop (topic {tid[:8]})")
             self._json(200, {"status": "injected", "response": "", "topic_id": tid})
             return
-        self.db.add_message(tid, "user", message, args=_msg_args, ts=time.time())
-        # Auto-create task root fragment (first message in topic)
-        store = _get_memory_store()
-        if store and _memory_enabled:
-            existing = store.recall_by_topic(tid, limit=1)
-            if not existing:
-                ts_str = time.strftime("%Y%m%d%H%M%S")
-                store.add(
-                    f"开始话题：{topic.get('title', '新任务')}",
-                    ts=ts_str,
-                    source="task_root",
-                    topic_id=tid,
-                )
-        self.db.update_topic(tid, updated_at=time.time())
+        store = _get_memory_store()   # 后面 _compress_context 还要用，别放进分支里
+        if _resume:
+            # 续跑：**不落 user 消息**（这是"接着上一轮"而不是"用户又说了一句"），
+            # 断点转成一条只存在于本次请求里的提示，走 _build_messages 的 new_msg 位置。
+            # 好处：历史干净（不会再攒一堆"继续"）、条数墙不被占、模型也不会把它当新指令重新解读。
+            message = _build_resume_note(_resume_ctx)
+            print(f"[agent] resume after break (attempt {int(_resume_ctx.get('attempts') or 1)}, "
+                  f"steps={int(_resume_ctx.get('step_count') or 0)}) topic {tid[:8]}")
+            self.db.update_topic(tid, updated_at=time.time())
+        else:
+            # 用户发了新消息 = 旧断点作废（否则卡片上的「继续」会拿过期快照去续）
+            try:
+                if self.db.get_topic_meta(tid, "resume_ctx"):   # 多数情况没有，别为它多写一次库
+                    self.db.delete_topic_meta(tid, "resume_ctx")
+            except Exception:
+                pass
+            self.db.add_message(tid, "user", message, args=_msg_args, ts=time.time())
+            # Auto-create task root fragment (first message in topic)
+            if store and _memory_enabled:
+                existing = store.recall_by_topic(tid, limit=1)
+                if not existing:
+                    ts_str = time.strftime("%Y%m%d%H%M%S")
+                    store.add(
+                        f"开始话题：{topic.get('title', '新任务')}",
+                        ts=ts_str,
+                        source="task_root",
+                        topic_id=tid,
+                    )
+            self.db.update_topic(tid, updated_at=time.time())
         ws_rel = self.db.get_topic_meta(tid, "workspace")
         ws = _resolve_workspace(ws_rel, tid)
         # 展示用短路径：显示实际生效的工作区（相对项目根），而非 meta 原值
@@ -7781,7 +8273,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # （从话题第一条非tool消息数起）。组装窗口是最近500条，窗口第一条非tool消息的
         # 全局序号 = 话题总非tool数 - 窗口内非tool数。若不偏移，窗口起点漂移会导致
         # 整个窗口误命中旧折叠区间（复现：上下文只剩摘要+当前消息）。
-        _loop_msgs = history_raw[:-1]  # 最后一条是当前用户消息，单独在 _build_messages 处理
+        # 续跑时没有"新落的用户消息"，最后一行就是上一次中断留下的卡/回复 ⇒ 不能切掉它
+        _loop_msgs = history_raw if _resume else history_raw[:-1]
         # base 用全窗口非tool数（含最后一条），与 fold 侧 get_messages 窗口一致；
         # 否则组装侧 base 会比 fold 侧大1，导致节点区间整体偏移1条。
         _win_non_tool = sum(1 for m in history_raw if m.get("role") != "tool")
@@ -7854,12 +8347,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if not (text or "").strip():
                     anchor += 1
                     continue
+                # ── 失败事件卡（args.kind='error'）：原文是给人和排障看的二十行报告，
+                #    对模型只需要"一句事实 + 一条约束"。整段落进上下文有三个坏处：
+                #    ① 每次往返都重发（约 250 tok 常驻）；② 它会被后台整理当成"有效结论"
+                #    摘要进记忆树；③ 模型看到"自己"写过这么一段，往往先道歉/重述，
+                #    而不是接着干。详情仍在库里，需要时 read_topic_messages 可取。
+                if args.get("kind") == "error":
+                    history_msgs.append({"role": "assistant", "content":
+                                         "[上一轮因模型侧不可用而中断，未产出正文。"
+                                         "此前已完成的工具调用结果均已落盘，不要重复这些步骤；"
+                                         "直接从断点继续。]", "_db_id": msg_id, "_anchor": anchor})
+                    anchor += 1
+                    continue
                 # _anchor = 话题内全局非 tool 序号，与 compression_tree 的锚点同一套坐标系。
                 # 只在内存里用（发送前 llm.py 会剥掉所有 _ 开头字段），用于裁剪时精确标定
                 # "被丢掉的是哪一段"，好让后台整理写出锚点正确的节点。
                 history_msgs.append({"role": "assistant", "content": text,
                                      "_db_id": msg_id, "_anchor": anchor})
             elif role == "user":
+                # 引用块：原文不在 text 里（落库干净、气泡正文只有用户原话），
+                # 回放到上下文时补前缀块，模型才知道这句是针对哪段说的。
+                # 与落库那侧同源：args.quotes（数组）；老消息只有 args.quote（单对象）也认。
+                _qlist = args.get("quotes")
+                if not isinstance(_qlist, list) or not _qlist:
+                    _qlist = [args.get("quote")] if isinstance(args.get("quote"), dict) else []
+                _qpre = ""
+                for _q in _qlist:
+                    if not isinstance(_q, dict):
+                        continue
+                    _qtext = str(_q.get("text") or "").strip()
+                    if not _qtext:
+                        continue
+                    if len(_qtext) > 800:
+                        _qtext = _qtext[:800].rstrip() + "…"
+                    _qpre += ("[引用" + ("我" if _q.get("from") == "you" else "AI")
+                              + "]\n" + _qtext + "\n[/引用]\n")
+                if _qpre:
+                    text = _qpre + (text or "")
                 history_msgs.append({"role": "user", "content": text,
                                      "_db_id": msg_id, "_anchor": anchor})
             anchor += 1
@@ -7890,8 +8414,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         _turn_thinking = ""
         full_response = ""
         full_intermediate = ""  # 工具轮的动作叙述（"好嘞去抓官网…"），换行累积；最终答案不进这里
-        total_input_tokens = 0
-        total_output_tokens = 0
+        # 续跑：把中断前那一段已经花掉的 token 接上 —— 否则最终回复底部的"消耗"只算后半段，
+        # 一次被中断过的长任务在账面上会莫名其妙变便宜（成本统计仍按每次真实调用各自记账，不重复）。
+        total_input_tokens = int(_resume_ctx.get("tokens_in") or 0) if _resume_ctx else 0
+        total_output_tokens = int(_resume_ctx.get("tokens_out") or 0) if _resume_ctx else 0
 
         _est_input = 0  # 源不返回 usage 时的兜底估算累计（每轮实际发出的 messages，见下方累加点）
 
@@ -7935,7 +8461,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             _dyn_state["injected"] = True
             return _msgs
 
-        msgs = _build_messages(system_msg=system_msg, history=history_msgs, new_msg=message)
+        # 本轮发给模型的文本：引用提示只在这一层拼，落库/界面用的仍是干净的 message
+        _llm_msg = (_qnote + "\n" + message) if _qnote else message
+        msgs = _build_messages(system_msg=system_msg, history=history_msgs, new_msg=_llm_msg)
         current_msg = msgs[-1]
         old_msgs = _compress_context(msgs[:-1], tid, store, self.db)
         msgs = old_msgs + [current_msg]
@@ -7945,7 +8473,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # 于是本地 provider 下图片仍被发到不支持视觉的本地服务 → HTTP 500。
         if _image_abs_paths:
             llm_config, message, _mm, _note = _prepare_vision_request(
-                llm_config, message, _image_abs_paths)
+                llm_config, _llm_msg, _image_abs_paths)
             if _mm is not None:
                 current_msg["content"] = _mm
             else:
@@ -8012,6 +8540,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         _orig_model = llm_config.model       # 本请求最初选的主模型（换源后仍用于提示文案）
         _fallback_tried = set()              # 已换过的备用源 "provider/model"
         _fell_back = []                      # 换源记录，最终报错时告诉用户试过哪些
+        # 「用备用源继续」：用户显式点了这个按钮 = 别再撞刚才那堵墙，直接用备用源起跑。
+        # 与自动换源的区别：这是人的选择，所以要写进过程泡让用户看得见（否则只发现"风格变了"）。
+        if _resume_fb:
+            _fb0, _fb0_label = _fallback_llm_config(llm_config, _fallback_tried)
+            if _fb0 is not None:
+                _fallback_tried.add(_fb0_label)
+                _fell_back.append(_fb0_label)
+                llm_config = _fb0
+                full_intermediate = _append_intermediate(
+                    full_intermediate, f"（按你的选择，本轮直接用备用源 {_fb0_label} 续跑）")
+                print(f"[agent] resume forced to fallback source: {_fb0_label}")
         while remaining > 0:
             _usage_settlement_id = uuid.uuid4().hex
             _turn_thinking = ""  # 本轮思考（落库口径；实时泡仍用 full_thinking）
@@ -8225,7 +8764,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 #    do_POST 兜底里的 self._json(500) 因为响应头已流式发出必然失败并被
                 #    except 静默吞掉 → 用户只会看到"突然断了、什么都不知道"（本次的真实症状）。
                 _fb_note_lines = [
-                    "⚠️ 本轮中断：模型侧持续不可用，已停止。",
+                    f"⚠️ {ERR_CARD_TAG}：模型侧持续不可用，已停止。",
                     "",
                     f"· 主模型：{_orig_model}",
                     f"· 错误：{turn_error}",
@@ -8256,8 +8795,55 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     _fb_note_lines.append(
                         "（也可在同一页开启「模型不可用时自动切换备用源」，让这类故障自动恢复。）")
                 _fb_note = "\n".join(_fb_note_lines)
+                # ── 断点快照：给错误卡上的「继续 / 用备用源继续」用 ──
+                # 🔴 必须**先写断点、再落卡**：前端是靠尾部探针"拉到这张卡"那一次顺带读 resume_ok，
+                #    顺序反了就会出现"卡到了、断点还没写"→ 那一次同步记成 false，之后没有新消息
+                #    也就不会再同步 ⇒ 按钮永远不出现（§47 同款：状态对了但没人再来问）。
+                # 只取"最后一条用户消息之后"的工具行（= 这一轮真实完成的步骤）。
+                # 为什么从库里取而不是用内存里的 turn_tool_calls：这一轮可能已经跨过好几次
+                # 中断/续跑，内存只剩最后一段；库里的 tool 行是"执行完才落库"的，才是真实现场。
                 try:
-                    self.db.add_message(tid, "ai", _fb_note, args=_task_stats_args(),
+                    _since_row = self.db._fetchone(
+                        "SELECT MAX(ts) AS t FROM messages WHERE topic_id=? AND role='user'", (tid,))
+                    _since = float(_since_row["t"] or 0) if _since_row else 0.0
+                    _cnt_row = self.db._fetchone(
+                        "SELECT COUNT(*) AS c FROM messages WHERE topic_id=? AND role='tool' AND ts>=?",
+                        (tid, _since))
+                    _step_count = int(_cnt_row["c"] or 0) if _cnt_row else 0
+                    _step_rows = self.db._fetchall(
+                        "SELECT args FROM messages WHERE topic_id=? AND role='tool' AND ts>=? "
+                        "ORDER BY ts DESC, id DESC LIMIT 3", (tid, _since))
+                    _steps = []
+                    for _sr in (_step_rows or []):
+                        try:
+                            _nm = (json.loads(_sr["args"] or "{}") or {}).get("name")
+                        except Exception:
+                            _nm = None
+                        if _nm and _nm not in _steps:
+                            _steps.append(_nm)
+                    self.db.set_topic_meta(tid, "resume_ctx", json.dumps({
+                        "ts_start": _chat_t0,
+                        "tokens_in": int(total_input_tokens),
+                        "tokens_out": int(total_output_tokens),
+                        "steps": _steps,
+                        "step_count": _step_count,
+                        "attempts": (int(_resume_ctx.get("attempts") or 0) + 1) if _resume_ctx else 1,
+                        "model": _orig_model,
+                        "at": time.time(),
+                    }, ensure_ascii=False))
+                    print(f"[agent] resume_ctx saved (steps={_step_count}, "
+                          f"attempts={(int(_resume_ctx.get('attempts') or 0) + 1) if _resume_ctx else 1})")
+                except Exception as _rs_err:
+                    print(f"[agent] save resume_ctx failed: {_rs_err}")
+                try:
+                    # 打标 kind=error：这条是**运行事件**，不是一轮产出。
+                    #   前端据此折成一条可展开的红色条（不再冒充 AI 发言占半屏），
+                    #   组装 AI 上下文时据此压成一句提示（见 role=='ai' 分支）。
+                    #   args 里的耗时/Token 仍然保留：那是本轮**真实花掉**的钱，删了成本报表会少记。
+                    _err_args = _task_stats_args()
+                    _err_args["kind"] = "error"
+                    _err_args["error_msg"] = _fb_note_lines[0].replace("⚠️ ", "").replace("⚠ ", "")
+                    self.db.add_message(tid, "ai", _fb_note, args=_err_args,
                                         thinking=_turn_thinking, ts=time.time())
                     self.db.update_topic(tid, updated_at=time.time())
                 except Exception as _persist_err:
@@ -8664,6 +9250,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 reply = "（已中止）" + cancel_marker
             self.db.add_message(tid, "ai", reply, args=_task_stats_args(),
                                 thinking=full_thinking, ts=time.time())
+            # 用户主动停手 = 断点作废（卡片上的「继续」不该在用户喊停后还能把它拉起来）
+            try:
+                self.db.delete_topic_meta(tid, "resume_ctx")
+            except Exception:
+                pass
             self.db.update_topic(tid, updated_at=time.time())
             finish_working(tid, "done")
             _stats = _task_stats_args()
@@ -8699,6 +9290,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if full_response:
             self.db.add_message(tid, "ai", full_response, args=_task_stats_args(),
                                 thinking=full_thinking, ts=time.time())
+        # 正常收工 = 断点作废（续跑成功后卡片上的按钮必须消失，否则会二次续跑同一轮）
+        try:
+            self.db.delete_topic_meta(tid, "resume_ctx")
+        except Exception:
+            pass
         self.db.update_topic(tid, updated_at=time.time())
         finish_working(tid, "done")
         with _inject_lock:

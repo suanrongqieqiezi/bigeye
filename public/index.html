@@ -175,7 +175,7 @@ header h1{margin:0;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:
 .topic-item{position:relative}
 
 /* Chat area */
-main{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 14px;display:flex;flex-direction:column;gap:12px;min-width:0;-webkit-overflow-scrolling:touch;overflow-anchor:none}
+main{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 12px;display:flex;flex-direction:column;gap:12px;min-width:0;-webkit-overflow-scrolling:touch;overflow-anchor:none}
 .empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--tdim);font-size:13px;text-align:center;line-height:1.8}
 .empty>div{width:100%;min-width:0}
 .empty-slogan{font-size:14px;color:var(--text);opacity:.75}
@@ -200,18 +200,144 @@ main{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 14px;display:flex;fle
 .row.ai .bubble{background:var(--ab);border:1px solid var(--border);border-bottom-left-radius:4px;box-shadow:var(--shadow-sm)}
 .meta{font-size:10.5px;color:var(--tdim);margin-top:4px;opacity:.85}.row.you .meta{text-align:right}
 .msg-stat{font-variant-numeric:tabular-nums;white-space:nowrap;margin-left:10px}
-.msg-copy{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;margin:-9px 0 -9px 4px;border:none;background:transparent;color:var(--tdim);cursor:pointer;opacity:0;border-radius:7px;vertical-align:middle;transition:opacity .15s,color .15s,background .15s}
-.msg-copy svg{width:18px;height:18px}
-.msg-copy:hover{color:var(--accent);background:rgba(255,255,255,.08)}
-.msg-copy.ok{opacity:1;color:var(--accent)}
-.row:hover .msg-copy{opacity:.85}
-@media (hover:none){.msg-copy{opacity:.6}}
+/* ══ 气泡底部动作条（2026-10-23 二次改造）═════════════════════════════
+   参考用户给的截图：纯图标圆按钮（用户 2026-10-23 指定圆形底色）、无文字、无分隔线、常驻可见。
+   上一版带文字标签（朗读/引用/复制），窄屏会把气泡撑宽、视觉噪音大，用户判为"丑"。
+   🔴 只在 **AI 气泡** 上出现。用户 2026-10-23 明确要求：用户气泡下面不要这排按钮，
+      它的功能改由右键菜单 / 移动端长按提供（同一个 _msgMenuShow）。
+   🔴 底色走变量 --mbtn-bg：@media(hover:none) 里要重置 hover，写死 rgba 会在白主题上变白块。 */
+.msg-bar{display:flex;align-items:center;gap:6px;margin:13px -4px -5px;padding:0}
+.msg-bar-sp{flex:1 1 auto}
+.msg-btn{display:inline-flex;align-items:center;justify-content:center;width:31px;height:31px;padding:0;border:1px solid transparent;background:var(--mbtn-bg,rgba(255,255,255,.052));color:var(--tdim);cursor:pointer;border-radius:50%;line-height:1;transition:color .15s,background .15s,border-color .15s,transform .1s;-webkit-tap-highlight-color:transparent}
+.msg-btn svg{width:17px;height:17px;flex:0 0 auto}
+.msg-btn:hover{color:var(--accent);background:rgba(var(--accent-rgb),.14);border-color:rgba(var(--accent-rgb),.30)}
+.msg-btn:active{transform:scale(.92)}
+.msg-btn.on{color:var(--accent);background:rgba(var(--accent-rgb),.16);border-color:rgba(var(--accent-rgb),.42)}
+.msg-btn[disabled]{opacity:.4;cursor:default;transform:none}
+/* 朗读播放中：图标跳动 + 强调色 */
+.msg-btn.speaking{color:var(--accent);background:rgba(var(--accent-rgb),.18);border-color:rgba(var(--accent-rgb),.5)}
+.msg-btn.speaking svg{animation:spkPulse 1.1s ease-in-out infinite}
+@keyframes spkPulse{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.18);opacity:1}}
+/* 合成中：小转环 */
+.msg-btn.loading svg{animation:spkSpin .9s linear infinite}
+@keyframes spkSpin{to{transform:rotate(360deg)}}
+/* 手机上按钮做大一点，手指好点 */
+@media (max-width:768px){.msg-btn{width:33px;height:33px}.msg-bar{gap:6px}}
+html[data-theme="white"] .msg-btn{--mbtn-bg:rgba(0,0,0,.05)}
+html[data-theme="white"] .msg-btn:hover{background:rgba(var(--accent-rgb),.14)}
+@media (hover:none){.msg-btn:not(.on):not(.speaking):hover{color:var(--tdim);background:var(--mbtn-bg,rgba(255,255,255,.055));border-color:transparent}.msg-btn:active{color:var(--accent);background:rgba(var(--accent-rgb),.16)}}
+/* 手机上长按气泡 = 右键菜单（2026-10-23）。iOS 默认长按会先弹系统的"拷贝/查询"气泡，
+   不掐掉的话会和我们的菜单叠在一起；仍保留 user-select，菜单里的「选取文字」要用。 */
+#chatBox .row .bubble{-webkit-touch-callout:none}
+/* ══ 引用块（微信/飞书式，2026-10-23）══════════════════════════════════
+   同一份数据的两个形态：
+     · #quoteBar  —— 还没发送：**嵌在发送卡片内部**的第一行（pendingQuotes，可多条）
+     · .quote-block —— 已发送：气泡正文**上方**的灰色引用块（来自 args.quotes）
+   🔴 #quoteBar 的排版照抄附件卡片（.att-card）：左边一个圆角图标格 + 右边两行，
+      第二行只写"引用"。**不要**再写"引用 AI"这种标签（用户 2026-10-23：
+      "跟图片一样的排版样式，下面写着引用，不要写什么引用ai好奇怪"）。
+   🔴 grid 行号规则写在这里（index.html 的内联 <style>），**别挪回 composer-floating.js**：
+      那个文件靠 <script src="/composer-floating.js?v=…"> 引入，版本号不变时手机 WebView
+      会一直用缓存里的旧样式 ⇒ #quoteBar 没有 grid-column/grid-row 约束，被自动排进
+      "弹性列"，直接压在发送按钮上（2026-10-23 真机截图就是这么坏的）。
+      .input-row 的**列**定义仍归 task-composer.js，这里只补行号，别动列。
+   🔴 .quote-block 必须挂在 .msg-body **外面**：_msgRowText() 优先取 .msg-body 的
+      innerText，挂在里面的话复制/朗读/再引用都会把被引用的原文一起带上（重复引用）。
+   🔴 白主题不是靠变量切换的（:root 只有一套深色变量），必须显式覆盖。 */
+#quoteBar{padding:0;min-width:0}
+/* 引用条在发送卡片里占第 1 行；正文/按钮靠 .has-quote 类一起下移（隐藏时类被摘掉，自动回落）。
+   🔴 用类而不是 :has(#quoteBar…) 判可见性：类由 renderQuoteBar 直接开关，不依赖选择器支持，
+      也不会因为 el.style.display 的写法变化而静默失效。 */
+#mainPanel > footer .input-row > #quoteBar{grid-column:1/-1;grid-row:1;pointer-events:auto}
+.input-row.has-quote textarea{grid-row:2!important}
+.input-row.has-quote .attach-btn,
+.input-row.has-quote .task-model-btn,
+.input-row.has-quote .task-outside-btn,
+.input-row.has-quote .send{grid-row:3!important}
+/* 附件预览也在第 1 行：两者同现时按 预览 → 引用 → 正文 → 按钮 依次往下压，否则两张卡压在一起 */
+.input-row.has-quote:has(#attachPreview[style*="display: flex"]) #quoteBar{grid-row:2}
+.input-row.has-quote:has(#attachPreview[style*="display: flex"]) textarea{grid-row:3!important}
+.input-row.has-quote:has(#attachPreview[style*="display: flex"]) .attach-btn,
+.input-row.has-quote:has(#attachPreview[style*="display: flex"]) .task-model-btn,
+.input-row.has-quote:has(#attachPreview[style*="display: flex"]) .task-outside-btn,
+.input-row.has-quote:has(#attachPreview[style*="display: flex"]) .send{grid-row:4!important}
+/* 卡片形态与 .att-card 对齐（去掉图标格：用户 2026-10-23 "不需要这个图标"）。
+   多条引用竖向排，每条一张卡、各自带 ×；数量上限 _QUOTE_MAXN=5 由 JS 兜。 */
+.qbar-list{display:flex;flex-direction:column;gap:5px;align-items:flex-start;min-width:0;max-width:100%}
+.qbar-in{display:flex;align-items:center;gap:8px;padding:5px 7px 5px 10px;border-radius:10px;background:rgba(var(--accent-rgb),.10);border:1px solid rgba(var(--accent-rgb),.22);max-width:min(100%,420px);box-sizing:border-box}
+.qbar-meta{flex:1 1 auto;min-width:0;line-height:1.35}
+.qbar-txt{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qbar-sub{color:var(--tdim);font-size:10px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qbar-x{flex:0 0 auto;width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0;border:none;border-radius:5px;background:none;color:var(--tdim);font:inherit;font-size:15px;line-height:1;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.qbar-x:hover{background:var(--hover);color:var(--danger)}
+/* 已发送气泡里的引用块：跟输入框里的引用卡片同一套语言 —— 上面原文，下面一行小字「引用」。
+   不再写「AI / 我」标签：手机上那个 flex 子项没有 nowrap，会把 "AI" 竖着折成 A / I 两行
+   （2026-10-23 真机截图），而且用户明确说过"不要写什么引用ai好奇怪"。归属改为 title 里的提示。 */
+.quote-block{display:block;margin:0 0 8px;padding:6px 9px 6px 8px;border-radius:7px;background:rgba(255,255,255,.055);border-left:3px solid rgba(var(--accent-rgb),.55);font-size:12.5px;line-height:1.5;cursor:default}
+.quote-block .qb-body{color:var(--tdim);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word;white-space:pre-wrap}
+.quote-block .qb-sub{color:var(--tdim);opacity:.72;font-size:10px;line-height:1.2;margin-top:2px;white-space:nowrap}
+/* 用户气泡是强调色渐变底（深色主题）/ 浅绿底（白主题），引用块要跟着反相 */
+.row.you .quote-block{background:rgba(255,255,255,.24);border-left-color:rgba(255,255,255,.72)}
+.row.you .quote-block .qb-body,.row.you .quote-block .qb-sub{color:#07322c}
+/* 白主题：引用条用的是 accent 半透明底，两套主题都成立，不再单独覆盖 */
+html[data-theme="white"] .quote-block{background:rgba(0,0,0,.045)}
+html[data-theme="white"] .quote-block .qb-body{color:#4b5563}
+html[data-theme="white"] .row.you .quote-block{background:rgba(255,255,255,.62);border-left-color:rgba(15,157,143,.5)}
+html[data-theme="white"] .row.you .quote-block .qb-body,html[data-theme="white"] .row.you .quote-block .qb-sub{color:#0b5f56}
+/* ══ 消息右键 / 长按菜单（#msgCtxMenu）════════════════════════════════
+   与 #textCtxMenu（剪切/粘贴/全选：面向"文字框"）刻意分开：
+   这个挂在整条消息上，动作集合完全不同（复制/朗读/追问/反馈/收藏/分享…）。
+   顶部三格横排对应参考截图的第一行，下面竖排列表。 */
+#msgCtxMenu{position:fixed;z-index:10003;min-width:198px;max-width:252px;padding:6px;background:var(--surface2);border:1px solid var(--border2);border-radius:13px;box-shadow:var(--shadow-lg);color:var(--text);font-size:13px;user-select:none;-webkit-user-select:none;animation:mcxIn .12s ease-out}
+@keyframes mcxIn{from{opacity:0;transform:scale(.965) translateY(-3px)}to{opacity:1;transform:none}}
+.mcx-quick{display:flex;gap:2px}
+.mcx-q{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 4px;border:none;background:transparent;border-radius:10px;color:var(--text);font:inherit;font-size:11px;line-height:1;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.mcx-q svg{width:19px;height:19px;flex:0 0 auto}
+.mcx-q:hover{background:var(--hover)}
+.mcx-q:active{background:rgba(var(--accent-rgb),.14)}
+.mcx-q.on{color:var(--accent)}
+.mcx-sep{height:1px;background:var(--border);margin:5px 6px}
+.mcx-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;cursor:pointer;white-space:nowrap;line-height:1.2}
+.mcx-item svg{width:17px;height:17px;flex:0 0 auto;opacity:.82}
+.mcx-item:hover{background:var(--hover)}
+.mcx-item.on{color:var(--accent)}
+.mcx-item.on svg{opacity:1}
+.mcx-item.dis{color:var(--tdim);cursor:default}
+.mcx-item.dis svg{opacity:.4}
+.mcx-item.dis:hover{background:transparent}
+/* 收藏角标（挂在 .meta 行） */
+.msg-fav{color:var(--warn);font-size:10.5px;margin-left:8px;white-space:nowrap}
+/* 轻提示（本页此前没有任何 toast 实现，6 处调用都是死引用） */
+#msgToast{position:fixed;left:50%;bottom:calc(var(--composer-h,68px) + 22px);transform:translateX(-50%) translateY(8px);z-index:10004;max-width:76vw;padding:9px 16px;background:rgba(30,32,38,.97);color:#fff;font-size:12.5px;line-height:1.45;border-radius:11px;box-shadow:var(--shadow-md);opacity:0;transition:opacity .18s,transform .18s;pointer-events:none;text-align:center}
+#msgToast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+html[data-theme="white"] #msgCtxMenu{background:#fff;border-color:rgba(0,0,0,.10);box-shadow:0 14px 34px rgba(0,0,0,.16)}
+html[data-theme="white"] #msgToast{background:rgba(34,38,45,.94)}
 .row.msg-error .bubble{border:1px solid rgba(var(--danger-rgb),.4);background:rgba(var(--danger-rgb),.08)!important;color:var(--text)!important}
 .resend-link{color:var(--accent);cursor:pointer;text-decoration:underline;font-size:10.5px}
 /* ⚠️ color 必须补、且必须用变量：`.row.you .bubble` 的正文色是 #052823（深主题）/ #0b5f56（白主题），
    都是"专为亮青/浅绿底"配的墨绿；而本规则用 !important 把底色换成了近乎透明的红 ⇒
    深色主题下墨绿压暗红 = 正文几乎看不见（2026-10-07 实拍发现，正是"重新发送"按钮所在的那个气泡）。 */
 .err-note{color:var(--danger)}
+/* 失败事件卡（args.kind='error'）：默认只占一行，点开看排障详情。
+   它是"运行事件"不是"AI 的发言"，所以不给气泡、不占半屏，也不该在历史里长留成一段结论。 */
+.err-row{align-items:flex-start}
+.err-bar{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;padding:6px 11px;font-size:12.5px;line-height:1.55;color:var(--danger);background:rgba(var(--danger-rgb),.07);border:1px solid rgba(var(--danger-rgb),.32);border-radius:10px;cursor:pointer;transition:background .15s}
+.err-bar:hover{background:rgba(var(--danger-rgb),.13)}
+.err-bar-badge{font-weight:600;white-space:nowrap}
+.err-bar-head{flex:1;min-width:0;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.err-bar-arrow{font-size:8px;color:var(--tdim);transition:transform .15s;transform-origin:50% 50%}
+.err-bar.open .err-bar-arrow{transform:rotate(90deg)}
+.err-bar-body{display:none;flex-basis:100%;margin-top:5px;padding-top:7px;border-top:1px dashed rgba(var(--danger-rgb),.28);color:var(--text);font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.err-bar.open .err-bar-body{display:block}
+/* 「继续 / 用备用源继续」：不展开也要看得见 —— 全废时用户唯一的下一步就在这里。
+   两个按钮的语义不同：继续=同一模型从断点续跑；用备用源继续=主源刚被判死，直接换一条命。 */
+.err-acts{flex-basis:100%;display:flex;gap:8px;flex-wrap:wrap;margin-top:7px}
+.err-btn{display:inline-flex;align-items:center;gap:4px;padding:3px 11px;font-size:11.5px;font-family:inherit;line-height:1.6;color:var(--accent);background:rgba(var(--accent-rgb),.12);border:1px solid rgba(var(--accent-rgb),.32);border-radius:11px;cursor:pointer;transition:background .15s,opacity .15s}
+.err-btn:hover{background:rgba(var(--accent-rgb),.24)}
+.err-btn.primary{color:#fff;background:rgba(var(--accent-rgb),.92);border-color:transparent}
+.err-btn.primary:hover{background:rgba(var(--accent-rgb),1)}
+.err-btn[disabled]{opacity:.5;cursor:default}
+.err-btn svg{width:11px;height:11px;display:block}
 /* 未得到回复的用户消息：气泡正下方的「重新发送」按钮（2026-10-07 用户要求） */
 .resend-btn{display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:2px 9px;font-size:10.5px;font-family:inherit;line-height:1.5;color:var(--accent);background:rgba(var(--accent-rgb),.12);border:1px solid rgba(var(--accent-rgb),.3);border-radius:11px;cursor:pointer;vertical-align:middle;transition:background .15s,color .15s}
 .resend-btn:hover{background:rgba(var(--accent-rgb),.24)}
@@ -355,7 +481,7 @@ button.send:active{transform:translateY(0);filter:brightness(.92)}
 header{padding:0 12px}
 #sidebarSettings .sp-header{padding:0 12px}
 header h1{font-size:13.5px}
-main{padding:12px 10px;gap:10px}
+main{padding:12px 12px;gap:10px}
 .bubble{font-size:13.5px;padding:9px 12px}
 .row{max-width:94%}
 .tool-row{max-width:94%}
@@ -381,12 +507,12 @@ button.send{width:34px;height:34px}
 }
 /* Desktop — comfortable centered reading column */
 @media(min-width:901px){
-main{padding:22px 24px}
+main{padding:22px max(12px, calc((100% - 760px) / 2))}
 main>*{width:100%}
 main{align-items:center}
 .row,.tool-row,.tool-group,.empty{max-width:min(760px,100%)}
 .input-row{max-width:760px;margin:0 auto;width:100%}
-footer{padding:14px 24px}
+/* footer 水平内边距真源：#mainPanel > footer{padding:6px 12px ...!important}，本条 24px 从未生效已移除 */
 }
 /* Scrollbar */
 main::-webkit-scrollbar{width:6px}
@@ -739,6 +865,16 @@ main::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
 .rc-time{font-size:10px;color:var(--tdim);margin-top:2px}
 .rc-restore{background:rgba(var(--accent-rgb),.1);color:var(--accent);border:1px solid rgba(var(--accent-rgb),.25);border-radius:var(--radius-sm);padding:5px 13px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;flex-shrink:0}
 .rc-restore:hover{background:rgba(var(--accent-rgb),.2)}
+/* 设置 → 消息反馈（2026-10-23）：三个分类 tab + 列表，样式对齐回收站 */
+.mfb-tabs{display:flex;gap:6px;padding:2px 0 10px;border-bottom:1px solid var(--border);margin-bottom:2px}
+.mfb-tab{flex:1;padding:7px 6px;font-size:12px;font-family:inherit;color:var(--tdim);background:transparent;border:1px solid transparent;border-radius:9px;cursor:pointer;transition:color .15s,background .15s,border-color .15s;-webkit-tap-highlight-color:transparent}
+.mfb-tab:hover{background:var(--hover);color:var(--text)}
+.mfb-tab.on{color:var(--accent);background:rgba(var(--accent-rgb),.12);border-color:rgba(var(--accent-rgb),.32)}
+.mfb-n{margin-left:5px;font-size:10.5px;opacity:.85;font-variant-numeric:tabular-nums}
+.mfb-snip{font-size:11.5px;color:var(--tdim);line-height:1.5;margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.mfb-dead{margin-left:6px;color:var(--danger);opacity:.85}
+.mfb-del{margin-left:6px;background:transparent;border:1px solid var(--border);color:var(--tdim);border-radius:var(--radius-sm);padding:5px 11px;font-size:11px;cursor:pointer;flex-shrink:0;transition:color .15s,background .15s,border-color .15s}
+.mfb-del:hover{color:var(--danger);border-color:rgba(var(--danger-rgb),.4);background:rgba(var(--danger-rgb),.1)}
 .has-think{margin-bottom:2px}
 
 
@@ -1050,6 +1186,50 @@ body.fb-narrow #fbFileTools button.fb-ibtn{padding:0;width:24px;height:24px}
 .fv-info{margin:auto;color:var(--tdim);font-size:12.5px;text-align:center;padding:24px;line-height:1.9;word-break:break-all}
 .fv-dl{background:var(--accent);color:#04241f;border:none;border-radius:8px;padding:8px 18px;font-size:12.5px;font-weight:600;cursor:pointer}
 .fv-dl:hover{filter:brightness(1.1)}
+/* ══ 音频播放器（自绘，替代原生 <audio controls>）════════════════════════
+   原生控件的媒体控件是「响应式折叠」的：容器一窄（手机竖屏 / 文件栏被拖窄 /
+   阅读器嵌在小窗里），Chromium 直接把音量按钮整个移除，只剩【播放 + ⋮】一个
+   胶囊 —— 这就是「有时候看不到音量键」；而且手机上不能拖进度、⋮ 里只有
+   「下载 / 播放速度」，交互和桌面差很远。
+   下面这套永远保留音量条：宽度不够时只收数值标签，绝不隐藏控件。 */
+.au-wrap{margin:auto;width:100%;max-width:520px;padding:20px 16px;display:flex;flex-direction:column;justify-content:center}
+.au-card{background:var(--surface2);border:1px solid var(--border);border-radius:16px;padding:14px 16px 10px;box-shadow:var(--shadow-sm)}
+.au-main{display:flex;align-items:center;gap:12px;min-width:0}
+.au-play{flex:0 0 auto;width:46px;height:46px;border-radius:50%;border:none;background:var(--accent);color:#04241f;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:transform .12s,filter .12s}
+.au-play:hover{filter:brightness(1.08)}
+.au-play:active{transform:scale(.94)}
+.au-play svg{width:20px;height:20px;display:block;fill:currentColor;stroke:none}
+.au-play .ic-pause{display:none}
+.au-play.on .ic-play{display:none}
+.au-play.on .ic-pause{display:block}
+.au-track{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.au-times{display:flex;justify-content:space-between;font-size:11px;line-height:1.2;color:var(--tdim);font-variant-numeric:tabular-nums;letter-spacing:.2px}
+.au-range{-webkit-appearance:none;appearance:none;width:100%;height:20px;margin:0;padding:0;background:transparent;cursor:pointer;outline:none;touch-action:pan-y;display:block}
+.au-range::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:linear-gradient(90deg,var(--accent) var(--p,0%),var(--border2) var(--p,0%))}
+.au-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;margin-top:-4px;border-radius:50%;border:none;background:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.45);transition:transform .1s}
+.au-range:hover::-webkit-slider-thumb{transform:scale(1.15)}
+.au-range::-moz-range-track{height:6px;border-radius:999px;background:var(--border2)}
+.au-range::-moz-range-progress{height:6px;border-radius:999px;background:var(--accent)}
+.au-range::-moz-range-thumb{width:14px;height:14px;border:none;border-radius:50%;background:var(--text)}
+.au-foot{display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);min-width:0}
+.au-ibtn{flex:0 0 auto;width:30px;height:30px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--tdim);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;font-size:11px;font-weight:600;font-family:inherit;transition:color .12s,background .12s,border-color .12s}
+.au-ibtn:hover{color:var(--text);background:var(--hover)}
+.au-ibtn.on{color:var(--accent);border-color:rgba(var(--accent-rgb),.4);background:rgba(var(--accent-rgb),.1)}
+.au-ibtn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.au-volwrap{flex:1;min-width:48px;display:flex;align-items:center;gap:7px}
+.au-volnum{flex:0 0 auto;width:30px;text-align:right;font-size:10.5px;color:var(--tdim);font-variant-numeric:tabular-nums}
+.au-rate{width:auto;min-width:34px;padding:0 6px;letter-spacing:.2px}
+.au-err{margin-top:8px;font-size:11.5px;color:var(--danger)}
+/* 白主题的 accent 是深青，深色图标压在深青底上看不清 → 换白字 */
+html[data-theme="white"] .au-play{color:#fff}
+@media(max-width:420px){
+  .au-wrap{padding:14px 12px}
+  .au-card{padding:12px 12px 8px}
+  .au-play{width:42px;height:42px}
+  .au-range::-webkit-slider-thumb{width:16px;height:16px;margin-top:-5px}
+  /* 只收数值标签：滑块本体永远不隐藏（这正是本次要修的病） */
+  .au-volnum{display:none}
+}
 /* ── PDF 自带渲染器（PDF.js）：画在 canvas 上，不依赖浏览器 PDF 阅读器 ──
    Android WebView / Chrome for Android 都没有内置阅读器，<iframe src="xx.pdf"> 只会空白或强制下载。
    ⚠ 这里只管"大眼阅读器"这一路：PC（宽屏 + 有内置阅读器）由 fvPdfEngine() 判成 'native'，
@@ -1409,8 +1589,17 @@ html[data-theme="white"] .hp-skel::after{
 #flowChartZoomViewport svg{max-width:none;max-height:none}
 #flowChartZoomViewport.grabbing{cursor:grabbing}
 #flowChartZoomViewport:not(.grabbing){cursor:grab}
-#topicTitleText{display:block;width:fit-content;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;transition:color .15s}
-#topicTitleText:hover{color:var(--accent)}
+#topicTitle{display:flex;align-items:center;gap:6px;min-width:0}
+#topicTitleText{display:block;flex:0 1 auto;width:fit-content;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .15s}
+/* 任务流程图入口：只有 AI 真给这个任务建过图才出现（.show），标题本身不再是入口 */
+#btnFlowChart{display:none;flex:0 0 auto;align-items:center;justify-content:center;width:24px;height:24px;padding:0;background:transparent;border:1px solid transparent;border-radius:var(--radius-sm);color:var(--accent);opacity:.85;cursor:pointer;transition:opacity .15s,background .15s,border-color .15s}
+#btnFlowChart.show{display:inline-flex}
+#btnFlowChart svg{width:16px;height:16px;display:block}
+#btnFlowChart:hover{opacity:1;background:rgba(var(--accent-rgb),.12);border-color:rgba(var(--accent-rgb),.35)}
+#btnFlowChart:active{transform:translateY(.5px)}
+/* 白主题：--accent 青(#2fe0c6) 压在白底上对比度不足，跟随 #btnDebug 的惯例改用正文色 */
+html[data-theme="white"] #btnFlowChart{color:var(--text);opacity:.7}
+html[data-theme="white"] #btnFlowChart:hover{opacity:1;background:rgba(var(--accent-rgb),.14);border-color:rgba(var(--accent-rgb),.4)}
 /* 移动端专属元素：桌面上隐藏，窄屏才显示 */
 .fc-mobile-only{display:none!important}
 @media(max-width:768px){ #flowChartModal .modal-box{width:100%!important;max-width:100%!important;height:100vh!important;max-height:100vh!important;border-radius:0} #flowChartBody{padding:8px!important;height:auto!important;min-height:0!important;flex:1 1 auto!important} .fc-mobile-only{display:flex!important} }
@@ -1577,7 +1766,7 @@ html[data-theme="white"] .hp-skel::after{
   <button id="btnMenu" onclick="toggleSidebar()" data-page-node-id="vCCw8NemUwQvzJuA9gyVpx">☰</button>
   <div id="sDot" data-page-node-id="1I2MsGBwa95VYv4M36vESf"></div>
   <div id="workingDot" data-page-node-id="P1FDSObIu3xDGkSd16vvfn"></div>
-  <h1 id="topicTitle" class="hp-skel" data-page-node-id="DX8yp6XCOrDqgrGWPys9nR"><span id="topicTitleText" onclick="openFlowChart()" title="查看任务流程图" data-page-node-id="QHfKdiIwPflwfbT6HBADQW">AI</span></h1>
+  <h1 id="topicTitle" class="hp-skel" data-page-node-id="DX8yp6XCOrDqgrGWPys9nR"><span id="topicTitleText" data-page-node-id="QHfKdiIwPflwfbT6HBADQW">AI</span><button id="btnFlowChart" type="button" onclick="openFlowChart()" title="查看任务流程图" aria-label="查看任务流程图" data-page-node-id="BtnFlowChartEntry"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="5" rx="1.5"/><rect x="2" y="16.5" width="6" height="5" rx="1.5"/><rect x="16" y="16.5" width="6" height="5" rx="1.5"/><path d="M12 7.5v3"/><path d="M12 10.5H5.5a1 1 0 0 0-1 1v5"/><path d="M12 10.5h6.5a1 1 0 0 1 1 1v5"/></svg></button></h1>
   <span id="sText" style="display:none" data-page-node-id="5fvIIpnUaZxH1bKR4k7tvT"></span>
   <span id="tokenDisplay" class="hp-skel" style="font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;min-width:60px;text-align:center" data-page-node-id="FOBO7vamDYScRoSQ1DlI8d">—</span>
   <span id="wmDisplay" title="工作记忆使用率" style="display:none;align-items:center;gap:5px;font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;line-height:1" data-page-node-id="B46HI1kM7BB4xgJmgwNHtC"><svg width="14" height="14" viewBox="0 0 36 36" style="display:block;flex-shrink:0" data-page-node-id="H6FiOC1tcFz41Gosf55bE9"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="6" data-page-node-id="LjJCsBUmCaMFCTchrEpFVv"/><circle id="wmRing" cx="18" cy="18" r="14" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round" stroke-dasharray="0 88" transform="rotate(-90 18 18)" data-page-node-id="dA5pvxYsF6BlrbxYtta9Kq"/></svg><span id="wmPct" data-page-node-id="2A7JAGUEHWYOC8Y4y6PBCA">—</span></span>
@@ -1735,6 +1924,36 @@ html[data-theme="white"] .hp-skel::after{
   .ab-browse-foot>button.ab-foot-paste{flex:0 0 auto;width:auto;padding:8px 12px;background:var(--surface3);color:var(--text);border:1px solid var(--border2);font-weight:600}
   .ab-browse-foot>button.ab-foot-paste:hover{background:rgba(var(--accent-rgb),.12);border-color:rgba(var(--accent-rgb),.45);color:var(--accent);box-shadow:none}
   html[data-theme="white"] .ab-browse-foot>button.ab-foot-paste{background:var(--surface3);color:var(--text);box-shadow:none}
+  /* ── 设置·资产库「库位置」：面包屑选目录（皮肤直接吃文件浏览器 .fb-ws-*，不另起一套）──
+     上面的 .fb-ws-path 是 .ab-browse-head 里那套的窄栏版；这里再降一档：贴边不撑高。
+     注意选择器必须 .ablib-bar.fb-ws-path（0,2,0）才压得过第 949 行那条 .fb-ws-path。 */
+  .ablib-saved{display:flex;gap:6px;align-items:baseline;font-size:11.5px;color:var(--tdim);line-height:1.65;margin-bottom:10px;word-break:normal;overflow-wrap:anywhere}
+  .ablib-saved b{color:var(--text);font-weight:600}
+  .ablib-k{flex:0 0 auto;font-size:10px;padding:1px 5px;border-radius:3px;background:var(--surface3);color:var(--tdim)}
+  .ablib-box{border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;background:var(--surface)}
+  .ablib-bar.fb-ws-path{padding:8px 10px;border-bottom:1px solid var(--border);background:var(--surface2);max-height:96px;overflow-y:auto;cursor:default;font-size:11px}
+  .ablib-list{max-height:238px;overflow-y:auto}
+  .ablib-item{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:8px 10px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);font:inherit;font-size:12.5px;cursor:pointer;text-align:left}
+  .ablib-item:last-child{border-bottom:none}
+  .ablib-item:hover{background:rgba(var(--accent-rgb),.09)}
+  .ablib-item.up{color:var(--tdim);font-size:12px}
+  .ablib-ico{flex:0 0 auto;width:16px;height:16px;display:flex;align-items:center;justify-content:center;color:var(--accent);opacity:.9}
+  .ablib-item.up .ablib-ico{color:var(--tdim)}
+  .ablib-ico svg{width:16px;height:16px;display:block}
+  .ablib-nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ablib-empty{padding:14px 10px;font-size:11.5px;color:var(--tdim);text-align:center}
+  .ablib-err{padding:9px 10px;font-size:11.5px;color:var(--danger);background:rgba(var(--danger-rgb),.08);border-bottom:1px solid var(--border);line-height:1.55}
+  .ablib-foot{display:flex;align-items:center;gap:8px;padding:9px 10px;border-top:1px solid var(--border);background:var(--surface2);flex-wrap:wrap}
+  .ablib-btn{flex:0 0 auto;padding:7px 12px;border-radius:6px;border:1px solid var(--border2);background:var(--surface3);color:var(--text);font-size:12px;cursor:pointer}
+  .ablib-btn:hover{background:rgba(var(--accent-rgb),.1);border-color:rgba(var(--accent-rgb),.35)}
+  .ablib-btn.pri{background:var(--accent);border-color:var(--accent);color:#04241f;font-weight:700}
+  .ablib-btn.pri:hover{filter:brightness(1.06)}
+  .ablib-btn:disabled{opacity:.5;cursor:default;filter:none;background:var(--surface3);border-color:var(--border2);color:var(--tdim);font-weight:600}
+  .ablib-msg{font-size:11px;color:var(--tdim);flex:1 1 100%;min-width:0;line-height:1.55}
+  .ablib-manual{display:flex;gap:6px;padding:0 10px 10px;background:var(--surface2)}
+  .ablib-manual input{flex:1;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 9px;font-size:11.5px;color:var(--text)}
+  .ablib-manual input:focus{outline:none;border-color:rgba(var(--accent-rgb),.55)}
+
   /* 面板窄（默认 320px）时详细视图的固定列要收：按左栏那套 80/62/54 算下来
      固定开销 285px，文件名列只剩 ~35px（实测名字被截成"名…"）。
      这里把"类型"整列让给文件名（图标已能看出类型），列头同步隐藏以免错位。
@@ -2747,7 +2966,42 @@ function _msgElapsed(idx, m){
 }
 var COPY_SVG='<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg>';
 var RESEND_SVG='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.2 8A5.2 5.2 0 1 1 11.5 4.1"/><path d="M13.4 1.6v2.6h-2.6"/></svg>';
+// 「继续」按钮的图标（播放三角）：语义是"接着跑"，和"重新发送"（回环箭头）刻意区分开
+var RESUME_SVG='<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.6 2.6v10.8c0 .5.5.8.9.5l8.3-5.4c.4-.2.4-.8 0-1L5.5 2.1c-.4-.3-.9 0-.9.5z"/></svg>';
+// 该任务当前有没有可续跑的断点（服务端 /api/messages 的 resume_ok）。
+// 旧版本留下的失败卡没有断点，不能让它们长出"点了只会 409"的按钮。
+var _resumeOk=false;
 var CHECK_SVG='<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.5 3.5L13 5"/></svg>';
+/* ══ 气泡动作条图标（2026-10-23）══════════════════════════════════════
+   参照用户截图的风格：线性描边、圆角端点、尺寸统一 16x16。 */
+var SPEAK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
+var STOP_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg>';
+var QUOTE_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 6H4a1 1 0 0 0-1 1v4.5a1 1 0 0 0 1 1h3.5a1 1 0 0 0 1-1V6z"/><path d="M10.5 6v5.5c0 3-1.5 5-4 6"/><path d="M19 6h-3.5a1 1 0 0 0-1 1v4.5a1 1 0 0 0 1 1H19a1 1 0 0 0 1-1V6z"/><path d="M22 6v5.5c0 3-1.5 5-4 6"/></svg>';
+var COPY2_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+/* 动作条 / 右键菜单新增图标（同一套线性风格，viewBox 24） */
+var THUMBUP_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>';
+var THUMBDN_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg>';
+var SHARE_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>';
+var MORE_SVG='<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>';
+var SELECT_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>';
+var DOC_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>';
+var NEWCHAT_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h7"/><line x1="19" y1="2" x2="19" y2="8"/><line x1="16" y1="5" x2="22" y2="5"/></svg>';
+var BOOKMARK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
+var ASK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
+/* 取一条消息的正文（不含动作条/元信息）。err-bar 是失败事件卡，正文在 .err-bar-body。
+   ⚠ 统一走这里：复制/朗读/引用/分享/创建文档 五处若各写一遍，迟早有一处把按钮文字吞进去。 */
+function _msgRowText(row){
+  if(!row) return '';
+  var b=row.querySelector('.msg-body')||row.querySelector('.bubble');
+  if(b){
+    var t1=String(b.innerText||b.textContent||'').replace(/\s+$/,'');
+    if(t1) return t1;
+  }
+  // 失败事件卡：详情默认折叠，innerText 恒为空，只能取 textContent
+  var e=row.querySelector('.err-bar-body');
+  if(e) return String(e.textContent||'').replace(/\s+$/,'');
+  return '';
+}
 function _legacyCopy(text){
   var ta=document.createElement('textarea');
   ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
@@ -2756,14 +3010,332 @@ function _legacyCopy(text){
   document.body.removeChild(ta);
 }
 function copyMsg(btn,uid){
-  var row=btn.closest('.row'); if(!row) return;
-  var b=row.querySelector('.bubble'); if(!b) return;
-  var text=(b.innerText||'').replace(/\s+$/,'');
+  var row=(btn&&btn.closest)?btn.closest('.row'):null; if(!row) return;
+  var text=_msgRowText(row);
   if(!text) return;
-  function done(){ btn.classList.add('ok'); btn.innerHTML=CHECK_SVG; setTimeout(function(){ btn.classList.remove('ok'); btn.innerHTML=COPY_SVG; },1200); }
+  var _orig=btn?btn.innerHTML:'';
+  function done(){ if(!btn) return; btn.classList.add('on'); btn.innerHTML=CHECK_SVG; setTimeout(function(){ btn.classList.remove('on'); btn.innerHTML=_orig; },1200); }
   if(navigator.clipboard){ navigator.clipboard.writeText(text).then(done).catch(function(){ _legacyCopy(text); done(); }); }
   else { _legacyCopy(text); done(); }
 }
+
+/* ══ 引用块（微信/飞书式，2026-10-23 重做）══════════════════════════════
+   旧实现是往输入框塞一段 "> 你：xxx" 的纯文本：跟你自己打的字混在同一个框里，
+   而且"先写字再引用"时会追加到你的话**后面**（等于引用自己说的话），很难用。
+   现在引用是独立状态 pendingQuotes（**数组**，一次可以引用多条）：
+     · 输入框内第一行出引用卡片（每张自带 ×），正文一个字都不动；
+     · 发送时随消息一起走请求体 quotes → 服务端落 args.quotes；
+     · 刷新/换设备后气泡里的 .quote-block 仍在（来自服务端，不是本地态）。
+   兼容：老消息只有 args.quote（单个对象），读侧统一用 quoteListOf() 折成数组再渲染。
+   🔴 气泡按钮与右键菜单都只调 _quoteRow → setQuoteObj 这一个写入点，别各写一遍（§21/§29 同款）。 */
+var pendingQuotes=[];    // [{text, mid, from:'ai'|'you'}]；from 只用来写 title（引用AI/引用我）
+var _QUOTE_MAX=800;      // 单条上限：引用是给人和模型看的提示，不是把整篇塞进库
+var _QUOTE_MAXN=5;       // 一次最多引用几条（再多输入卡片会被顶得很高）
+function _quoteClip(t){
+  t=String(t||'').replace(/\s+$/,'');
+  if(t.length>_QUOTE_MAX) t=t.slice(0,_QUOTE_MAX).replace(/\s+$/,'')+'…';
+  return t;
+}
+// 一条消息上挂的引用：新的读 quotes（数组），老数据读 quote（单对象）
+function quoteListOf(m){
+  if(!m) return [];
+  if(m.quotes&&m.quotes.length) return m.quotes;
+  if(m.quote) return [m.quote];
+  return [];
+}
+// 容器懒创建：不必改 footer 那行巨型内联 HTML（改动了容易和 deomp 覆盖块打架）
+// 🔴 必须挂在 .input-row **内部**（发送卡片的 grid 第一行），不能挂在 footer 下面：
+//    挂外面时引用条自带边框底色 + footer 内边距，看起来像"输入框上方漂着的一条"。
+function _quoteBarEl(){
+  var el=document.getElementById('quoteBar');
+  if(el) return el;
+  var footer=document.querySelector('#mainPanel > footer');
+  if(!footer) return null;
+  el=document.createElement('div');
+  el.id='quoteBar'; el.style.display='none';
+  var row=footer.querySelector('.input-row');
+  if(row) row.insertBefore(el,row.firstChild); else footer.appendChild(el);
+  return el;
+}
+function renderQuoteBar(){
+  var el=_quoteBarEl(); if(!el) return;
+  // .has-quote 决定卡片内部的 grid 行号（正文/按钮下移一行），跟着引用条一起开关
+  var host=el.parentNode;
+  if(host&&host.classList&&host.classList.contains('input-row')) host.classList.toggle('has-quote', pendingQuotes.length>0);
+  if(!pendingQuotes.length){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='';
+  var html='';
+  for(var i=0;i<pendingQuotes.length;i++){
+    var full=String(pendingQuotes[i].text||'');
+    // 形态照抄附件卡片：主行（引用原文）+ 副行（只写"引用"）+ 右侧 ×。没有图标格。
+    html+='<div class="qbar-in">'
+      +'<div class="qbar-meta">'
+      +'<div class="qbar-txt" title="'+esc(full)+'">'+esc(full)+'</div>'
+      +'<div class="qbar-sub">引用</div>'
+      +'</div>'
+      +'<button class="qbar-x" type="button" title="取消这条引用" onclick="removeQuote('+i+')">×</button>'
+      +'</div>';
+  }
+  el.innerHTML='<div class="qbar-list">'+html+'</div>';
+}
+// 追加一条引用（同一个写入点）。同一条消息重复引用＝更新内容，不会叠出两张卡。
+function setQuoteObj(q){
+  if(!q) return false;
+  var t=_quoteClip(q.text);
+  if(!t) return false;
+  var item={ text:t, mid:parseInt(q.mid||0,10)||0, from:q.from==='you'?'you':'ai' };
+  for(var i=0;i<pendingQuotes.length;i++){
+    var e=pendingQuotes[i];
+    if((item.mid&&e.mid===item.mid)||(!item.mid&&!e.mid&&e.text===item.text)){
+      pendingQuotes[i]=item; renderQuoteBar(); return true;
+    }
+  }
+  if(pendingQuotes.length>=_QUOTE_MAXN){ msgToast('最多同时引用 '+_QUOTE_MAXN+' 条'); return false; }
+  pendingQuotes.push(item);
+  renderQuoteBar();
+  return true;
+}
+// 整组替换：重发时把当时那一组引用还原回来（不能用 setQuoteObj，会累加）
+function setQuotes(arr){
+  pendingQuotes=[];
+  var list=arr||[];
+  for(var i=0;i<list.length&&i<_QUOTE_MAXN;i++){
+    var t=_quoteClip(list[i]&&list[i].text);
+    if(!t) continue;
+    pendingQuotes.push({ text:t,
+      mid:parseInt((list[i]||{}).mid||0,10)||0,
+      from:((list[i]||{}).from==='you')?'you':'ai' });
+  }
+  renderQuoteBar();
+  return pendingQuotes.length>0;
+}
+function setQuote(row,text){
+  return setQuoteObj({ text:text,
+    mid: row?(parseInt(row.getAttribute('data-mid')||'0',10)||0):0,
+    from: (row&&row.classList.contains('you'))?'you':'ai' });
+}
+function removeQuote(i){
+  if(i<0||i>=pendingQuotes.length) return;
+  pendingQuotes.splice(i,1);
+  renderQuoteBar();
+}
+function clearQuote(){
+  if(!pendingQuotes.length) return;
+  pendingQuotes=[]; renderQuoteBar();
+}
+function quoteMsg(btn,uid){
+  var row=(btn&&btn.closest)?btn.closest('.row'):null; if(!row) return;
+  _quoteRow(row,btn);
+}
+// 右键菜单 / 移动端长按走这里（没有按钮元素可传）
+function quoteRow(row){ if(row) _quoteRow(row,row.querySelector('.msg-quote')); }
+function _quoteRow(row,btn){
+  if(!row) return;
+  if(!setQuote(row,_msgRowText(row).replace(/\n{3,}/g,'\n\n'))) return;
+  if(btn){ btn.classList.add('on'); setTimeout(function(){ btn.classList.remove('on'); },900); }
+  try{ msgInput.focus(); }catch(e){}
+  msgToast('已引用'+(pendingQuotes.length>1?'（共 '+pendingQuotes.length+' 条）':'')+'，发送时一起带上');
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   朗读（StreamVox 真流式 PCM）
+
+   为什么不用 /tts/lines（逐句 base64 wav）：
+     实测逐句方案要等"一整句"算完才发（47 字首包 3.5 秒），而 PCM 流式
+     每 20ms 窗有声就推，首字节延迟实测 109ms。差 30 倍。
+
+   播放链路：fetch(/api/tts/pcm) 流式读 → 边收边攒 PCM → 按固定延时
+            用 AudioBuffer 切片排队播 → 播完自动复位。
+
+   为什么不用 <audio src> 直接放：
+     流式 wav 的长度字段是 0xFFFFFFFF，浏览器会一直等着不想 decode；
+     而且手机上 <audio> 的 use-interaction 限制很多。AudioContext 最可控。
+
+   全局单例 _tts：同时只允许一条在念，点第二条先停前一条（否则声音叠在一起）。
+   ════════════════════════════════════════════════════════════════════ */
+var _tts={btn:null,row:null,loading:false,ctx:null,abort:null,playing:false,srcs:[],nextTime:0,chunks:[],bufLen:0,ended:false,ttfb:null,hdr:0};
+var TTS_SR=24000;
+var TTS_MODEL_LS='dayan_tts_model';
+function _ttsModel(){ try{ return localStorage.getItem(TTS_MODEL_LS)||'moss'; }catch(e){ return 'moss'; } }
+// 引擎选择：lite = 系统 OneCore/SAPI5（零模型零显存，100~400ms 出整段）；
+//            streamvox = 原流式模型（音色克隆、低首包，留给实时语音对话）。
+// 2026-10-23 用户反馈「声音是坏的，有没有更轻量的朗读」→ 默认改 lite。
+var TTS_ENGINE_LS='dayan_tts_engine';
+function _ttsEngine(){ try{ return localStorage.getItem(TTS_ENGINE_LS)||'lite'; }catch(e){ return 'lite'; } }
+var TTS_VOICE_LS='dayan_tts_voice';
+function _ttsVoice(){ try{ return localStorage.getItem(TTS_VOICE_LS)||'yaoyao'; }catch(e){ return 'yaoyao'; } }
+function _ttsCtx(){
+  if(!_tts.ctx){
+    var AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC) return null;
+    _tts.ctx=new AC();
+  }
+  if(_tts.ctx.state==='suspended'){ try{ _tts.ctx.resume(); }catch(e){} }
+  return _tts.ctx;
+}
+function _ttsStopSrcs(){
+  for(var i=0;i<_tts.srcs.length;i++){
+    try{ _tts.srcs[i].onended=null; _tts.srcs[i].stop(0); }catch(e){}
+  }
+  _tts.srcs=[];
+}
+function _ttsReset(){
+  if(_tts.abort){ try{ _tts.abort.abort(); }catch(e){} _tts.abort=null; }
+  _ttsStopSrcs();
+  _tts.chunks=[]; _tts.bufLen=0; _tts.playing=false; _tts.ended=false; _tts.nextTime=0;
+  _tts.loading=false;
+  var b=_tts.btn;
+  if(b){ b.classList.remove('speaking','loading'); b.innerHTML=SPEAK_SVG; b.title='朗读这条回复'; }
+  _tts.btn=null;
+  // row 是"这条正在念"的判据：右键菜单没有按钮元素，只能靠它判断第二次点击是不是"停"
+  _tts.row=null;
+}
+function stopSpeak(){ _ttsReset(); }
+/* 把已收到但未播的 PCM 转成 AudioBuffer 排队 */
+function _ttsPump(){
+  var ctx=_tts.ctx; if(!ctx||!_tts.btn) return;
+  // 每次至少取 0.12s 才切一段，避免碎片太多
+  var minSamples=Math.floor(TTS_SR*0.12);
+  if(_tts.bufLen>=minSamples){
+    var n=_tts.bufLen-(_tts.bufLen%2);
+    var pcm=new Int16Array(_tts.bufLen);
+    var off=0;
+    for(var i=0;i<_tts.chunks.length;i++){
+      var c=_tts.chunks[i];
+      pcm.set(c,off); off+=c.length;
+    }
+    // 取整段播（简单可靠），留余料下次再取
+    _tts.chunks=[]; _tts.bufLen=0;
+    var f32=new Float32Array(n);
+    for(var k=0;k<n;k++) f32[k]=pcm[k]/32768;
+    var ab=ctx.createBuffer(1,n,TTS_SR);
+    ab.copyToChannel(f32,0);
+    var src=ctx.createBufferSource();
+    src.buffer=ab; src.connect(ctx.destination);
+    var now=ctx.currentTime;
+    var start=(_tts.nextTime&&_tts.nextTime>now+0.02)?_tts.nextTime:now+0.06;
+    src.start(start);
+    _tts.nextTime=start+ab.duration;
+    _tts.srcs.push(src);
+    _tts.playing=true;
+    src.onended=function(){
+      var idx=_tts.srcs.indexOf(src);
+      if(idx>=0) _tts.srcs.splice(idx,1);
+      if(_tts.ended&&_tts.srcs.length===0&&_tts.bufLen===0){ _ttsReset(); }
+    };
+  }
+}
+
+function speakMsg(btn,uid){
+  var row=(btn&&btn.closest)?btn.closest('.row'):null; if(!row) return;
+  _speak(row,btn);
+}
+// 右键菜单 / 移动端长按入口：没有按钮元素，状态反馈挂在气泡里的朗读按钮上
+function speakRow(row){ if(row) _speak(row,row.querySelector('.msg-speak')||null); }
+function _speak(row,btn){
+  if(!row) return;
+  // 同一行正在念/正在合成 → 再点一次就是停（不能出现"两条一起念"）
+  if(_tts.row===row&&(_tts.playing||_tts.loading||_tts.btn)){ _ttsReset(); return; }
+  _ttsReset();
+  var text=_msgRowText(row);
+  if(!text) return;
+  // 上限与后端对齐：lite 2000 字（系统 OneCore 长文本会一次算完，太长会卡住请求），
+  // streamvox 3800。超了直接截断而不是让后端 400——用户点朗读只是想听，不该报错。
+  var _lim = _ttsEngine()==='streamvox' ? 3800 : 1900;
+  if(text.length>_lim) text=text.slice(0,_lim);
+
+  var ctx=_ttsCtx();
+  if(!ctx){ return; }
+  _tts.row=row; _tts.loading=true;
+  _tts.btn=btn||null;
+  if(btn){ btn.classList.add('loading'); btn.title='正在合成…（点一下停止）'; }
+
+  var ctrl=new AbortController(); _tts.abort=ctrl;
+  var t0=performance.now();
+  _tts.chunks=[]; _tts.bufLen=0; _tts.nextTime=0; _tts.ended=false; _tts.srcs=[]; _tts.hdr=0;
+
+  var url;
+  var _eng = _ttsEngine();
+  if(_eng==='streamvox'){
+    url='/api/tts/pcm?model='+encodeURIComponent(_ttsModel())+'&text='+encodeURIComponent(text);
+  }else{
+    // 走已存在的 /api/tts/pcm 路由，只把 model 换成 lite:<音色>。
+    // 为什么不用新路由 /api/tts/lite/pcm：新路由要重启服务才加载，
+    // 而 tts_manager 是 tools/ 模块，hot_reload 就能生效 —— 不重启也能用。
+    url='/api/tts/pcm?model='+encodeURIComponent('lite:'+_ttsVoice())+'&text='+encodeURIComponent(text);
+  }
+  // 老服务端没有 lite 分支（model 原样透传给 StreamVox 会报错）。
+  // 请求失败时自动回落到 StreamVox，不要因为没热重载就“点了没反应”。
+  var _fallback = function(){
+    return '/api/tts/pcm?model='+encodeURIComponent(_ttsModel())+'&text='+encodeURIComponent(text);
+  };
+
+  function startFetch(u, allowFallback){
+   return fetch(u,{signal:ctrl.signal}).then(function(res){
+    if(!res.ok){
+      if(allowFallback && (res.status===404||res.status===503)){
+        console.warn('[tts] lite 接口不可用('+res.status+')，回落到 StreamVox');
+        return startFetch(_fallback(), false);
+      }
+      return res.text().then(function(t){
+        var m='朗读失败 '+res.status;
+        try{ var j=JSON.parse(t); if(j.error) m=j.error; }catch(e){}
+        throw new Error(m);
+      });
+    }
+    var reader=res.body.getReader();
+    var firstChunk=true;
+    function step(){
+      return reader.read().then(function(r){
+        if(r.done){
+          _tts.ended=true;
+          _ttsPump();
+          // 若一直没声音（全静音/失败），别卡在 loading
+          setTimeout(function(){
+            if(_tts.row===row&&_tts.srcs.length===0&&!_tts.playing){ _ttsReset(); }
+          },600);
+          return;
+        }
+        var u8=r.value;
+        if(firstChunk){
+          firstChunk=false;
+          _tts.ttfb=performance.now()-t0;
+          _tts.loading=false;
+          if(btn){ btn.classList.remove('loading'); btn.classList.add('speaking'); btn.title='朗读中（点一下停止）'; }
+        }
+        // 跳过 44 字节 WAV 头。不能假设它一定落在第一块里：
+        // 分块边界由网络决定，第一块可能不足 44 字节（2026-10-23 加固）。
+        if(_tts.hdr<44){
+          var need=44-_tts.hdr;
+          if(u8.length<=need){ _tts.hdr+=u8.length; return step(); }
+          u8=u8.subarray(need); _tts.hdr=44;
+        }
+        // 偶数对齐（Int16）
+        var len=u8.length-(u8.length%2);
+        if(len>0){
+          var ab=u8.buffer.slice(u8.byteOffset,u8.byteOffset+len);
+          var i16=new Int16Array(ab);
+          _tts.chunks.push(i16);
+          _tts.bufLen+=i16.length;
+          _ttsPump();
+        }
+        return step();
+      });
+    }
+    return step();
+  }).catch(function(e){
+    if(e&&e.name==='AbortError') return;
+    console.warn('[tts]',e);
+    if(btn){ btn.classList.remove('loading','speaking'); btn.innerHTML=SPEAK_SVG; btn.title='朗读失败：'+((e&&e.message)||e); }
+    _ttsReset();
+    try{ if(typeof toast==='function') toast('朗读失败：'+((e&&e.message)||e)); }catch(e3){}
+  });
+  }
+  startFetch(url, _ttsEngine()!=='streamvox');
+}
+
+/* 切任务/卸载时掐断声音，避免看不见在响的幽灵播放 */
+window.addEventListener('beforeunload',function(){ try{ _ttsReset(); }catch(e){} });
 var _fmtCache=new Map();
 function fmt(t){
   var _hit=_fmtCache.get(t);
@@ -3525,7 +4097,9 @@ function render(){
         if(showElapsedPref&&_ela>0) statHTML+=' <span class="msg-stat" title="本次任务耗时">耗时 '+fmtElapsed(_ela)+'</span>';
         if(showTokensPref&&_tok>0) statHTML+=' <span class="msg-stat" title="'+(_est?'本次任务消耗（本地估算：当前模型源不返回用量）':'本次任务消耗（输入+输出，含工具定义）')+'">消耗 '+(_est?'~':'')+fmtTokens(_tok)+'</span>';
       }
-      var metaHTML=ts(m.ts)+(m.elapsed?' '+m.elapsed:'')+statHTML+'<button class="msg-copy" title="复制这条消息" onclick="copyMsg(this,'+mid(m)+')">'+COPY_SVG+'</button>';
+      // 动作条 / 元信息（2026-10-23 改造）
+      // 复制等按钮从 .meta 移到气泡内部。.meta 只留时间/耗时/token（不可点）
+      var metaHTML=ts(m.ts)+(m.elapsed?' '+m.elapsed:'')+statHTML+_favStarHTML(m);
       if(m.error&&m.role==='you'){
         // 未得到回复的用户消息：气泡正下方给原因 + 一个真正的「重新发送」按钮。
         // 按 uid 引用消息重发:encodeURIComponent 不转义单引号,旧写法消息带 ' 时 onclick 直接语法错误
@@ -3534,7 +4108,68 @@ function render(){
                 +'<button class="resend-btn" type="button" title="把这条消息原样再发一次" onclick="resendByUid('+mid(m)+')">'+RESEND_SVG+'重新发送</button>';
       }
       var avContent=m.role==='you'?(userAvatar?'<img src="'+getAvatarObjectURL()+'" alt="You">':DEFAULT_AVATAR_SVG):'<img src="/icon.png" alt="AI">';
-      d.innerHTML='<div class="av">'+avContent+'</div><div><div class="bubble"'+(m.log||m.working?' onclick="this.classList.toggle(\'open\')"':'')+'>'+bubbleHTML+attHTML+'</div>'+thinkHTML+'<div class="meta">'+metaHTML+'</div></div>';
+      if(m.kind==='error'){
+        // 失败事件卡（服务端以 args.kind='error' 落库）：不画气泡 —— 它不是 AI 说的话，
+        // 是一段运行事件。默认只占一行（首行当标题），点开才展开完整排障详情。
+        // 旧实现直接当普通 AI 消息渲染，二十行报告占了半屏，事后回看还像"AI 又给了一段建议"。
+        var _elines=String(m.text||'').split('\n');
+        var _ehead=(_elines.shift()||'').replace(/^\s*⚠️?\s*/,'').replace(/^本轮中断\s*[:：]?\s*/,'')
+                    || '原因未记录';
+        var _ebody=esc(_elines.join('\n').replace(/^\s*\n+/,''));
+        d.classList.add('err-row');
+        // 「继续」只在服务端还有断点时出现（旧版本留下的卡没有断点，长了按钮点了也只会 409）
+        var _actsHTML='';
+        if(_resumeOk){
+          _actsHTML='<div class="err-acts">'
+            +'<button class="err-btn primary" type="button" onclick="event.stopPropagation();errResume(this,0)" title="同一模型，从断点接着做（不新增对话消息）">'+RESUME_SVG+'继续</button>'
+            +'<button class="err-btn" type="button" onclick="event.stopPropagation();errResume(this,1)" title="主源刚被判死，直接用备用源把这一轮跑完">用备用源继续</button>'
+          +'</div>';
+        }
+        d.innerHTML='<div class="av">'+avContent+'</div><div style="flex:1;min-width:0">'
+          +'<div class="err-bar" onclick="this.classList.toggle(\'open\')">'
+            +'<span class="err-bar-badge">⚠ 本轮中断</span>'
+            +'<span class="err-bar-head">'+esc(_ehead)+'</span>'
+            +'<span class="err-bar-arrow">▶</span>'
+            +'<div class="err-bar-body">'+(_ebody||'（没有更多详情）')+'</div>'
+            +_actsHTML
+          +'</div>'
+          +'<div class="meta">'+metaHTML+'</div></div>';
+        _frag.appendChild(d); i++; continue;
+      }
+      // ── 气泡内部动作条（2026-10-23 二次改造：纯图标，参考用户截图）──
+      // 🔴 只给最终 AI 回复。用户 2026-10-23 明确要求：**用户气泡下面不要这排按钮**，
+      //    它的复制/引用走右键菜单与移动端长按（同一个 _msgMenuShow）。
+      // 工作泡/过程泡/日志泡/错误卡也不出（没有可朗读的正文）。
+      var barHTML='';
+      if(m.role==='ai'&&!m.working&&!m.log&&!m.type&&!m.error){
+        var _bid=mid(m);
+        var _fb=_msgFbGet(m);
+        barHTML='<div class="msg-bar">'
+          +'<button class="msg-btn msg-speak" type="button" title="朗读这条回复（点第二次停）" onclick="event.stopPropagation();speakMsg(this,'+_bid+')">'+SPEAK_SVG+'</button>'
+          +'<button class="msg-btn msg-quote" type="button" title="引用这条（发送后气泡里显示引用块）" onclick="event.stopPropagation();quoteMsg(this,'+_bid+')">'+QUOTE_SVG+'</button>'
+          +'<button class="msg-btn msg-up'+(_fb==='like'?' on':'')+'" type="button" title="这条回复有帮助" onclick="event.stopPropagation();msgFb(this,\'like\')">'+THUMBUP_SVG+'</button>'
+          +'<button class="msg-btn msg-down'+(_fb==='dislike'?' on':'')+'" type="button" title="这条回复不理想" onclick="event.stopPropagation();msgFb(this,\'dislike\')">'+THUMBDN_SVG+'</button>'
+          +'<span class="msg-bar-sp"></span>'
+          +'<button class="msg-btn msg-more" type="button" title="更多操作（也可右键 / 长按这条消息）" onclick="event.stopPropagation();msgMore(this)">'+MORE_SVG+'</button>'
+          +'<button class="msg-btn msg-copy2" type="button" title="复制正文" onclick="event.stopPropagation();copyMsg(this,'+_bid+')">'+COPY2_SVG+'</button>'
+          +'</div>';
+      }
+      // 气泡内容包一层 .msg-body：copyMsg/speakMsg 取内文时只取正文，
+      // 否则会把"朗读 引用 复制"这几个按钮文案一起搬进剪贴板/送去 TTS。
+      // ── 引用块（微信/飞书式）：正文**上方**一条灰色引用，点不进、只提示被引用的原文。
+      // 🔴 必须挂在 .msg-body 外面：_msgRowText() 优先读 .msg-body 的 innerText，
+      //    挂里面的话复制/朗读/再次引用都会把被引用的原文一起带上（越引用越长）。
+      var quoteHTML='';
+      var _qs=quoteListOf(m);
+      for(var _qi=0;_qi<_qs.length;_qi++){
+        var _qq=_qs[_qi]||{}, _qt=String(_qq.text||'').trim();
+        if(!_qt) continue;
+        var _qwho=(_qq.from==='you')?'我':'AI';
+        // 结构跟输入框里的引用卡片一致：原文 + 下面一行小字「引用」；归属只放 title，不上正文
+        quoteHTML+='<div class="quote-block" title="引用'+_qwho+'的一条消息"><div class="qb-body">'+esc(_qt)+'</div><div class="qb-sub">引用</div></div>';
+      }
+      var bodyHTML='<div class="msg-body">'+bubbleHTML+attHTML+'</div>';
+      d.innerHTML='<div class="av">'+avContent+'</div><div><div class="bubble"'+(m.log||m.working?' onclick="this.classList.toggle(\'open\')"':'')+'>'+quoteHTML+bodyHTML+barHTML+'</div>'+thinkHTML+'<div class="meta">'+metaHTML+'</div></div>';
       _frag.appendChild(d);
       i++;
     }
@@ -3566,6 +4201,9 @@ function render(){
     }
   }
   updateJumpBtn();
+  // 反馈（赞/踩/收藏）是服务端状态：每次渲染后确保本任务已拉过一遍。
+  // 拉回来只刷按钮与角标（_applyFbToDom），不重渲染，所以放在渲染末尾是安全的。
+  try { _ensureTopicFb(_tidNow); _applyFbToDom(); } catch(e4) {}
   _renderedTopic=_tidNow;
   } catch(e){ _lastRenderSig=''; chatBox.innerHTML='<div class="empty"><div>渲染出错，请刷新页面</div></div>'; }
   // 展开态的过程泡若思考正文还没拉（缓存恢复、上次就开着），在这里补齐
@@ -3621,7 +4259,9 @@ async function newTopic(){
   currentTopic=null;
   messages=[];
   if(msgInput){ msgInput.value=''; msgInput.style.height='auto'; }
+  clearQuote();   // 新任务是白纸：上一个任务的引用条不能跟过来
   topicTitle.textContent='新任务';
+  _setFlowBtn(false);   // 新任务是白纸，上一个任务的流程图入口不能跟过来
   // ⚠️ 必须和 switchTopic 一样停掉上一个任务的工作轮询。
   // 否则那个轮询（tid 还是旧任务）会在自己的 await 返回后继续往下走，把旧任务的
   // 实时过程泡 push 进刚刚被清空的 messages —— 用户看到的就是"别的任务的思考气泡
@@ -3685,7 +4325,11 @@ async function switchTopic(tid){
   }
   currentTopic=localTopic||{id:tid,title:'任务'};
   restoreDraft(tid,_keepInputFocus); // 恢复新话题草稿（不主动抢输入框焦点）
+  // 引用指向的是**某个任务里**的一条消息，跨任务毫无意义 ⇒ 切换必须显式清掉。
+  // （与 §62 草稿同理：恢复侧不主动清空态，残留物就会跟着跑到别的任务里。）
+  clearQuote();
   topicTitle.textContent=dispTitle(currentTopic);
+  _flowProbe(tid);   // 立刻按本任务纠正入口按钮，别让上一个任务的图残留在标题旁
   // Cache-first：优先内存缓存(本会话切走时刚存的)，localStorage 兜底；
   // localStorage 可能因 WebView 配额满而写入失败(静默catch)，不能只依赖它
   var cached=_memC||loadCache(tid);
@@ -4102,6 +4746,9 @@ function _mapServerMsgs(msgs, stillWorking){
       if(!text&&!m.thinking&&!m.has_thinking) continue;
       var role=m.role==='user'?'you':'ai';
       var err=(m.args&&m.args.error)?true:false;
+      // kind:'error' = 失败事件卡（服务端落库时打标）。渲染层据此走「一条可展开的红条」，
+      // 而不是普通 AI 气泡 —— 它没有产出内容，冒充结论会把整屏撑满（见 render 里的 err 分支）。
+      var _kind=(m.args&&m.args.kind)||'';
       var atts=(m.args&&m.args.attachments)?m.args.attachments:[];
       // thinking 一律懒加载：正文不随消息传（首屏能省下数 MB），只带 has_thinking 标记 + id，
       // 点开过程泡时才经 /api/message-thinking 单独取（见 _ensureProcThinking）。
@@ -4109,7 +4756,7 @@ function _mapServerMsgs(msgs, stillWorking){
       // 去重签名也必须基于去掉后的文本：否则"本地乐观气泡(原文)"与"服务端行(原文+[附件:…])"
       // 签名不同 → 同一条消息在界面上渲染两次（看起来像"重复发送"，实测带附件/粘贴截图必现）。
       if(role==='you'&&atts.length){ text=text.replace(/\n?\[附件: [^\]]*\]\s*$/,''); }
-      fresh.push({role:role,text:text,ts:ts,id:m.id,thinking:'',has_thinking:!!(m.has_thinking||m.thinking),error:err,error_msg:err?(m.args.error_msg||'系统错误'):null,attachments:atts,original_text:m.original_text||'',cmid:(m.args&&m.args.cmid)||'',elapsedSec:(m.args&&m.args.elapsed)||0,tokens:(m.args&&m.args.tokens)||0,tokensEst:(m.args&&m.args.est)?1:0});
+      fresh.push({role:role,text:text,ts:ts,id:m.id,thinking:'',has_thinking:!!(m.has_thinking||m.thinking),error:err,error_msg:err?(m.args.error_msg||'系统错误'):null,attachments:atts,original_text:m.original_text||'',cmid:(m.args&&m.args.cmid)||'',quotes:quoteListOf(m.args||{}),elapsedSec:(m.args&&m.args.elapsed)||0,tokens:(m.args&&m.args.tokens)||0,tokensEst:(m.args&&m.args.est)?1:0,kind:_kind});
     }
   }
   fresh.sort(function(a,b){ return (a.ts||0)-(b.ts||0); });
@@ -4143,6 +4790,8 @@ async function loadMessages(tid, limit, offset){
     // 等于白拉——"要等好久才突然全冒出来"的主因之一。
     url+='&exclude_thinking=1';
     var md=await _fetchJsonProgress(url);
+    // resume_ok：这个任务还有没有可续跑的断点（决定错误卡上长不长「继续」按钮）
+    _resumeOk=!!md.resume_ok;
     var _raw=md.messages||[];
     // 解析统一走 _mapServerMsgs；md.working 现由后端一并返回（旧实现只回 messages，
     // 前端却一直在读 md.working，导致"陈旧错误标记清理"这段其实从未生效）
@@ -4255,6 +4904,9 @@ async function loadNewMessages(tid){
     // 且下面的 newCount 用严格大于统计，重复项不会被计进翻页游标。
     if(lastTs) url+='&after_ts='+(lastTs-5);
     var md=await _fetchJsonProgress(url);
+    // 每次增量同步都要刷新：断点在"续跑成功/用户停手/发新消息"时被服务端清掉，
+    // 若只在本函数第一次跑时记一次，按钮会在断点作废后依然挂着（点了就 409）。
+    if(md&&typeof md.resume_ok!=='undefined') _resumeOk=!!md.resume_ok;
     // 结论视图模式下后端却没回 concl 标记 = 服务端已是旧代码（用户重开了大眼）。
     // 此时若继续合并，几 MB 的工具调用会混进只该有结论的消息流里 → 本次放弃，下次走老路径。
     if(_conclView&&md.concl!==true){ _conclView=false; return null; }
@@ -5340,10 +5992,47 @@ function _collapseProcSegments(list){
   return list;
 }
 function _seenKey(m){ return (m.role||m.type||'')+'|'+String(m.text||m.name||(m.steps?('p'+m.steps.length):'' )).slice(0,48); }
+// ── 「继续」/「用备用源继续」：续跑**同一轮**，不是替用户发一句"继续" ──
+// 和「重新发送」是两件事：那个是把一条用户消息原样再发一遍（会新增消息、重开一轮），
+// 这个是把被打断的循环接着跑 —— 服务端不落 user 消息、沿用原轮计时、带断点快照。
+// 全废时用户唯一的下一步就在这两个按钮上，所以不许静默失败：错误必须 toast 出来。
+async function errResume(btn, force){
+  var tid=currentTopic?currentTopic.id:'';
+  if(!tid) return;
+  var row=btn.closest?btn.closest('.err-row'):null;
+  var btns=row?row.querySelectorAll('.err-btn'):[btn];
+  var old={};
+  for(var i=0;i<btns.length;i++){ old[i]=btns[i].textContent; btns[i].disabled=true; }
+  btn.textContent=force?'正在用备用源续跑…':'正在续跑…';
+  try{
+    var r=await fetch('/api/chat',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({topic_id:tid,resume:1,force_fallback:force?1:0})
+    });
+    var d={}; try{ d=await r.json(); }catch(e){}
+    if(!r.ok||d.error) throw new Error((d&&d.error)||('HTTP '+r.status));
+    _resumeOk=false;                       // 断点已被这次续跑吃掉：按钮立刻收掉，防连点二次续跑
+    render();
+    if(typeof pollTopicTail==='function') pollTopicTail();  // 正文/过程泡交给尾部探针刷出来
+  }catch(e){
+    var msg=(e&&e.message)||'续跑失败';
+    if(typeof toast==='function') toast(msg,4200); else console.warn(msg);
+    // 409 那几种（断点没了 / 没有备用源 / 任务正在跑）都是"按钮不该再挂着"的状态
+    if(/断点|备用源|正在运行/.test(msg)){ _resumeOk=false; render(); return; }
+  }finally{
+    for(var j=0;j<btns.length;j++){ btns[j].disabled=false; btns[j].textContent=old[j]; }
+  }
+}
 // [5] 重发按消息 uid 查找原文,避免把用户文本内联进 onclick
 function resendByUid(uid){
   for(var i=0;i<messages.length;i++){
-    if(messages[i].uid===uid){ resendMsg(messages[i].text||''); return; }
+    if(messages[i].uid===uid){
+      // 重发要把当时的引用一起还原：resendMsg 只搬正文，引用在 pendingQuotes 里
+      var _rqs=quoteListOf(messages[i]);
+      if(_rqs.length) setQuotes(_rqs);
+      resendMsg(messages[i].text||'');
+      return;
+    }
   }
 }
 // [15] 任务列表时间:今天只给时刻，昨天带"昨天"，再往前带日期（跨年带年份）
@@ -5837,6 +6526,9 @@ async function _doSendInner(){
   var _cmid=_newCmid();   // 放在最前：任何 await 之前固定下来，重发时同一条 POST 带的还是它
   var text=msgInput.value.trim();
   if(!text && !pendingAttachments.length) return;
+  // 引用块（微信式）：引用本身不算消息内容 —— 只有正文或附件才允许发送，
+  // 否则点一下引用就能发出一条空消息（和"只有引用没有正文"在微信里也是发不出去的）。
+  var _q=pendingQuotes.length?pendingQuotes.slice():null;
   // 无文本但有附件时留空，后端会注入 [附件: xxx]
   if(!text) text='';
   if(!currentTopic){
@@ -5849,10 +6541,12 @@ async function _doSendInner(){
   chatStick=true; _userUp=false;   // 主动发消息 = 重新跟底（清掉之前的上滑意图）
   msgInput.value=''; msgInput.style.height='auto';
   saveDraft(); // 已发送:清空当前话题草稿
+  // 引用已随这条消息走（落 args.quotes），输入卡片要立刻收掉；失败时由 resendByUid 还回来
+  pendingQuotes=[]; renderQuoteBar();
   var atts=pendingAttachments.map(function(a){return a.filename;});
   pendingAttachments=[]; renderAttachPreview();
   // 带 cmid：本地乐观气泡与服务端落库行靠这个键精确对齐，不受"时钟偏差/附件清单改写文本"影响
-  messages.push({role:'you',text:text,ts:Date.now()/1000,attachments:atts,cmid:_cmid});
+  messages.push({role:'you',text:text,ts:Date.now()/1000,attachments:atts,cmid:_cmid,quotes:_q||null});
   // Store working message by reference, not index — survives topic switches
   var wMsg=makeLiveProc();
   wMsg.inflight=true;
@@ -5905,7 +6599,7 @@ async function _doSendInner(){
   try {
     // X-Chat-Stream: 守卫看到它就把响应切成 chunked 并立刻回响应头 + 周期心跳，
     // 让手机在 agent 跑完前就"收到过字节"→ 浏览器不会再把这条 POST 当断线重放（重复消息治本环）。
-    var r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Stream':'1'},body:JSON.stringify({message:text,topic_id:currentTopic?currentTopic.id:'',attachments:atts,client_msg_id:_cmid}),signal:chatAbort.signal});
+    var r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Stream':'1'},body:JSON.stringify({message:text,topic_id:currentTopic?currentTopic.id:'',attachments:atts,client_msg_id:_cmid,quotes:_q||null}),signal:chatAbort.signal});
     var data=await r.json();
     if(abortWatch){ clearInterval(abortWatch); abortWatch=null; }
     // 插话：后端已把消息注入运行中的循环（不起第二个并行循环）。
@@ -8324,6 +9018,7 @@ function wsTabFileRender(tab, body, ctx) {
   ctx = ctx || 'wsTabFileBody';
   var path = (tab.ref && tab.ref.path) || '';
   if (!path) {
+    auStop('ws');
     wsFileCur = null; wsFileCurBox = null;
     body.innerHTML = '<div style="margin:auto;padding:24px;text-align:center;color:var(--tdim);font-size:12.5px">'
       + wsTabMeta('file').icon + ' 未选择文件<br><span style="font-size:11px;opacity:.75">在「文件」标签里右键 → 在标签中预览</span></div>';
@@ -8351,7 +9046,7 @@ function wsTabFileRender(tab, body, ctx) {
     ? '<iframe class="fv-frame" src="' + uq + '"></iframe>'
     : '<div class="fv-info">本机浏览器没有内置 PDF 阅读器<br><span style="font-size:11px;color:var(--tdim)">请在「文件浏览器」里双击该文件，用大眼阅读器预览（连续滚动 / 双指缩放）</span></div>';
   else if (k === 'vid') html += '<video class="fv-media" src="' + uq + '" controls preload="metadata"></video>';
-  else if (k === 'aud') html += '<audio src="' + uq + '" controls style="width:min(420px,90%)"></audio>';
+  else if (k === 'aud') html += auHtml(u);
   else if (k === 'txt') {
     if (f && f.size && f.size > 3 * 1048576) {
       html += '<div class="fv-info">文件较大（' + xferFmtB(f.size) + '），不适合在线预览<br><br><button class="fv-dl" onclick="wsTabFileDownload()">加入下载队列</button></div>';
@@ -8380,6 +9075,8 @@ function wsTabFileRender(tab, body, ctx) {
   }
   html += '</div>';
   body.innerHTML = html;
+  if (k === 'aud') auMount(body.querySelector('.au-wrap'), u, 'ws');
+  else auStop('ws');   // 同上：换成非音频内容时别留一路看不见在响的声音
   if (k === 'html') {
     // 必须是 body.innerHTML 之后：头部按钮槽位此刻才存在。
     var xb = document.getElementById('wsFileX_' + ctx);
@@ -8436,6 +9133,7 @@ function wsTabActivate(id) {
   wsTabs.activePane = idx;
   var p = wsPaneAt(idx);
   if (p.active === id) return;
+  auStop('ws');   // 切标签＝内容区重绘，音频 UI 会随 DOM 消失，声音不能留下当幽灵
   p.active = id;
   wsTabsRender();
   wsTabsSave();
@@ -8455,6 +9153,7 @@ function wsTabClose(ev, id) {
   if (closing && wsTabIsPinned(closing.type)) return;
   // 关掉 file 标签：清掉“当前预览路径”，避免已发出的 fetch 回来写进新标签
   if (closing && closing.type === 'file') { wsFileCur = null; wsFileCurBox = null; }
+  if (closing && closing.type === 'file') auStop('ws');
   // 关掉文件浏览器：清漫游目录，重开回到“此电脑”（普通可关标签；钉死的是工作区标签）
   if (closing && closing.type === 'explorer') { fbExplorerPath = ''; }
   p.tabs = p.tabs.filter(function (t) { return t.id !== id; });
@@ -9480,6 +10179,250 @@ document.addEventListener('click',function(e){
   openWebPip(abs);
 },true);
 
+/* ═══ 音频播放器（自绘，2026-10-23）════════════════════════════════════════
+   原生 <audio controls> 的媒体控件是「响应式折叠」的：容器一窄（手机竖屏、
+   文件栏被拖窄、阅读器嵌在小窗里），Chromium 会把音量按钮整个移除，只剩
+   【播放 + ⋮】一个胶囊 —— 这就是「有时候看不到音量键」；而且手机上不能拖
+   进度、⋮ 里只有「下载 / 播放速度」，手感也和桌面差很远。
+   这里统一自绘：大号播放键 + 可拖进度 + 常驻音量条 + 倍速 / 循环。
+   🔴 音频元素是全局单例 #auEngine：只换 src、不换元素。原生媒体元素从 DOM
+   移除后并不会自动停（还有引用就继续响），而查看器几乎每步都是 innerHTML
+   重绘 —— 单例 + 显式 auStop 才能根除「看不见在响」的幽灵播放。 */
+var AU_LS_VOL='dayan_au_vol', AU_LS_RATE='dayan_au_rate', AU_LS_LOOP='dayan_au_loop';
+var AU_RATES=[0.75,1,1.25,1.5,2];
+var _auE=null, _auUI=null, _auOwner='', _auSeeking=false, _auSeekT=0;
+function auLS(k,d){ try{ var v=localStorage.getItem(k); return v==null?d:v; }catch(e){ return d; } }
+function auLSSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function auFmt(t){
+  if(!isFinite(t)||t<0) return '--:--';
+  t=Math.floor(t+.001);
+  var h=Math.floor(t/3600), m=Math.floor(t%3600/60), s=t%60;
+  function p(n){ return (n<10?'0':'')+n; }
+  return (h?h+':'+p(m):String(m))+':'+p(s);
+}
+function auEngine(){
+  if(_auE) return _auE;
+  var a=document.createElement('audio');
+  a.id='auEngine'; a.preload='metadata'; a.style.display='none';
+  var v=parseInt(auLS(AU_LS_VOL,'80'),10); if(!(v>=0&&v<=100)) v=80;
+  a.volume=v/100;
+  a.loop=auLS(AU_LS_LOOP,'0')==='1';
+  var r=parseFloat(auLS(AU_LS_RATE,'1')); a.playbackRate=(r>0?r:1);
+  a.addEventListener('loadedmetadata', auPaint);
+  a.addEventListener('durationchange', auPaint);
+  a.addEventListener('timeupdate', function(){ if(!_auSeeking) auPaint(); });
+  a.addEventListener('play', auPaint);
+  a.addEventListener('pause', auPaint);
+  a.addEventListener('ended', auPaint);
+  a.addEventListener('ratechange', auPaint);
+  a.addEventListener('error', auAudioError);
+  document.body.appendChild(a);
+  return _auE=a;
+}
+function auHtml(src){
+  var q=esc(src);
+  return '<div class="au-wrap" data-au-src="'+q+'">'
+    +'<div class="au-card">'
+    +'<div class="au-main">'
+    +'<button class="au-play" type="button" aria-label="播放/暂停" title="播放 / 暂停（空格）">'
+    +'<svg class="ic-play" viewBox="0 0 24 24"><path d="M8 5.4v13.2L19 12z"/></svg>'
+    +'<svg class="ic-pause" viewBox="0 0 24 24"><path d="M7 5h3.7v14H7zM13.3 5H17v14h-3.7z"/></svg>'
+    +'</button>'
+    +'<div class="au-track">'
+    +'<input class="au-range au-seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="播放进度">'
+    +'<div class="au-times"><span class="au-cur">0:00</span><span class="au-dur">--:--</span></div>'
+    +'</div>'
+    +'</div>'
+    +'<div class="au-foot">'
+    +'<button class="au-ibtn au-mute" type="button" aria-label="静音" title="静音 / 取消静音">'
+    +'<svg class="ic-vol" viewBox="0 0 24 24"><path d="M11 5.2 6.6 9H3v6h3.6L11 18.8z"/><path d="M15.2 8.8a4.6 4.6 0 0 1 0 6.4"/><path d="M17.9 6.2a8.2 8.2 0 0 1 0 11.6"/></svg>'
+    +'<svg class="ic-mute" viewBox="0 0 24 24" style="display:none"><path d="M11 5.2 6.6 9H3v6h3.6L11 18.8z"/><path d="M15.6 9.6l4.8 4.8M20.4 9.6l-4.8 4.8"/></svg>'
+    +'</button>'
+    +'<div class="au-volwrap">'
+    +'<input class="au-range au-vol" type="range" min="0" max="100" step="1" value="80" aria-label="音量">'
+    +'<span class="au-volnum">80%</span>'
+    +'</div>'
+    +'<button class="au-ibtn au-rate" type="button" title="播放速度">1x</button>'
+    +'<button class="au-ibtn au-loop" type="button" aria-label="循环播放" title="循环播放">'
+    +'<svg viewBox="0 0 24 24"><path d="M4 11.5V9.6A3.6 3.6 0 0 1 7.6 6h9.2"/><path d="M14.4 3.6 17.8 6l-3.4 2.4"/><path d="M20 12.5v1.9A3.6 3.6 0 0 1 16.4 18H7.2"/><path d="M9.6 20.4 6.2 18l3.4-2.4"/></svg>'
+    +'</button>'
+    +'</div>'
+    +'<div class="au-err" style="display:none"></div>'
+    +'</div></div>';
+}
+function auPaint(){
+  var a=_auE;
+  if(!a||!_auUI||!document.contains(_auUI)) return;
+  var root=_auUI;
+  var src=root.getAttribute('data-au-src')||'';
+  var curSrc=a.getAttribute('src')||'';
+  var on=(src!==''&&src===curSrc&&!!a.currentSrc&&!a.paused&&!a.ended);
+  var pb=root.querySelector('.au-play'); if(pb) pb.classList.toggle('on',on);
+  var d=isFinite(a.duration)?a.duration:0;
+  var t=(src===curSrc)?(a.currentTime||0):0;
+  var sk=root.querySelector('.au-seek');
+  if(sk&&!_auSeeking){
+    var p=d?Math.max(0,Math.min(100,t/d*100)):0;
+    sk.value=String(p); sk.style.setProperty('--p',p+'%');
+  }
+  var c=root.querySelector('.au-cur'); if(c) c.textContent=auFmt(t);
+  var du=root.querySelector('.au-dur'); if(du) du.textContent=d?auFmt(d):'--:--';
+  var v=Math.round(Math.max(0,Math.min(1,a.volume))*100);
+  var muted=(a.muted||v===0);
+  var vs=root.querySelector('.au-vol');
+  if(vs){ vs.value=String(v); vs.style.setProperty('--p',v+'%'); }
+  var vn=root.querySelector('.au-volnum'); if(vn) vn.textContent=(muted?'静音':v+'%');
+  var icv=root.querySelector('.ic-vol'), icm=root.querySelector('.ic-mute');
+  if(icv) icv.style.display=(muted?'none':'');
+  if(icm) icm.style.display=(muted?'':'none');
+  var mb=root.querySelector('.au-mute'); if(mb) mb.classList.toggle('on',muted);
+  var rb=root.querySelector('.au-rate');
+  if(rb) rb.textContent=(String(Math.round((a.playbackRate||1)*100)/100)).replace(/\.(\d)0$/,'.$1')+'x';
+  var lb=root.querySelector('.au-loop'); if(lb) lb.classList.toggle('on',!!a.loop);
+}
+function auBindUI(root){
+  if(root._auBound) return;
+  root._auBound=true;
+  var play=root.querySelector('.au-play');
+  if(play) play.addEventListener('click', auToggle);
+  var mute=root.querySelector('.au-mute');
+  if(mute) mute.addEventListener('click', auMute);
+  var rate=root.querySelector('.au-rate');
+  if(rate) rate.addEventListener('click', auCycleRate);
+  var loop=root.querySelector('.au-loop');
+  if(loop) loop.addEventListener('click', function(){
+    var a=auEngine(); a.loop=!a.loop; auLSSet(AU_LS_LOOP,a.loop?'1':'0'); auPaint();
+  });
+  var sk=root.querySelector('.au-seek');
+  if(sk){
+    sk.addEventListener('input', function(){
+      _auSeeking=true; clearTimeout(_auSeekT);
+      var p=parseFloat(sk.value)||0;
+      sk.style.setProperty('--p',p+'%');
+      var a=auEngine(), d=isFinite(a.duration)?a.duration:0;
+      var c=root.querySelector('.au-cur');
+      if(c) c.textContent=d?auFmt(d*p/100):'0:00';
+      // 兜底：个别环境不派发 change/pointerup，400ms 后无条件恢复跟随，免得进度条永卡
+      _auSeekT=setTimeout(function(){ _auSeeking=false; auPaint(); },400);
+    });
+    var commit=function(){ auSeekCommit(sk); };
+    sk.addEventListener('change', commit);
+    sk.addEventListener('pointerup', commit);
+    sk.addEventListener('touchend', commit);
+  }
+  var vol=root.querySelector('.au-vol');
+  if(vol){
+    vol.addEventListener('input', function(){
+      var a=auEngine(), v=Math.max(0,Math.min(100,parseInt(vol.value,10)||0));
+      a.muted=false; a.volume=v/100;
+      auLSSet(AU_LS_VOL,String(v));
+      auPaint();
+    });
+  }
+}
+function auSeekCommit(sk){
+  var a=auEngine(), d=isFinite(a.duration)?a.duration:0;
+  if(!d) return;
+  var p=Math.max(0,Math.min(100,parseFloat(sk.value)||0));
+  clearTimeout(_auSeekT);
+  _auSeeking=false;
+  try{ a.currentTime=d*p/100; }catch(e){}
+  auPaint();
+}
+// 挂一个播放器到容器：src 相同就不重载（重绘/切回来不断音），换了 src 则接着播
+function auMount(root, src, owner){
+  if(!root||!src) return;
+  var a=auEngine();
+  var same=((a.getAttribute('src')||'')===src);
+  var wasPlaying=(!same)&&!a.paused&&!a.ended&&!!a.currentSrc;
+  if(_auUI&&_auUI!==root){ var ob=_auUI.querySelector('.au-play'); if(ob) ob.classList.remove('on'); }
+  _auUI=root; _auOwner=owner||'';
+  root.setAttribute('data-au-src',src);
+  var v=parseInt(auLS(AU_LS_VOL,'80'),10); if(!(v>=0&&v<=100)) v=80;
+  a.volume=v/100;
+  a.loop=auLS(AU_LS_LOOP,'0')==='1';
+  var r=parseFloat(auLS(AU_LS_RATE,'1')); if(r>0) a.playbackRate=r;
+  if(!same){
+    try{ a.pause(); }catch(e){}
+    var er=root.querySelector('.au-err'); if(er){ er.style.display='none'; er.textContent=''; }
+    a.setAttribute('src',src);
+    try{ a.load(); }catch(e){}
+    // 切上一首/下一首：保持「接着听」的直觉；自动播放被拦截时静默降级为暂停
+    if(wasPlaying){
+      var once=function(){ a.removeEventListener('canplay',once); a.play().catch(function(){}); };
+      a.addEventListener('canplay', once);
+    }
+  }
+  auBindUI(root);
+  auPaint();
+}
+function auToggle(){
+  var a=auEngine();
+  if(!a.getAttribute('src')) return;
+  if(a.paused||a.ended) a.play().catch(function(){});
+  else a.pause();
+}
+function auMute(){
+  var a=auEngine();
+  if(a.muted||a.volume===0){
+    a.muted=false;
+    var v=parseInt(auLS(AU_LS_VOL,'80'),10); if(!(v>0)) v=80;
+    a.volume=Math.min(1,v/100);
+  }else{
+    auLSSet(AU_LS_VOL,String(Math.round(a.volume*100)));
+    a.muted=true;
+  }
+  auPaint();
+}
+function auCycleRate(){
+  var a=auEngine();
+  var i=AU_RATES.indexOf(a.playbackRate);
+  var next=AU_RATES[(i+1)%AU_RATES.length];
+  a.playbackRate=next;
+  auLSSet(AU_LS_RATE,String(next));
+  auPaint();
+}
+function auAudioError(){
+  var a=_auE;
+  if(!a||!a.getAttribute('src')||!a.error) return;   // 主动清空 src 也会走 error，别误报
+  if(!_auUI||!document.contains(_auUI)) return;
+  var e=_auUI.querySelector('.au-err');
+  if(e){ e.textContent='音频加载失败，可点右上「下载」后本地播放'; e.style.display='block'; }
+  var pb=_auUI.querySelector('.au-play'); if(pb) pb.classList.remove('on');
+}
+// 统一出口：离开音频视图必须显式停。owner 用来区分「文件浏览器」与「工作区 file 标签」，
+// 别把另一栏正在放的那一路顺手掐掉（分屏时两栏各有自己的渲染流程）。
+function auStop(owner){
+  var a=_auE;
+  if(!a) return;
+  if(owner&&_auOwner&&owner!==_auOwner) return;
+  try{ a.pause(); }catch(e){}
+  a.removeAttribute('src');
+  try{ a.load(); }catch(e){}
+  var root=_auUI;
+  _auUI=null; _auOwner='';
+  if(!root) return;
+  var pb=root.querySelector('.au-play'); if(pb) pb.classList.remove('on');
+  var c=root.querySelector('.au-cur'); if(c) c.textContent='0:00';
+  var d=root.querySelector('.au-dur'); if(d) d.textContent='--:--';
+  var s=root.querySelector('.au-seek'); if(s){ s.value='0'; s.style.setProperty('--p','0%'); }
+  var e=root.querySelector('.au-err'); if(e){ e.style.display='none'; e.textContent=''; }
+}
+function fvMountAudio(body, src){
+  body.innerHTML=auHtml(src);
+  auMount(body.querySelector('.au-wrap'), src, 'fv');
+}
+// 空格 = 播放/暂停（焦点在输入框里时放行，别抢聊天输入）
+document.addEventListener('keydown', function(e){
+  if(e.key!==' '&&e.code!=='Space') return;
+  if(e.ctrlKey||e.metaKey||e.altKey) return;
+  var t=e.target||{}, tag=(t.tagName||'').toUpperCase();
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||t.isContentEditable) return;
+  if(!_auUI||!document.contains(_auUI)||_auUI.offsetParent===null) return;   // 播放器不可见时别抢空格
+  e.preventDefault(); auToggle();
+});
+
+
 // ═══ 文件查看器：图片/视频/音频/PDF/文本/Markdown ═══
 var fvList=[], fvIdx=-1;
 var FV_IMG=['png','jpg','jpeg','gif','webp','bmp','svg','ico','avif'];
@@ -10308,6 +11251,7 @@ function openViewerByIdx(i){
 }
 function closeViewer(){
   var v=document.getElementById('fbViewer'); if(!v) return;
+  auStop('fv');
   v.style.display='none';
   _pdfDestroy();   // 关窗即释放 PDF 文档与后台渲染任务
   var b=document.getElementById('fvBody'); if(b) b.innerHTML='';
@@ -10333,11 +11277,12 @@ function fvRender(){
   document.getElementById('fvName').textContent=name+(f&&f.size?'（'+xferFmtB(f.size)+'）':'');
   if(!f){ body.innerHTML='<div class="fv-info">文件已不存在或已被移动</div>'; return; }
   var k=fvKind(name), u=fvUrl(name), uq=u.replace(/"/g,'&quot;');
+  if(k!=='aud') auStop('fv');   // 离开音频必须显式停：媒体元素不随 DOM 消失而静音
   if(k==='img'){ body.innerHTML='<img class="fv-img" src="'+uq+'" alt="" onerror="this.outerHTML=\'<div class=&quot;fv-info&quot;>图片加载失败</div>\'">'; }
   else if(k==='pdf'){ if(fvPdfEngine()==='native') fvRenderPdfNative(name, body); else fvRenderPdf(name, body); }
   else if(k==='html'){ if(ebtn) ebtn.innerHTML=fvHtmlBtnHtml(); fvHtmlLoad(fvFullPath(name),'fvBody',function(){ return fvList[fvIdx]===name && fvIsOpen(); },u); }
   else if(k==='vid'){ body.innerHTML='<video class="fv-media" src="'+uq+'" controls preload="metadata"></video>'; }
-  else if(k==='aud'){ body.innerHTML='<div class="fv-info"><div style="margin-bottom:12px">'+esc(name)+'</div><audio src="'+uq+'" controls style="width:min(420px,90%)"></audio></div>'; }
+  else if(k==='aud'){ fvMountAudio(body, u); }
   else if(k==='txt'){
     if(f.size&&f.size>3*1048576){
       body.innerHTML='<div class="fv-info">文件较大（'+xferFmtB(f.size)+'），不适合在线预览<br><br><button class="fv-dl" onclick="fvDownload()">加入下载队列</button></div>';
@@ -10719,29 +11664,169 @@ function abV3Post(url,body,ok){
     }).catch(function(e){ alert('错误：'+(e.message||e)); });
 }
 
+// ── 设置·资产库「库位置」：用文件浏览器那套面包屑选目录，不再手打绝对路径 ──
+// 交互与 #fbWorkspace 的路径条同构：点段回跳、点文件夹进下一级、「此电脑」回盘符。
+// 取数走 /api/dir-picker（与「选择本地项目」同一个接口：只列目录，路径不存在就明确报错，
+// 不像 /api/mission-files 会静默回落工作区 —— 选路径时那等于选错地方还看不出来）。
+// 手动输入保留：UNC(\\NAS\share) 这类入口从盘符爬不到，只能靠它。
+var _abLibPick={cur:'',saved:'',seq:0};
+function _abLibNorm(p){ return String(p||'').replace(/[\\/]+/g,'\\').replace(/\\+$/,'').toLowerCase(); }
+// 路径显示：反斜杠后面插 <wbr>，窄栏里优先在分隔符断行 —— break-all 会把 assets 拆成 ass/ets
+function _abLibPathHtml(p){ return esc(p||'').replace(/\\/g,'\\<wbr>'); }
+function _abLibIco(kind){
+  var o='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">';
+  if(kind==='up') return o+'<path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>';
+  if(kind==='drive') return o+'<path d="M4.2 13.6 6 6.9A2.1 2.1 0 0 1 8 5.4h8a2.1 2.1 0 0 1 2 1.5l1.8 6.7"/><rect x="3" y="13.4" width="18" height="5.4" rx="1.8"/><path d="M6.9 16.1h.01"/></svg>';
+  return o+'<path d="M3 7.6A2.6 2.6 0 0 1 5.6 5h3.7l2 2.4h7.1A2.6 2.6 0 0 1 21 10v6.4A2.6 2.6 0 0 1 18.4 19H5.6A2.6 2.6 0 0 1 3 16.4z"/></svg>';
+}
 function renderAssetLibSettings(){
   var body=document.getElementById('settingsBody'); if(!body) return;
+  _abLibPick.seq++;                       // 作废上一次面板里还在飞的请求
+  body.innerHTML='<div class="sp-section"><div class="center-msg">加载中…</div></div>';
   fetch('/api/assets/settings').then(function(r){return r.json();}).then(function(d){
-    var h='<div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px">';
-    h+='<div style="font-size:12px;color:var(--tdim);line-height:1.6">资产库=索引，不是容器：这里只管两件事——①新建项目默认落在哪 ②索引文件(index.json)存哪。文件本体永远原地不动。</div>';
-    h+='<label style="font-size:12px;color:var(--tdim)">库位置（目录）</label>';
-    h+='<input id="abLibDir" value="'+escAttr(d.lib_dir||'')+'" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--text)">';
-    h+='<div style="display:flex;gap:8px">'
-      +'<button onclick="abSaveLibDir()" style="background:var(--accent);color:#04241f;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer">保存</button>'
-      +'<span id="abLibMsg" style="font-size:12px;color:var(--tdim);align-self:center"></span></div>';
-    h+='</div>';
+    var saved=(d&&d.lib_dir)||'';
+    _abLibPick.saved=saved;
+    _abLibPick.cur=saved;
+    var h='<div class="sp-section" id="abLibPick">';
+    h+='<div class="sp-info" style="margin-bottom:14px">资产库=索引，不是容器：这里只管两件事——①新建项目默认落在哪 ②索引文件(index.json)存哪。文件本体永远原地不动。</div>';
+    h+='<h4>库位置（目录）</h4>';
+    h+='<div class="ablib-saved"><span class="ablib-k">已保存</span><b id="abLibSavedTxt">'+(saved?_abLibPathHtml(saved):'（默认位置）')+'</b></div>';
+    h+='<div class="ablib-box">';
+    h+='<div class="fb-ws-path ablib-bar" id="abLibBar" title="当前浏览路径（点路径段可回跳）"></div>';
+    h+='<div class="ablib-list" id="abLibList"><div class="ablib-empty">加载中…</div></div>';
+    h+='<div class="ablib-foot">'
+      +'<button type="button" class="ablib-btn pri" id="abLibUse" onclick="abLibPickUse()">用这个文件夹</button>'
+      +'<button type="button" class="ablib-btn" onclick="abLibPickManual()">手动输入</button>'
+      +'<span class="ablib-msg" id="abLibMsg"></span></div>';
+    h+='<div class="ablib-manual" id="abLibManual" style="display:none">'
+      +'<input id="abLibManualIn" placeholder="D:\\资料\\资产库 或 \\\\NAS\\share" spellcheck="false" autocomplete="off">'
+      +'<button type="button" class="ablib-btn" onclick="abLibPickGo()">转到</button></div>';
+    h+='</div></div>';
     body.innerHTML=h;
-  }).catch(function(e){ body.innerHTML='<div style="padding:20px;color:var(--tdim)">加载失败: '+esc(e.message)+'</div>'; });
+    var box=document.getElementById('abLibPick');
+    if(box){
+      // 面包屑与文件夹列表共用一份委托：路径一律走 data-p（不拼 onclick 字符串，
+      // 反斜杠在 JS 字符串里要转义两次，是这个项目里踩过的坑）。空串 = 此电脑。
+      box.addEventListener('click',function(ev){
+        var t=ev.target; if(!t||!t.closest) return;
+        var j=t.closest('[data-p]');
+        if(j) abLibPickLoad(j.getAttribute('data-p'));
+      });
+    }
+    var mi=document.getElementById('abLibManualIn');
+    if(mi) mi.addEventListener('keydown',function(ev){ if(ev.key==='Enter'){ ev.preventDefault(); abLibPickGo(); } });
+    abLibPickLoad(saved);
+  }).catch(function(e){
+    body.innerHTML='<div class="sp-section"><div style="font-size:12px;color:var(--tdim)">加载失败: '+esc(e.message||e)+'</div></div>';
+  });
 }
-async function abSaveLibDir(){
-  var v=(document.getElementById('abLibDir')||{}).value||'';
-  var msg=document.getElementById('abLibMsg');
-  try{
-    var r=await fetch('/api/assets/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lib_dir:v})});
-    var d=await r.json();
-    if(!r.ok) throw new Error(d.error||('HTTP '+r.status));
-    if(msg) msg.textContent='已保存'+(d.index_copied?'，索引已迁移到新位置':'');
-  }catch(e){ if(msg) msg.textContent='保存失败: '+(e.message||e); }
+// 打开某级目录：只列目录、路径无效就报错，绝不静默换目录
+function abLibPickLoad(p){
+  var bar=document.getElementById('abLibBar'), list=document.getElementById('abLibList');
+  if(!bar||!list) return;
+  var my=++_abLibPick.seq;
+  var msg=document.getElementById('abLibMsg'); if(msg) msg.textContent='';
+  list.innerHTML='<div class="ablib-empty">加载中…</div>';
+  fetch('/api/dir-picker?path='+encodeURIComponent(p||''))
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(my!==_abLibPick.seq) return;
+      d=d||{};
+      if(d.error&&!d.path) abLibPaint({path:'',crumbs:[],dirs:[],roots:d.roots||[]}, d.error);
+      else abLibPaint(d,'');
+    })
+    .catch(function(e){
+      if(my!==_abLibPick.seq) return;
+      list.innerHTML='<div class="ablib-empty">加载失败：'+esc(e.message||e)+'</div>';
+    });
+}
+function abLibPaint(d,errText){
+  var bar=document.getElementById('abLibBar'), list=document.getElementById('abLibList');
+  if(!bar||!list) return;
+  var p=(d&&d.path)||'';
+  _abLibPick.cur=p;
+  // 面包屑：形态同文件浏览器（此电脑 › D: › … › 当前目录）。最后一段是当前目录，
+  // 不给 data-p（点了也不该重载）；其余段点一下回到那一级。
+  var crumbs=(d&&d.crumbs)||[];
+  var h='<span class="fb-ws-crumb'+(p?'':' active')+'"'+(p?' data-p="" title="此电脑"':'')+'>此电脑</span>';
+  for(var i=0;i<crumbs.length;i++){
+    var last=(i===crumbs.length-1);
+    h+='<span class="fb-ws-sep">›</span><span class="fb-ws-crumb'+(last?' active':'')+'"'
+      +(last?'':' data-p="'+esc(crumbs[i].path)+'"')+' title="'+esc(crumbs[i].path)+'">'+esc(crumbs[i].name)+'</span>';
+  }
+  bar.innerHTML=h;
+
+  var g='';
+  if(errText) g+='<div class="ablib-err">'+esc(errText)+'</div>';
+  if(!p){
+    var roots=(d&&d.roots)||[];
+    for(var r=0;r<roots.length;r++){
+      g+='<button type="button" class="ablib-item" data-p="'+esc(roots[r].path)+'">'
+        +'<span class="ablib-ico">'+_abLibIco('drive')+'</span>'
+        +'<span class="ablib-nm">'+esc(roots[r].name)+'</span></button>';
+    }
+    if(!roots.length) g+='<div class="ablib-empty">没有可访问的磁盘</div>';
+  }else{
+    g+='<button type="button" class="ablib-item up" data-p="'+esc(d.parent||'')+'">'
+      +'<span class="ablib-ico">'+_abLibIco('up')+'</span>'
+      +'<span class="ablib-nm">上一级</span></button>';
+    var dirs=(d&&d.dirs)||[];
+    for(var k=0;k<dirs.length;k++){
+      g+='<button type="button" class="ablib-item" data-p="'+esc(dirs[k].path)+'">'
+        +'<span class="ablib-ico">'+_abLibIco('folder')+'</span>'
+        +'<span class="ablib-nm">'+esc(dirs[k].name)+'</span></button>';
+    }
+    if(!dirs.length) g+='<div class="ablib-empty">这个目录里没有子文件夹</div>';
+  }
+  list.innerHTML=g;
+  list.scrollTop=0;
+  bar.scrollTop=bar.scrollHeight;   // 面包屑右端＝当前目录，一眼看到自己在哪
+  abLibPickSyncSaved();
+}
+// 当前浏览目录 vs 已保存目录：一样就没有可保存的东西，按钮退灰并改文案（避免"点了没反应"）
+function abLibPickSyncSaved(){
+  var txt=document.getElementById('abLibSavedTxt');
+  if(txt) txt.innerHTML=_abLibPick.saved?_abLibPathHtml(_abLibPick.saved):'（默认位置）';
+  var btn=document.getElementById('abLibUse');
+  if(!btn) return;
+  var cur=_abLibPick.cur||'';
+  var same=!!cur && _abLibNorm(cur)===_abLibNorm(_abLibPick.saved);
+  btn.disabled=!cur||same;
+  btn.textContent=same?'已是当前库位置':'用这个文件夹';
+}
+function abLibPickManual(){
+  var m=document.getElementById('abLibManual'); if(!m) return;
+  var show=(m.style.display==='none');
+  m.style.display=show?'flex':'none';
+  if(show){ var i=document.getElementById('abLibManualIn'); if(i){ i.value=_abLibPick.cur||''; i.focus(); if(i.select) i.select(); } }
+}
+function abLibPickGo(){
+  var i=document.getElementById('abLibManualIn');
+  var v=((i&&i.value)||'').trim();
+  if(!v) return;
+  abLibPickLoad(v);
+}
+function abLibPickUse(){
+  var cur=_abLibPick.cur||'';
+  var btn=document.getElementById('abLibUse'), msg=document.getElementById('abLibMsg');
+  if(!cur){ if(msg) msg.textContent='先进入一个文件夹'; return; }
+  if(btn) btn.disabled=true;
+  if(msg) msg.textContent='保存中…';
+  fetch('/api/assets/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lib_dir:cur})})
+    .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+    .then(function(res){
+      var d=res.d||{};
+      if(!res.ok||d.error) throw new Error(d.error||('HTTP '+res.status));
+      _abLibPick.saved=d.lib_dir||cur;
+      if(msg) msg.textContent='已保存'+(d.index_copied?'，索引已迁移到新位置':'');
+      abLibPickSyncSaved();
+      // 资产库书架正开着 → 重画一次，免得显示的库路径还是旧的
+      try{ if(typeof assetOpen!=='undefined'&&assetOpen&&typeof renderAssetShelf==='function') renderAssetShelf(); }catch(e){}
+    })
+    .catch(function(e){
+      if(msg) msg.textContent='保存失败：'+(e.message||e);
+      abLibPickSyncSaved();   // 失败也要把按钮恢复成可点，别留个死灰按钮
+    });
 }
 // ═══ PC 选择辅助 ═══
 var fbAnchor=-1, fbLassoJustEnded=false;
@@ -11038,25 +12123,19 @@ function _ctxSelText(){
 function ctxMenuHide(){ var m=document.getElementById('textCtxMenu'); if(m) m.remove(); _ctxInfo=null; }
 document.addEventListener('mousedown',function(e){
   var m=document.getElementById('textCtxMenu');
-  if(m&&(m===e.target||m.contains(e.target))) return;   // 点菜单自身：放行，别夺焦点
-  ctxMenuHide();
+  var m2=document.getElementById('msgCtxMenu');
+  var inMenu=(m&&(m===e.target||m.contains(e.target)))||(m2&&(m2===e.target||m2.contains(e.target)));
+  if(inMenu) return;                                       // 点菜单自身：放行，别夺焦点
+  if(Date.now()-_msgTouchAt<800) return;                   // 长按刚弹的菜单：手指抬起那一下别把它关掉
+  ctxMenuHide(); msgMenuHide();
 },true);
-document.addEventListener('keydown',function(e){ if(e.key==='Escape') ctxMenuHide(); },true);
+document.addEventListener('keydown',function(e){ if(e.key==='Escape'){ ctxMenuHide(); msgMenuHide(); } },true);
 window.addEventListener('blur',ctxMenuHide);
-window.addEventListener('resize',ctxMenuHide);
-document.addEventListener('scroll',ctxMenuHide,true);
+window.addEventListener('resize',function(){ ctxMenuHide(); msgMenuHide(); });
+document.addEventListener('scroll',function(){ ctxMenuHide(); msgMenuHide(); },true);
 
-document.addEventListener('contextmenu',function(ev){
-  if(!_ctxInShell()) return;             // 浏览器/手机：原生菜单可用，不接管
-  ctxMenuHide();
-  if(ev.defaultPrevented) return;        // 资产库文件 / 标签页 / 导图 已经各自弹过菜单
-  var ed=_ctxEditable(ev.target);
-  var host=ed?null:_ctxTextHost(ev.target);
-  if(!ed&&!host) return;
-  ev.preventDefault();
-  _ctxInfo={editable:ed,host:host};
-  _ctxBuildMenu(ev.clientX,ev.clientY,!!ed);
-},false);
+// 右键接管已合并到下方「消息动作层」的统一 listener（2026-10-23）：
+// 消息气泡 → #msgCtxMenu，其它文本容器 → #textCtxMenu，浏览器/手机的非气泡区域放行原生菜单。
 
 function _ctxCopyNative(){ try{ return document.execCommand('copy'); }catch(e){ return false; } }
 function _ctxWrite(text,useSel){
@@ -11165,6 +12244,446 @@ function _ctxBuildMenu(x,y,isEditable){
   if(x+r.width>window.innerWidth-6)  menu.style.left=Math.max(6,x-r.width)+'px';
   if(y+r.height>window.innerHeight-6) menu.style.top=Math.max(6,y-r.height)+'px';
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// 消息动作层：反馈（喜欢/不喜欢）/ 收藏 / 分享 / 创建文档 / 消息菜单 / 长按
+// 2026-10-23 用户要求：AI 气泡按钮换成纯图标；用户气泡不显示按钮，功能走右键；
+// 手机端长按要弹同一个菜单。
+// 🔴 同一份状态两个入口（气泡按钮 + 菜单项）必须读写同一份存储，
+//    否则"按钮点亮了、菜单里还是未选中"必然会来（§21/§29 同款：同一语义两处各写一遍）。
+// ══════════════════════════════════════════════════════════════════════════
+// 存储：服务端 message_feedback 表（2026-10-23 从 localStorage 升上来）
+// 为什么不用 localStorage：只在本机本浏览器，AI 看不到、换设备就丢，而且**没有任何回顾入口**
+// （用户原话："那个按钮有实际用途不？"）。现在落库 → 设置 → 消息反馈里能翻、能跳回原消息。
+// 内存缓存形状：_MSG_FB[topicId][ "<msgId>" ] = {like:1} | {dislike:1} | {fav:1}
+var _MSG_FB={}, _MSG_FB_BUSY={}, _MSG_FB_WROTE_AT=0, _MSG_FB_STALE={};
+// 旧版本把赞/踩/收藏写在本机 localStorage（dayan_msg_fb / dayan_msg_fav）。那批数据是
+// "点亮就完事"的装饰态，不迁移（迁过来会让用户误以为之前的也生效过），在这里一次性清掉，
+// 避免两套存储并存、下次又开始对不上。
+try{ localStorage.removeItem('dayan_msg_fb'); localStorage.removeItem('dayan_msg_fav'); }catch(e){}
+function _fbOf(tid, mid){
+  var m=tid?_MSG_FB[tid]:null;
+  return (m&&m[String(mid)])||{};
+}
+function _fbSetLocal(tid, mid, kind, on){
+  if(!tid) return;
+  _MSG_FB_WROTE_AT=Date.now();
+  var m=_MSG_FB[tid]||(_MSG_FB[tid]={});
+  var k=String(mid), cur=m[k]||{};
+  if(on){
+    // like / dislike 互斥（必须和服务端同一规则，两边各写一遍迟早对不上）
+    if(kind==='like'||kind==='dislike'){ delete cur.like; delete cur.dislike; }
+    cur[kind]=1;
+  } else { delete cur[kind]; }
+  if(Object.keys(cur).length) m[k]=cur; else delete m[k];
+}
+function _ensureTopicFb(tid, force){
+  if(!tid||_MSG_FB_BUSY[tid]) return;
+  if(!force&&_MSG_FB[tid]) return;
+  _MSG_FB_BUSY[tid]=1;
+  var t0=Date.now();
+  fetch('/api/message-feedback?topic_id='+encodeURIComponent(tid))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      delete _MSG_FB_BUSY[tid];
+      // 🔴 这份快照是在某次点击**之前**发出的：它不含那次写入，套上去会把刚点亮的按钮刷回未选中。
+      //    丢弃它，并记一笔 stale —— 写入落地后 _fbAfterWrite 会拿权威状态重拉一次。
+      if(t0<_MSG_FB_WROTE_AT){ _MSG_FB_STALE[tid]=1; return; }
+      delete _MSG_FB_STALE[tid];
+      _MSG_FB[tid]=(d&&d.items)||{};
+      _applyFbToDom();
+    })
+    .catch(function(){ delete _MSG_FB_BUSY[tid]; });   // 拉不到就按未选中显示，点的时候还会再写
+}
+function _fbAfterWrite(tid){
+  if(tid&&_MSG_FB_STALE[tid]){ delete _MSG_FB_STALE[tid]; _ensureTopicFb(tid,true); }
+}
+function _fbStar(meta, on){
+  if(!meta) return;
+  var star=meta.querySelector('.msg-fav');
+  if(on&&!star){
+    var sp=document.createElement('span'); sp.className='msg-fav';
+    sp.title='已收藏（右键可取消）'; sp.textContent='★ 已收藏'; meta.appendChild(sp);
+  } else if(!on&&star){ star.remove(); }
+}
+function _applyFbRow(row, tid, mid){
+  if(!row) return;
+  var f=_fbOf(tid, mid);
+  var up=row.querySelector('.msg-up'), dn=row.querySelector('.msg-down');
+  if(up) up.classList.toggle('on',!!f.like);
+  if(dn) dn.classList.toggle('on',!!f.dislike);
+  _fbStar(row.querySelector('.meta'), !!f.fav);
+}
+// 反馈是异步拉的：先按空态画，拉回来只刷按钮/角标，绝不整页重渲染（会丢展开态与滚动锚点，§30/§43）
+function _applyFbToDom(){
+  if(!currentTopic) return;
+  var tid=currentTopic.id;
+  var rows=chatBox.querySelectorAll('.row[data-mid]');
+  for(var i=0;i<rows.length;i++) _applyFbRow(rows[i],tid,rows[i].getAttribute('data-mid'));
+}
+function _msgFbGet(m){
+  if(!m||!m.id||!currentTopic) return '';
+  var f=_fbOf(currentTopic.id, m.id);
+  return f.like?'like':(f.dislike?'dislike':'');
+}
+function _favStarHTML(m){
+  if(!m||!m.id||!currentTopic) return '';
+  return _fbOf(currentTopic.id, m.id).fav?'<span class="msg-fav" title="已收藏（右键可取消）">★ 已收藏</span>':'';
+}
+function _fbSave(tid, mid, kind, on, snippet, title){
+  return fetch('/api/message-feedback',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({topic_id:tid, msg_id:Number(mid), kind:kind, on:!!on,
+      snippet:(snippet||''), topic_title:(title||'')})})
+    .then(function(r){
+      return r.json().then(function(j){
+        if(!r.ok||!j||!j.success) throw new Error((j&&j.error)||('HTTP '+r.status));
+        return j;
+      });
+    });
+}
+var _toastT=null;
+function msgToast(text,ms){
+  if(!text) return;
+  var el=document.getElementById('msgToast');
+  if(!el){ el=document.createElement('div'); el.id='msgToast'; document.body.appendChild(el); }
+  el.textContent=text;
+  el.classList.remove('on'); void el.offsetWidth; el.classList.add('on');   // 连点两次要重放动画
+  if(_toastT) clearTimeout(_toastT);
+  _toastT=setTimeout(function(){ el.classList.remove('on'); _toastT=null; }, ms||1800);
+}
+// 页面里 6 处历史遗留的 `typeof toast==='function'` 调用从此真的生效
+try{ window.toast=msgToast; }catch(e){}
+
+function _msgFbSet(row,kind){
+  if(!row||!currentTopic) return;
+  var mid=parseInt(row.getAttribute('data-mid')||'0',10);
+  if(!mid){ msgToast('这条消息还没入库，记不了反馈'); return; }
+  var tid=currentTopic.id;
+  var on=!_fbOf(tid,mid)[kind];               // 再点一次 = 取消
+  _fbSetLocal(tid,mid,kind,on);
+  _applyFbRow(row,tid,mid);
+  msgToast(on?(kind==='like'?'已记录：有帮助':'已记录：不理想'):'已取消反馈');
+  _fbSave(tid,mid,kind,on,_msgRowText(row).slice(0,200),(currentTopic&&currentTopic.title)||'')
+    .then(function(){ _fbAfterWrite(tid); }, function(e){
+      // 存不上就把 UI 改回去 —— 按钮亮着但库里没有，等于骗人（§18：失败必须可见）
+      _fbSetLocal(tid,mid,kind,!on);
+      _applyFbRow(row,tid,mid);
+      msgToast('反馈没存上：'+((e&&e.message)||e),3200);
+      _fbAfterWrite(tid);
+    });
+}
+function msgFb(btn,kind){
+  var row=(btn&&btn.closest)?btn.closest('.row'):null;
+  if(row) _msgFbSet(row,kind);
+}
+function msgFav(row){
+  if(!row) return false;
+  if(!currentTopic){ msgToast('先进一个任务'); return false; }
+  var mid=parseInt(row.getAttribute('data-mid')||'0',10);
+  if(!mid){ msgToast('这条消息还没入库，收藏不了'); return false; }
+  var tid=currentTopic.id;
+  var on=!_fbOf(tid,mid).fav;
+  _fbSetLocal(tid,mid,'fav',on);
+  _applyFbRow(row,tid,mid);
+  msgToast(on?'已收藏':'已取消收藏');
+  _fbSave(tid,mid,'fav',on,_msgRowText(row).slice(0,200),(currentTopic&&currentTopic.title)||'')
+    .then(function(){ _fbAfterWrite(tid); }, function(e){
+      _fbSetLocal(tid,mid,'fav',!on);
+      _applyFbRow(row,tid,mid);
+      msgToast('收藏没存上：'+((e&&e.message)||e),3200);
+      _fbAfterWrite(tid);
+    });
+  return on;
+}
+function copyRow(row){
+  var t=_msgRowText(row); if(!t) return;
+  function ok(){ msgToast('已复制'); }
+  if(navigator.clipboard){ navigator.clipboard.writeText(t).then(ok,function(){ _legacyCopy(t); ok(); }); }
+  else { _legacyCopy(t); ok(); }
+}
+function _shareRow(row){
+  var text=_msgRowText(row); if(!text) return;
+  var title=(currentTopic&&currentTopic.title)||'大眼 · 对话';
+  // 手机端 http 页面没有 navigator.share（安全上下文限制），自动落到"复制后自己粘"
+  if(navigator.share){
+    try{ navigator.share({title:title,text:text}).catch(function(){}); return; }catch(e){}
+  }
+  if(navigator.clipboard){ navigator.clipboard.writeText(text).then(function(){ msgToast('已复制，可直接粘贴分享'); },function(){ _legacyCopy(text); msgToast('已复制，可直接粘贴分享'); }); }
+  else { _legacyCopy(text); msgToast('已复制，可直接粘贴分享'); }
+}
+// 动作条上的分享按钮已按用户要求移除（2026-10-23）；菜单里的「分享」仍走 _shareRow
+// 创建文档：把这条消息写成 .md 落到任务目录（/api/upload 已有能力，不新增服务端代码）
+function saveRowDoc(row){
+  var text=_msgRowText(row); if(!text) return;
+  if(!currentTopic||!currentTopic.id){ msgToast('先进一个任务再保存'); return; }
+  var d=new Date(), p=function(n){ return (n<10?'0':'')+n; };
+  var name='对话摘录-'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+'.md';
+  var body='# '+((currentTopic&&currentTopic.title)||'对话摘录')+'\n\n> 导出于 '+d.toLocaleString('zh-CN')+'\n\n'+text+'\n';
+  var b64;
+  try{ b64=btoa(unescape(encodeURIComponent(body))); }
+  catch(e){ msgToast('内容里有无法编码的字符，保存失败'); return; }
+  msgToast('正在保存…',900);
+  fetch('/api/upload',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({topic_id:currentTopic.id,filename:name,data:b64})})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if(j&&j.success){ msgToast('已保存：'+name+'（任务目录）',3000); }
+      else { msgToast('保存失败：'+((j&&j.error)||'未知错误'),3200); }
+    })
+    .catch(function(e){ msgToast('保存失败：'+((e&&e.message)||e),3200); });
+}
+// 在新对话中继续：新建任务，把这段作为引用放进输入框（不自动发送，用户还能改）
+function rowToNewTopic(row){
+  var text=_msgRowText(row); if(!text) return;
+  var snip=text.length>400?text.slice(0,400)+'…':text;
+  if(typeof newTopic!=='function'){ msgToast('新建任务不可用'); return; }
+  msgToast('已在新任务里接着聊',1600);
+  newTopic().then(function(){
+    if(!msgInput) return;
+    msgInput.value='> 上一段对话：'+snip.replace(/\n/g,'\n> ')+'\n\n';
+    msgInput.style.height='auto';
+    msgInput.style.height=Math.min(msgInput.scrollHeight,120)+'px';
+    try{ msgInput.focus(); msgInput.setSelectionRange(msgInput.value.length,msgInput.value.length); }catch(e){}
+    try{ saveDraft(); }catch(e){}
+  });
+}
+function selectRowText(row){
+  var b=row&&(row.querySelector('.msg-body')||row.querySelector('.bubble'));
+  if(!b) return;
+  try{
+    var r=document.createRange(); r.selectNodeContents(b);
+    var w=window.getSelection(); w.removeAllRanges(); w.addRange(r);
+    msgToast('已选中这段文字',1500);
+  }catch(e){}
+}
+
+// ── 菜单本体 ────────────────────────────────────────────────────────────
+var _msgMenuRow=null, _msgMenuAt=0, _msgTouchAt=0, _msgMenuSel='';
+function msgMenuHide(){ var m=document.getElementById('msgCtxMenu'); if(m) m.remove(); _msgMenuRow=null; _msgMenuSel=''; }
+function _msgAct(a,row,sel){
+  if(!row) return;
+  switch(a){
+    case 'copy':   copyRow(row); break;
+    case 'speak':  speakRow(row); break;
+    case 'quote':  quoteRow(row); break;           // toast 由 _quoteRow 出（与气泡按钮共用）
+    case 'like':
+    case 'dislike': _msgFbSet(row,a); break;
+    case 'select': selectRowText(row); break;
+    case 'doc':    saveRowDoc(row); break;
+    case 'newtopic': rowToNewTopic(row); break;
+    case 'share':  _shareRow(row); break;
+    case 'fav':    msgFav(row); break;
+    // ── 选区模式（右键时已有选中文字）──
+    case 'copy_sel':    _copySelText(sel); break;
+    case 'select_all':  selectRowText(row); break;
+    case 'copy_all':    copyRow(row); break;
+    case 'quote_sel':   _quoteSel(sel,row); break;
+  }
+}
+function msgMore(btn){
+  var row=(btn&&btn.closest)?btn.closest('.row'):null; if(!row) return;
+  var r=btn.getBoundingClientRect();
+  _msgMenuShow(row,r.right,r.bottom+7,true);
+}
+// ── 选区工具（2026-10-23）──────────────────────────────────────────────
+// 用户选中一句话后右键，弹出的菜单必须"适应选区"：复制＝复制选中的那段，
+// 而不是整条回复；而且菜单不能压在选中的文字上（截图里正好糊住了高亮那一行）。
+function _selInRow(row){
+  var w=window.getSelection&&window.getSelection();
+  if(!w||w.isCollapsed||!w.rangeCount||!row) return '';
+  var s=String(w);
+  if(!s||!s.trim()) return '';
+  try{
+    var n=w.getRangeAt(0).commonAncestorContainer;
+    if(n&&n.nodeType===3) n=n.parentNode;
+    if(n&&row.contains(n)) return s;
+  }catch(e){}
+  return '';   // 选区别处的字（别的任务/侧栏）不算这条消息的选区
+}
+function _selRect(){
+  var w=window.getSelection&&window.getSelection();
+  if(!w||w.isCollapsed||!w.rangeCount) return null;
+  try{
+    var r=w.getRangeAt(0).getBoundingClientRect();
+    if(!r||(!r.width&&!r.height)) return null;
+    return r;
+  }catch(e){ return null; }
+}
+function _copySelText(t){
+  t=String(t||'').replace(/\s+$/,'');
+  if(!t) return;
+  function ok(){ msgToast('已复制选中的 '+t.length+' 个字'); }
+  if(navigator.clipboard){ navigator.clipboard.writeText(t).then(ok,function(){ _legacyCopy(t); ok(); }); }
+  else { _legacyCopy(t); ok(); }
+}
+function _quoteSel(t,row){
+  var snip=_quoteClip(t);
+  if(!snip) return;
+  // 选区可能只是半句话，但 mid/from 仍取所在气泡 —— 引用条上的「引用 AI / 引用 我」才不会标错
+  if(!setQuote(row,snip)) return;
+  try{ msgInput.focus(); }catch(e){}
+  msgToast('已引用这句，发送时一起带上');
+}
+
+// mode: 'msg' = 整条消息的动作；'text' = 选中文字的动作（复制文字/全选/复制全文/用这句追问）
+function _msgMenuShow(row,x,y,alignRight,mode,selText){
+  if(!row) return;
+  msgMenuHide(); ctxMenuHide();
+  _msgMenuRow=row; _msgMenuAt=Date.now();
+  mode=mode||'msg';
+  _msgMenuSel=(mode==='text')?(selText||_selInRow(row)):'';
+  var hasText=!!_msgRowText(row);
+  var _fbo=_fbOf(currentTopic&&currentTopic.id, row.getAttribute('data-mid')||'');
+  var fb=_fbo.like?'like':(_fbo.dislike?'dislike':'');
+  var fav=!!_fbo.fav;
+  var speaking=(_tts.row===row&&(_tts.playing||_tts.loading||!!_tts.btn));
+  var q=function(a,icon,label,on){
+    return '<button class="mcx-q'+(on?' on':'')+'" type="button" data-a="'+a+'">'+icon+'<span>'+label+'</span></button>';
+  };
+  var it=function(a,icon,label,on,dis){
+    return '<div class="mcx-item'+(on?' on':'')+(dis?' dis':'')+'" data-a="'+(dis?'':a)+'">'+icon+'<span>'+label+'</span></div>';
+  };
+  var h;
+  if(mode==='text'){
+    // 🔴 有选区时菜单只放"对这段字"的操作。塞进喜欢/收藏那种整条消息的动作，
+    //    用户点"复制"却拿到整条回复 —— 就是这次报的问题。
+    h='<div class="mcx-quick">'
+      + q('copy_sel',COPY2_SVG,'复制')
+      + q('select_all',SELECT_SVG,'全选')
+      + q('copy_all',DOC_SVG,'复制全文')
+      +'</div><div class="mcx-sep"></div>'
+      + it('quote_sel',ASK_SVG,'用这句追问');
+  } else {
+    h='<div class="mcx-quick">'
+      + q('copy',COPY2_SVG,'复制')
+      + q('speak',speaking?STOP_SVG:SPEAK_SVG,speaking?'停止':'朗读',speaking)
+      + q('quote',ASK_SVG,'追问')
+      +'</div><div class="mcx-sep"></div>'
+      + it('like',THUMBUP_SVG,'喜欢',fb==='like')
+      + it('dislike',THUMBDN_SVG,'不喜欢',fb==='dislike')
+      +'<div class="mcx-sep"></div>'
+      + it('select',SELECT_SVG,'选取文字',false,!hasText)
+      + it('doc',DOC_SVG,'创建文档',false,!hasText)
+      + it('newtopic',NEWCHAT_SVG,'在新对话中继续',false,!hasText)
+      +'<div class="mcx-sep"></div>'
+      + it('share',SHARE_SVG,'分享',false,!hasText)
+      + it('fav',BOOKMARK_SVG,fav?'取消收藏':'收藏',fav);
+  }
+  var menu=document.createElement('div');
+  menu.id='msgCtxMenu';
+  menu.innerHTML=h;
+  // 菜单自身不夺焦点（桌面壳里一点菜单，选区会当场消失）
+  menu.addEventListener('mousedown',function(e){ e.preventDefault(); });
+  menu.addEventListener('click',function(e){
+    var el=(e.target&&e.target.closest)?e.target.closest('[data-a]'):null;
+    var a=el?el.getAttribute('data-a'):'';
+    if(!a) return;
+    var row2=_msgMenuRow, sel2=_msgMenuSel;
+    e.preventDefault(); e.stopPropagation();
+    msgMenuHide();
+    _msgAct(a,row2,sel2);
+  });
+  menu.style.cssText='position:fixed;left:-9999px;top:0;visibility:hidden';
+  document.body.appendChild(menu);
+  var r=menu.getBoundingClientRect();
+  var W=window.innerWidth, H=window.innerHeight, G=8;
+  var sel=(mode==='text')?_selRect():null;
+  if(sel){
+    // 避让选区：右侧 → 左侧 → 下方 → 上方，四条都放不下才退化成"钳进视口"
+    var gap=10;
+    if(sel.right+gap+r.width<=W-G){ x=sel.right+gap; y=sel.top; }
+    else if(sel.left-gap-r.width>=G){ x=sel.left-gap-r.width; y=sel.top; }
+    else{
+      x=Math.min(Math.max(G,sel.left),W-G-r.width);
+      y=(sel.bottom+gap+r.height<=H-G)?(sel.bottom+gap):Math.max(G,sel.top-r.height-gap);
+    }
+  } else if(alignRight){
+    x=x-r.width;
+  } else {
+    // 鼠标点右下偏移：左上角对齐鼠标会正好压住鼠标所在那一行
+    x=x+12; y=y+12;
+  }
+  if(x+r.width>W-G) x=W-G-r.width;
+  if(x<G) x=G;
+  if(y+r.height>H-G) y=H-G-r.height;
+  if(y<G) y=G;
+  menu.style.left=Math.round(x)+'px';
+  menu.style.top=Math.round(y)+'px';
+  menu.style.visibility='';
+}
+
+// 右键：消息气泡上统一弹消息菜单（桌面壳 / 浏览器 / 手机都接管）
+document.addEventListener('contextmenu',function(ev){
+  var t=ev.target;
+  var ed=_ctxEditable(t);
+  var row=(!ed&&t&&t.closest)?t.closest('#chatBox .row'):null;
+  if(row&&!ev.defaultPrevented){
+    ev.preventDefault();
+    // 只忽略"手机长按之后浏览器补发的那一次 contextmenu"。
+    // ⚠️ 判据必须是 _msgTouchAt（长按触发时刻），不能是 _msgMenuAt（任何一次菜单打开）——
+    //    用后者的话，用户关掉菜单后 900ms 内再右键会**什么都不弹**（探针实拍抓到）。
+    if(Date.now()-_msgTouchAt<900) return;
+    // 有选区 → 选区菜单（复制/全选/复制全文/用这句追问）；没有 → 整条消息的菜单
+    var _sel=_selInRow(row);
+    _msgMenuShow(row,ev.clientX,ev.clientY,false,_sel?'text':'msg',_sel);
+    return;
+  }
+  if(!_ctxInShell()) return;            // 其它位置：浏览器/手机沿用原生菜单
+  ctxMenuHide();
+  if(ev.defaultPrevented) return;
+  var host=ed?null:_ctxTextHost(t);
+  if(!ed&&!host) return;
+  ev.preventDefault();
+  _ctxInfo={editable:ed,host:host};
+  _ctxBuildMenu(ev.clientX,ev.clientY,!!ed);
+},false);
+
+// ── 移动端长按 = 右键 ───────────────────────────────────────────────────
+// 为什么自己计时而不是等浏览器合成的 contextmenu：安卓 WebView 只有"长按命中
+// 可选中文本"时才补 contextmenu，命中图片/按钮区就什么都不弹；而且它一到就会把
+// 手指已经松开的 click 送下去（点开图片/折叠面板）。自己计时最可控。
+var _lpT=null,_lpX=0,_lpY=0,_lpRow=null;
+function _lpCancel(){ if(_lpT){ clearTimeout(_lpT); _lpT=null; } _lpRow=null; }
+document.addEventListener('touchstart',function(e){
+  var t=e.target;
+  if(!t||!t.closest) return;
+  var row=t.closest('#chatBox .row');
+  if(!row){ _lpCancel(); return; }
+  if(e.touches.length!==1){ _lpCancel(); return; }
+  if(_ctxEditable(t)){ _lpCancel(); return; }   // 输入框里长按：留给系统选词
+  _lpRow=row;
+  _lpX=e.touches[0].clientX; _lpY=e.touches[0].clientY;
+  if(_lpT) clearTimeout(_lpT);
+  _lpT=setTimeout(function(){
+    _lpT=null;
+    if(!_lpRow||!document.body.contains(_lpRow)) return;
+    _msgTouchAt=Date.now();
+    // 已经有选中文字（先拖选再长按）→ 弹选区菜单；否则清掉残留选区弹消息菜单
+    var _sel=_selInRow(_lpRow);
+    if(!_sel){ try{ var w=window.getSelection(); if(w) w.removeAllRanges(); }catch(e2){} }
+    try{ if(navigator.vibrate) navigator.vibrate(12); }catch(e3){}
+    _msgMenuShow(_lpRow,_lpX,_lpY,false,_sel?'text':'msg',_sel);
+  },480);
+},{passive:true});
+document.addEventListener('touchmove',function(e){
+  if(!_lpT) return;
+  var p=e.touches[0];
+  if(!p){ _lpCancel(); return; }
+  if(Math.abs(p.clientX-_lpX)>10||Math.abs(p.clientY-_lpY)>10) _lpCancel();
+},{passive:true});
+document.addEventListener('touchend',_lpCancel,{passive:true});
+document.addEventListener('touchcancel',_lpCancel,{passive:true});
+// 长按弹菜单后手指抬起，浏览器还会补 mousedown/click：这个窗口里的点击必须吞掉，
+// 否则既会立刻关掉刚弹的菜单，又会误触气泡里的图片/折叠面板。
+document.addEventListener('click',function(e){
+  if(Date.now()-_msgTouchAt>=800) return;
+  var t=e.target;
+  if(!t||!t.closest) return;
+  // 🔴 菜单自身的点击必须放行：这里若一起吞掉，长按弹出的菜单在 800ms 内点任何一个
+  //    菜单项都毫无反应（用户看到的就是"菜单点不动"，还查不出原因）。
+  if(t.closest('#msgCtxMenu')) return;
+  if(t.closest('#chatBox .row')){ e.stopPropagation(); e.preventDefault(); }
+},true);
 
 // ═══ 文件右键菜单 ═══
 // 移动端"长按"是浏览器合成的 contextmenu：手指抬起后浏览器还可能补一个 click，
@@ -12195,6 +13714,7 @@ async function pollTopicTail(){
     // AI 刚收工：不管 last_id 有没有变，都把文件列表对齐一次（产出文件正是这一轮干的活）
     if(_wasWorking&&!busy&&typeof fbArAfterTurn==='function') fbArAfterTurn();
     _syncSendBtn(tid);   // _tailWorking 刚被这一路写过，按钮跟着服务端走
+    _setFlowBtn(!!d.has_dag);   // 标题栏流程图入口：有图才出现（AI 建完图下一轮就亮）
     applyTailStep(tid,d);
     // agent 在别处被触发（手机端 / 另一个窗口）→ 把实时泡与 500ms 轮询接上
     if(busy&&!workingPoll) checkTopicWorking();
@@ -13651,6 +15171,29 @@ function initFlowChartZoom(viewport){
   return state;
 }
 
+// ── 标题栏「任务流程图」入口按钮 ────────────────────────────────
+// 只有 AI 真的给这个任务建过图（DAG 里有节点）才显示；没图的任务标题旁边干干净净。
+// 判据一律问服务端（/api/topic/tail 的 has_dag / dag?lite=1），前端不猜、也不留跨任务的残影。
+var _flowBtnHas = false;
+function _setFlowBtn(has){
+  has = !!has;
+  _flowBtnHas = has;
+  var b = document.getElementById('btnFlowChart');
+  if(!b) return;
+  b.classList.toggle('show', has);
+}
+async function _flowProbe(tid){
+  if(!tid){ _setFlowBtn(false); return; }
+  try{
+    var r = await fetch('/api/topic/'+encodeURIComponent(tid)+'/dag?lite=1', {cache:'no-store'});
+    var d = await r.json();
+    if(!currentTopic || currentTopic.id!==tid) return;   // 已经切走了，丢弃这次结果
+    _setFlowBtn(d && d.has_dag);
+  }catch(e){
+    // 探测失败保持原样：下一次 pollTopicTail 会带着权威结果来，不要把按钮误关掉
+  }
+}
+
 async function openFlowChart(){
   if(!currentTopic) return;
   var modal=document.getElementById('flowChartModal'), content=document.getElementById('flowChartContent');
@@ -13857,13 +15400,15 @@ function pushSettingsView(name) {
   var _f=document.getElementById('settingsBody');
   if(_f){ _f.classList.add('nav-fwd'); setTimeout(function(){ _f.classList.remove('nav-fwd'); },300); }
   settingsStack.push(name);
-  document.getElementById('spTitle').textContent = ({versions:'时间机器',system:'系统',tunnel:'公网访问',model:'模型配置',web:'Web设置',compress:'策略设置',recycle:'回收站',changelog:'变更日志',avatar:'头像设置',theme:'主题',interface:'界面',suggestions:'AI自动建议',mobile:'移动端配对',assets:'资产库'})[name]||name;
+  document.getElementById('spTitle').textContent = ({versions:'时间机器',system:'系统',tunnel:'公网访问',model:'模型配置',web:'Web设置',compress:'策略设置',recycle:'回收站',changelog:'变更日志',avatar:'头像设置',theme:'主题',interface:'界面',suggestions:'AI自动建议',websearch:'联网搜索',mobile:'移动端配对',assets:'资产库',feedback:'消息反馈'})[name]||name;
   if (name === 'versions') loadVersions();
   else if (name === 'suggestions') loadSuggestionSettings();
+  else if (name === 'feedback') loadMessageFeedback();
   else if (name === 'system') loadSystemInfo();
   else if (name === 'tunnel') loadTunnelPanel();
   else if (name === 'model') loadModelConfig();
   else if (name === 'web') loadWebConfig();
+  else if (name === 'websearch') loadWebSearchConfig();
   else if (name === 'compress') loadCompressConfig();
   else if (name === 'recycle') loadRecycleBin();
   else if (name === 'changelog') loadChangelog();
@@ -13887,13 +15432,15 @@ function settingsBack() {
     renderSettingsMenu();
   } else {
     var name = settingsStack[settingsStack.length-1];
-    document.getElementById('spTitle').textContent = ({versions:'时间机器',system:'系统',tunnel:'公网访问',model:'模型配置',web:'Web设置',compress:'策略设置',recycle:'回收站',changelog:'变更日志',avatar:'头像设置',theme:'主题',interface:'界面',suggestions:'AI自动建议',assets:'资产库'})[name]||name;
+    document.getElementById('spTitle').textContent = ({versions:'时间机器',system:'系统',tunnel:'公网访问',model:'模型配置',web:'Web设置',compress:'策略设置',recycle:'回收站',changelog:'变更日志',avatar:'头像设置',theme:'主题',interface:'界面',suggestions:'AI自动建议',websearch:'联网搜索',assets:'资产库',feedback:'消息反馈'})[name]||name;
     if (name === 'versions') loadVersions();
     else if (name === 'suggestions') loadSuggestionSettings();
+    else if (name === 'feedback') loadMessageFeedback();
     else if (name === 'system') loadSystemInfo();
   else if (name === 'tunnel') loadTunnelPanel();
     else if (name === 'model') loadModelConfig();
     else if (name === 'web') loadWebConfig();
+  else if (name === 'websearch') loadWebSearchConfig();
     else if (name === 'compress') loadCompressConfig();
     else if (name === 'recycle') loadRecycleBin();
     else if (name === 'changelog') loadChangelog();
@@ -14283,6 +15830,70 @@ async function saveCompressConfig() {
 }
 
 
+// ═══ 消息反馈（喜欢 / 不喜欢 / 收藏）回顾 ═════════════════════════════════
+// 数据源：message_feedback 表。点「查看」跳回原消息（复用搜索的 ssGoto → ssScrollToMsg，
+// 它会边翻页边找，消息在很老的页码里也能定位到）。
+// 这是"点赞到底有什么用"的答案：能回顾、能取消、能跳回原话，不再是点亮就完事。
+var _fbTab='dislike';
+function _fbTimeLabel(ts){
+  if(!ts) return '';
+  var d=new Date(ts*1000);
+  function p(n){ return ('0'+n).slice(-2); }
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+async function loadMessageFeedback(tab){
+  var body=document.getElementById('settingsBody');
+  if(!body) return;
+  if(tab) _fbTab=tab;
+  body.innerHTML='<div class="center-msg">加载中…</div>';
+  var TABS=[['dislike','不喜欢'],['like','喜欢'],['fav','收藏']];
+  var EMPTY={
+    dislike:'还没有点过「不喜欢」<br><span style="font-size:11px;opacity:.7">点 AI 回复下面的 👎 就会记在这里</span>',
+    like:'还没有点过「喜欢」<br><span style="font-size:11px;opacity:.7">点 AI 回复下面的 👍 就会记在这里</span>',
+    fav:'还没有收藏过消息<br><span style="font-size:11px;opacity:.7">右键 / 长按一条消息 → 收藏</span>'
+  };
+  try{
+    var r=await fetch('/api/message-feedback?kind='+encodeURIComponent(_fbTab)+'&limit=200');
+    var d=await r.json();
+    if(!r.ok) throw new Error(d.error||('HTTP '+r.status));
+    var items=d.items||[], counts=d.counts||{};
+    var tabs='<div class="mfb-tabs">';
+    for(var i=0;i<TABS.length;i++){
+      var k=TABS[i][0], n=counts[k]||0;
+      tabs+='<button class="mfb-tab'+(_fbTab===k?' on':'')+'" onclick="loadMessageFeedback(\''+k+'\')">'
+           +TABS[i][1]+(n?'<span class="mfb-n">'+n+'</span>':'')+'</button>';
+    }
+    tabs+='</div>';
+    if(!items.length){ body.innerHTML=tabs+'<div class="center-msg">'+EMPTY[_fbTab]+'</div>'; return; }
+    var h=tabs+'<div class="rc-toolbar"><span class="rc-count">'+items.length+' 条 · 从新到旧</span></div>';
+    for(var j=0;j<items.length;j++){
+      var it=items[j];
+      h+='<div class="rc-item">'
+        +'<div class="rc-info">'
+          +'<div class="rc-title">'+esc(it.cur_title||it.topic_title||'未知任务')+'</div>'
+          +'<div class="mfb-snip">'+esc(it.snippet||'（没有摘要）')+'</div>'
+          +'<div class="rc-time">'+_fbTimeLabel(it.created_at)+(it.topic_alive?'':'<span class="mfb-dead">任务已删除</span>')+'</div>'
+        +'</div>'
+        +(it.topic_alive?'<button class="rc-restore" onclick="fbGoto(\''+escAttr(it.topic_id)+'\','+it.msg_id+')">查看</button>':'')
+        +'<button class="mfb-del" onclick="fbRemove(\''+escAttr(it.topic_id)+'\','+it.msg_id+',\''+_fbTab+'\')" title="取消这条反馈">取消</button>'
+      +'</div>';
+    }
+    body.innerHTML=h;
+  }catch(e){
+    body.innerHTML='<div class="center-msg err">加载失败：'+esc(e.message)+'</div>';
+  }
+}
+function fbGoto(tid, mid){
+  closeSettings();
+  if(typeof ssGoto==='function') ssGoto(tid, mid);
+}
+function fbRemove(tid, mid, kind){
+  _fbSave(tid, mid, kind, false).then(function(){
+    _fbSetLocal(tid, mid, kind, false);   // 本地缓存同步清，否则回到会话里按钮还亮着
+    loadMessageFeedback(kind);
+  }).catch(function(e){ msgToast('取消失败：'+((e&&e.message)||e),3000); });
+}
+
 async function loadRecycleBin(){
   var body=document.getElementById('settingsBody');
   body.innerHTML='<div class="center-msg">加载中…</div>';
@@ -14347,6 +15958,9 @@ function renderSettingsMenu() {
     '<div class="sp-menu-item" onclick="pushSettingsView(\'avatar\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span><span class="sp-menu-label">头像设置</span><span class="arrow">›</span></div>',
     '<div class="sp-menu-item" onclick="pushSettingsView(\'interface\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></span><span class="sp-menu-label">界面</span><span class="arrow">›</span></div>',
     '<div class="sp-menu-item" onclick="pushSettingsView(\'suggestions\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3z"/></svg></span><span class="sp-menu-label">AI自动建议</span><span class="arrow">›</span></div>',
+    /* 消息反馈：气泡上的 👍👎★ 落到 message_feedback 表之后，这里是唯一的回顾入口
+       （2026-10-23 用户问"那个按钮有实际用途不"，答：光存本地是装饰，落库+能回顾才算功能） */
+    '<div class="sp-menu-item" onclick="pushSettingsView(\'feedback\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg></span><span class="sp-menu-label">消息反馈</span><span class="arrow">›</span></div>',
     '<div class="sp-divider"></div>',
     '<div class="sp-menu-group-label">模型与工具</div>',
     '<div class="sp-menu-item" onclick="pushSettingsView(\'model\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg></span><span class="sp-menu-label">模型配置</span><span class="arrow">›</span></div>',
@@ -14358,6 +15972,7 @@ function renderSettingsMenu() {
     '<div class="sp-menu-item" onclick="pushSettingsView(\'system\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="sp-menu-label">系统</span><span class="arrow">›</span></div>',
     '<div class="sp-menu-item" onclick="pushSettingsView(\'tunnel\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></span><span class="sp-menu-label">公网访问</span><span class="arrow">›</span></div>',
     '<div class="sp-menu-item" onclick="pushSettingsView(\'web\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="sp-menu-label">Web设置</span><span class="arrow">›</span></div>',
+    '<div class="sp-menu-item" onclick="pushSettingsView(\'websearch\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span><span class="sp-menu-label">联网搜索</span><span class="arrow">›</span></div>',
     '<div class="sp-menu-item" onclick="pushSettingsView(\'recycle\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span><span class="sp-menu-label">回收站</span><span class="arrow">›</span></div>',
     '<div class="sp-divider"></div>',
     '<div class="sp-menu-group-label">其他</div>',
@@ -15882,6 +17497,139 @@ async function loadChangelog() {
   } catch (err) { bodyEl.innerHTML = '<div style="text-align:center;padding:20px;color:#f85149">加载失败: ' + esc(err.message || '网络错误') + '<br><small style="opacity:.5">请确保服务器已重启</small></div>'; }
 }
 
+// ═══ 联网搜索（付费引擎）：DeepSeek Search API ═══════════════════
+// 设计要点：
+//   ① 默认关闭 —— 关着时 web_search 完全走 Bing/DDG 免费链路，一行行为都不变
+//   ② key 只回脱敏值，输入框留空 = 不改（跟第三方模型源同一套习惯）
+//   ③ 「测试连接」用输入框里的值真调一次接口，不落库；确认能用再保存
+var wsCfg = {enabled:false, base:'https://api.deepseek.com', has_key:false, key_masked:'', default_base:'https://api.deepseek.com', cost_per_1k:0.75};
+async function loadWebSearchConfig(){
+  var bodyEl = document.getElementById('settingsBody');
+  bodyEl.innerHTML = '<div class="center-msg">加载中…</div>';
+  try{
+    var r = await fetch('/api/settings/web_search');
+    var d = await r.json();
+    if(!d || d.error) throw new Error((d && d.error) || '读取失败');
+    wsCfg = d;
+  }catch(e){
+    bodyEl.innerHTML = '<div class="center-msg err">读取搜索配置失败：' + esc(e.message||'网络错误') + '</div>';
+    return;
+  }
+  renderWebSearchConfig();
+}
+function renderWebSearchConfig(){
+  var bodyEl = document.getElementById('settingsBody');
+  var d = wsCfg || {};
+  var h = '';
+  h += '<div class="sp-section"><h4>付费搜索引擎</h4>';
+  h += '<div class="sp-toggle-row" style="padding:0 0 12px 0;border-bottom:none">'
+     +   '<span style="font-size:13px">启用 DeepSeek 搜索</span>'
+     +   '<label class="sp-toggle"><input type="checkbox"' + (d.enabled ? ' checked' : '')
+     +   ' onchange="toggleWebSearchEnabled(this.checked)"><span class="slider"></span></label>'
+     + '</div>';
+  h += '<div class="sp-switch-meta" style="margin-bottom:12px">开启后 web_search 优先用 DeepSeek 自研搜索（约 $'
+     + esc(String(d.cost_per_1k || 0.75)) + '/千次）；失败或没配 key 时自动落回 Bing / DuckDuckGo 免费引擎。</div>';
+  h += '</div>';
+
+  h += '<div class="sp-section"><h4>接口配置</h4>';
+  h += '<label class="cfg-label">API Key</label>';
+  h += '<input id="wsKey" type="password" class="cfg-input mono" autocomplete="off" placeholder="'
+     + (d.has_key ? ('已保存：' + esc(d.key_masked || '') + '（留空则不修改）') : 'sk-...') + '">';
+  h += '<div class="sp-switch-meta" style="margin-top:6px">去 platform.deepseek.com 生成。只存在本机数据库里，接口只回脱敏值。</div>';
+  h += '<label class="cfg-label" style="margin-top:14px">接口地址</label>';
+  h += '<input id="wsBase" type="text" class="cfg-input mono" value="' + esc(d.base || d.default_base || 'https://api.deepseek.com') + '">';
+  h += '<div class="sp-switch-meta" style="margin-top:6px">默认 https://api.deepseek.com，接中转也可改。</div>';
+  h += '</div>';
+
+  h += '<div class="sp-section">';
+  h += '<button class="sp-btn primary" onclick="saveWebSearchConfig()">保存设置</button>';
+  h += '<button class="sp-btn" onclick="testWebSearchConfig()">测试连接</button>';
+  if (d.has_key) {
+    h += '<button class="sp-btn danger" onclick="clearWebSearchKey()">清除已保存的 Key</button>';
+  }
+  h += '<div id="wsStatus" class="sp-switch-meta" style="margin-top:10px"></div>';
+  h += '</div>';
+  bodyEl.innerHTML = h;
+}
+function wsStatus(msg, ok){
+  var el = document.getElementById('wsStatus');
+  if(!el) return;
+  el.style.color = ok === true ? 'var(--accent)' : (ok === false ? 'var(--danger)' : 'var(--tdim)');
+  el.innerHTML = msg;
+}
+function wsCollect(){
+  var kEl = document.getElementById('wsKey');
+  var bEl = document.getElementById('wsBase');
+  return {
+    api_key: kEl ? kEl.value.trim() : '',
+    base_url: bEl ? bEl.value.trim() : ''
+  };
+}
+async function toggleWebSearchEnabled(on){
+  try{
+    var r = await fetch('/api/settings/web_search', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({enabled: !!on})});
+    var d = await r.json();
+    if(!d || !d.ok) throw new Error((d && d.error) || '保存失败');
+    wsCfg.enabled = d.enabled; wsCfg.has_key = d.has_key; wsCfg.key_masked = d.key_masked || '';
+    if(d.note){ wsStatus(esc(d.note), false); }
+    else { wsStatus(d.ready ? '已开启，付费引擎生效' : '已关闭，搜索走免费引擎', d.ready ? true : null); }
+  }catch(e){
+    wsStatus('保存失败：' + esc(e.message||'网络错误'), false);
+    renderWebSearchConfig();
+  }
+}
+async function saveWebSearchConfig(){
+  var f = wsCollect();
+  var payload = {enabled: !!wsCfg.enabled, base_url: f.base_url};
+  if (f.api_key) payload.api_key = f.api_key;   // 留空 = 不改
+  wsStatus('保存中…');
+  try{
+    var r = await fetch('/api/settings/web_search', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)});
+    var d = await r.json();
+    if(!d || !d.ok) throw new Error((d && d.error) || '保存失败');
+    wsCfg.enabled = d.enabled; wsCfg.has_key = d.has_key; wsCfg.base = d.base;
+    wsCfg.key_masked = d.key_masked || '';
+    renderWebSearchConfig();
+    wsStatus(d.note ? esc(d.note) : (d.ready ? '已保存，付费引擎就绪' : '已保存'), d.ready ? true : (d.note ? false : null));
+  }catch(e){
+    wsStatus('保存失败：' + esc(e.message||'网络错误'), false);
+  }
+}
+async function testWebSearchConfig(){
+  var f = wsCollect();
+  wsStatus('正在真实调用一次搜索接口…');
+  try{
+    var r = await fetch('/api/settings/web_search/test', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({api_key: f.api_key, base_url: f.base_url, query: 'DeepSeek'})});
+    var d = await r.json();
+    if(d && d.ok){
+      var s = '连接成功，命中 ' + d.count + ' 条' + (d.hint ? '（' + esc(d.hint) + '）' : '');
+      var sample = (d.sample || []).slice(0,3).map(function(x){ return '· ' + esc(x.title||''); }).join('<br>');
+      wsStatus(s + (sample ? '<br>' + sample : ''), true);
+    }else{
+      wsStatus('连接失败：' + esc((d && d.error) || '未知错误'), false);
+    }
+  }catch(e){
+    wsStatus('连接失败：' + esc(e.message||'网络错误'), false);
+  }
+}
+async function clearWebSearchKey(){
+  if(!confirm('确定清除已保存的 DeepSeek API Key？（不影响开关状态）')) return;
+  try{
+    var r = await fetch('/api/settings/web_search', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({api_key: '__CLEAR__'})});
+    var d = await r.json();
+    if(!d || !d.ok) throw new Error((d && d.error) || '清除失败');
+    wsCfg.has_key = false; wsCfg.key_masked = '';
+    renderWebSearchConfig();
+    wsStatus('Key 已清除，搜索会落回免费引擎', false);
+  }catch(e){
+    wsStatus('清除失败：' + esc(e.message||'网络错误'), false);
+  }
+}
+
 async function loadWebConfig() {
   var bodyEl = document.getElementById('settingsBody');
   bodyEl.innerHTML = '<div class="center-msg">加载中…</div>';
@@ -17287,7 +19035,7 @@ html[data-theme="white"] circle[stroke="rgba(255,255,255,.12)"]{stroke:rgba(0,0,
 
 html[data-theme="white"] .win-ctrls button:hover{background:rgba(0,0,0,.07)}
 html[data-theme="white"] #btnMenu:hover{background:rgba(0,0,0,.06)}
-html[data-theme="white"] .msg-copy:hover{background:rgba(0,0,0,.06)}
+html[data-theme="white"] .msg-btn:hover{background:rgba(0,0,0,.06)}
 html[data-theme="white"] .tool-group-header:hover{background:rgba(0,0,0,.03)}
 html[data-theme="white"] .tool-group-body .tool-item code{background:rgba(0,0,0,.05)}
 /* —— 头像/工具图标：深色渐变 → 浅灰渐变 —— */
@@ -17740,8 +19488,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
  <div id="wpChip" onclick="wpMinimize(false)">
    <img id="wpChipFav" alt="" onerror="this.style.visibility='hidden'" onload="this.style.visibility='visible'"><span class="wp-chip-t" id="wpChipT"></span><span class="wp-chip-x" onclick="event.stopPropagation();wpChipClose()">✕</span>
  </div>
-<script src="/task-composer.js?v=20261022-outdirtab"></script>
-<script src="/composer-floating.js?v=20261007-ios-smooth2"></script>
+<script src="/task-composer.js?v=20261023-newdir"></script>
+<script src="/composer-floating.js?v=20261023-quoteembed"></script>
 <script>
 /* [2026-10-18] 安卓 WebView 返回键钩子：没有可退的网页历史时，先关最上层浮层，而不是直接退出 App */
 window.__dayanHandleBack = function () {

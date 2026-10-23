@@ -681,6 +681,15 @@ def find_empty_tasks(include_no_workspace: bool = True):
                     file_count += len(files)
                     if file_count > 0:
                         break
+                # 产出文件夹里有文件也算"干过活"：成品写到用户指定的产出目录后，
+                # 不该因为工作区是空的就被判成僵尸任务。
+                if file_count == 0:
+                    _od = (db.get_topic_meta(tid, "output_dir") or "").strip()
+                    if _od and os.path.isdir(_od):
+                        for _r, _d, _f in os.walk(_od):
+                            file_count += len(_f)
+                            if file_count > 0:
+                                break
                 if file_count == 0:
                     reason = f"工作区空（无文件）: {ws_path}"
                 else:

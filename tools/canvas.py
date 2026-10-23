@@ -32,7 +32,10 @@ _SAVE_LOCK = stable_state("canvas_save_lock", threading.RLock)
 
 WINDOW_TYPES = ("mindmap", "file", "draft", "temp")
 # 顶层标签类型（2026-09-19 标签化）：画布本身也是一个标签
-TAB_TYPES = ("files", "explorer", "canvas", "mindmap", "file", "draft", "temp")
+# outdir（2026-10-22）：任务的「产出文件夹」标签——用户在输入框里选的外部目录。
+# 🔴 这是白名单，漏登记 = 标签被 _norm_tab 静默丢弃（save 回包一覆盖，active 直接
+#    回落成 t_files，表现成"点一下就跳回工作区"）。加类型必须同时加在这里。
+TAB_TYPES = ("files", "explorer", "canvas", "mindmap", "file", "draft", "temp", "outdir")
 FILE_NAME = "canvas.json"
 
 # 窗口几何限制
@@ -78,12 +81,17 @@ def _norm_tab(t):
     """单个标签规范化；类型非法返回 None（丢弃）。"""
     if not isinstance(t, dict) or t.get("type") not in TAB_TYPES:
         return None
-    return {
+    out = {
         "id": str(t.get("id") or ("t_" + uuid.uuid4().hex[:8])),
         "type": t["type"],
         "title": str(t.get("title") or "")[:MAX_TITLE],
         "ref": t.get("ref") if isinstance(t.get("ref"), (dict, str, type(None))) else None,
     }
+    # outdir 标签记住"上次浏览到哪一层"（前端 P7 写、wsTabBody 读）。不带上就等于
+    # 每次切回标签都跳回根目录 —— 这里静默丢字段，前端一点异常都看不到。
+    if t.get("path"):
+        out["path"] = str(t.get("path"))[:512]
+    return out
 
 
 def _norm_pane(p):

@@ -470,7 +470,7 @@ class EditEngine:
         "properties": {
             "path": {
                 "type": "string",
-                "description": "要编辑的文件路径（相对或绝对）"
+                "description": "要编辑的文件路径。优先用句柄：'产出/xxx'、'工作区/xxx'；也可相对或绝对"
             },
             "operations": {
                 "type": "array",
@@ -551,7 +551,7 @@ def edit_file(path: str, operations: list):
         "properties": {
             "path": {
                 "type": "string",
-                "description": "文件路径"
+                "description": "文件路径。优先用句柄：'产出/xxx'、'工作区/xxx'；也可相对或绝对"
             },
             "operations": {
                 "type": "array",

@@ -16,6 +16,39 @@ CACHE_TTL = 600          # seconds, same query within TTL returns cached
 MAX_RESULTS_CAP = 10     # HTML scraping: beyond ~10 the value drops sharply
 RESULT_BUCKETS = (5, 10)  # snap max_results to sensible buckets
 
+# ------------------------------------------------ paid engine config (db meta)
+# 付费搜索引擎（DeepSeek Search API）配置的读取口，全在 db meta 里：
+#   web_search_paid_enabled = "1"/"0"     默认 0 = 完全走免费链路
+#   deepseek_search_key     = sk-...
+#   deepseek_search_base    = https://api.deepseek.com
+# 设计原则：配置读失败/模块缺失一律当"未开启"，绝不让设置项把搜索整体搞挂。
+PAID_META_ENABLED = "web_search_paid_enabled"
+PAID_META_KEY = "deepseek_search_key"
+PAID_META_BASE = "deepseek_search_base"
+DEFAULT_PAID_BASE = "https://api.deepseek.com"
+PAID_TIMEOUT = 20
+PAID_COST_PER_1K = 0.75   # USD / 千次，仅用于提示文案
+
+def paid_config() -> dict:
+    """读付费引擎配置。任何异常都返回 enabled=False。"""
+    cfg = {"enabled": False, "key": "", "base": DEFAULT_PAID_BASE}
+    try:
+        from db import get_db
+        db = get_db()
+        cfg["enabled"] = (db.get_meta(PAID_META_ENABLED) or "0").strip() == "1"
+        cfg["key"] = (db.get_meta(PAID_META_KEY) or "").strip()
+        base = (db.get_meta(PAID_META_BASE) or "").strip()
+        if base:
+            cfg["base"] = base.rstrip("/")
+    except Exception:
+        cfg["enabled"] = False
+    return cfg
+
+def paid_ready() -> bool:
+    """开启且配了 key 才算就绪。"""
+    c = paid_config()
+    return bool(c["enabled"] and c["key"])
+
 # ---------------------------------------------------------------- fetch
 
 def _fetch(url: str, timeout: int = TIMEOUT) -> str | None:
@@ -136,8 +169,90 @@ _ENGINES = {
 
 ENGINE_ORDER = ("bing", "ddg", "ddg-lite")   # free tier ladder
 
+# ---------------------------------------------------------------- paid engine
+def _http_post_json(url: str, payload: dict, headers: dict, timeout: int = PAID_TIMEOUT):
+    """POST JSON，返回 (status, body_dict|None, err)。不抛异常。"""
+    try:
+        import httpx
+        r = httpx.post(url, json=payload, headers=headers, timeout=timeout)
+        try:
+            body = r.json()
+        except Exception:
+            body = None
+        return r.status_code, body, None
+    except Exception as e:
+        try:
+            req = urllib.request.Request(
+                url, data=json.dumps(payload).encode("utf-8"),
+                headers={**headers, "Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=max(5, timeout - 2)) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                try:
+                    return resp.status, json.loads(raw), None
+                except Exception:
+                    return resp.status, None, "non-json response"
+        except Exception as e2:
+            return None, None, f"{type(e).__name__}: {e2}"
+
+def _paid_err_reason(status, body) -> str:
+    """把 HTTP 状态翻成人话，尤其 402 = 余额不足。"""
+    detail = ""
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict):
+            detail = err.get("message") or err.get("type") or ""
+        elif err:
+            detail = str(err)
+        detail = detail or str(body.get("message") or body.get("detail") or "")
+    detail = (detail or "").strip()[:160]
+    labels = {401: "key 无效或未授权", 402: "余额不足，需先充值",
+              403: "无权限", 408: "超时", 429: "限流，稍后重试"}
+    if status in labels:
+        base = labels[status]
+    elif status and status >= 500:
+        base = f"服务端错误 {status}"
+    elif status is None:
+        base = "网络请求失败"
+    else:
+        base = f"HTTP {status}"
+    return f"{base}（{detail}）" if detail else base
+
+def search_paid(query: str, n: int):
+    """调 DeepSeek /v1/tools/search。返回 (results|None, error_reason|None)。"""
+    cfg = paid_config()
+    if not cfg["enabled"]:
+        return None, "未开启付费引擎"
+    if not cfg["key"]:
+        return None, "未配置 API Key"
+    url = f"{cfg['base']}/v1/tools/search"
+    payload = {"query": query[:128], "count": max(1, min(int(n or 5), 50)),
+               "need_content": False, "ori_question": query[:128]}
+    status, body, err = _http_post_json(
+        url, payload, {"Authorization": f"Bearer {cfg['key']}"})
+    if err:
+        return None, f"网络请求失败（{err}）"
+    if status != 200:
+        return None, _paid_err_reason(status, body)
+    items = (body or {}).get("results") or []
+    out = []
+    for it in items[:n]:
+        url_i = (it.get("url") or "").strip()
+        title = (it.get("title") or "").strip()
+        if not url_i or not title:
+            continue
+        snip = (it.get("snippet") or it.get("summary") or "").strip()
+        out.append({"title": title, "url": url_i, "snippet": snip,
+                    "engine": "deepseek", "date": it.get("date"),
+                    "site_name": it.get("site_name")})
+    if not out:
+        return None, "接口返回空结果（查询无命中）"
+    return out, None
+
+
 def _search_one(engine: str, q: str, n: int):
     """Run one engine. Returns (results|None, error_reason|None)."""
+    if engine == "deepseek":
+        return search_paid(q, n)
     spec = _ENGINES[engine]
     html = _fetch(spec["build"](q, n), timeout=TIMEOUT)
     if not html:
@@ -157,7 +272,9 @@ _inflight = stable_state("web_search_inflight", dict)
 _inflight_guard = stable_state("web_search_inflight_guard", threading.Lock)
 
 def _cache_key(q: str, n: int) -> str:
-    return f"{q.strip().lower()}|{n}"
+    # 付费开关参与 key：开关切换后不吃旧缓存（否则开了还用免费结果）
+    tag = "paid" if paid_ready() else "free"
+    return f"{q.strip().lower()}|{n}|{tag}"
 
 def _cache_get(key: str):
     with _cache_lock:
@@ -207,7 +324,7 @@ def _snap_results(n: int) -> int:
 
 @register_tool(
     name="web_search",
-    description="搜索互联网获取最新信息。自动尝试 Bing → DuckDuckGo 多引擎。",
+    description="搜索互联网获取最新信息。自动尝试 Bing → DuckDuckGo 多引擎；设置里开启付费引擎（DeepSeek Search）时优先用它。",
     parameters={
         "type": "object",
         "properties": {
@@ -218,8 +335,9 @@ def _snap_results(n: int) -> int:
     }
 )
 def web_search(query: str, max_results: int = 5):
-    """Search the web via free engines. Returns list of results, or dict with
-    {"error": ...} when every engine failed (never a silent empty list)."""
+    """Search the web. Paid engine (if enabled & keyed) goes first, then the free
+    ladder. Returns list of results, or dict with {"error": ...} when every engine
+    failed (never a silent empty list)."""
     n = _snap_results(max_results)
     key = _cache_key(query, n)
 
@@ -228,9 +346,10 @@ def web_search(query: str, max_results: int = 5):
         return hit
 
     tried = []
+    order = ("deepseek",) + ENGINE_ORDER if paid_ready() else ENGINE_ORDER
 
     def _run():
-        for engine in ENGINE_ORDER:
+        for engine in order:
             results, reason = _search_one(engine, query, n)
             if results:
                 return results

@@ -920,7 +920,8 @@ def _get_topic_tree_summary(db, topic_id: str, max_depth: int = 3) -> str:
     },
 )
 def compress_context(topic_id: str = "", anchor_start: int = -1, anchor_end: int = -1,
-                     purpose: str = "", force: bool = False, ai_summary: str = ""):
+                     purpose: str = "", force: bool = False, ai_summary: str = "",
+                     allow_fallback: bool = True):
     """批量归档一段连续对话 + 插入结构化摘要。支持嵌套整理。
 
     所有参数可选，自动取默认值。
@@ -1097,7 +1098,11 @@ def compress_context(topic_id: str = "", anchor_start: int = -1, anchor_end: int
             # AI 认知整理模式：直接用 AI 提供的理解摘要，不调裸 LLM
             summary_text = ai_summary.strip()
         else:
-            summary_text = _generate_compress_summary(combined, purpose_text)
+            summary_text = _generate_compress_summary(combined, purpose_text,
+                                                     allow_fallback=allow_fallback)
+            if not summary_text:
+                return (f"摘要生成失败（LLM 未返回内容），本次未整理，原文保持原样。"
+                        f"区间 [{anchor_start}, {anchor_end}] 共 {len(range_msgs)} 项，稍后可重试。")
 
         # ── Build tree navigation ──
         import datetime
@@ -1305,15 +1310,20 @@ def _fold_range_msgs(db, topic_id, range_msgs, indexed, anchor_start, anchor_end
 
 
 
-def _generate_compress_summary(texts_combined: str, purpose: str) -> str:
-    """Call LLM to generate a structured compression summary."""
+def _generate_compress_summary(texts_combined: str, purpose: str, allow_fallback: bool = True):
+    """Call LLM to generate a structured compression summary.
+
+    allow_fallback=False：LLM 不可用/返回空时返回 None，**不落机械摘要**。
+    后台自动整理必须关掉回退 —— 机械摘要等于「用一句话盖住 N 千项原文」，
+    比「没整理」更糟（2026-10-22 实测 2316 项被 352 字机械摘要覆盖）。
+    """
     try:
         from server import get_model_config
         import json, urllib.request
 
         llm_config = get_model_config()
         if not llm_config or not llm_config.api_key or not llm_config.base_url:
-            return _fallback_summary(texts_combined)
+            return _fallback_summary(texts_combined) if allow_fallback else None
 
         prompt = (
             f"请对以下连续对话进行结构化整理（目的：{purpose}），输出格式如下：\n"
@@ -1378,16 +1388,16 @@ def _generate_compress_summary(texts_combined: str, purpose: str) -> str:
                     time.sleep(wait)
                     continue
                 print(f"[compress] summary LLM call failed, falling back to mechanical summary: {e}")
-                return _fallback_summary(texts_combined)
+                return _fallback_summary(texts_combined) if allow_fallback else None
 
         result = (data or {}).get("choices", [{}])[0].get("message", {}).get("content", "")
         if result and len(result) > 5:
             return result.strip()
         print("[compress] summary LLM returned empty result, falling back to mechanical summary")
-        return _fallback_summary(texts_combined)
+        return _fallback_summary(texts_combined) if allow_fallback else None
     except Exception as e:
         print(f"[compress] summary generation error, falling back: {e}")
-        return _fallback_summary(texts_combined)
+        return _fallback_summary(texts_combined) if allow_fallback else None
 
 
 def _fallback_summary(texts_combined: str) -> str:

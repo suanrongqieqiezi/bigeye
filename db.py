@@ -16,6 +16,10 @@ BASE_DIR = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
 _ROOT = os.path.dirname(os.path.dirname(BASE_DIR)) if os.path.basename(BASE_DIR) in ('a', 'b') else BASE_DIR
 DATA_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else _ROOT
 DB_PATH = os.path.join(DATA_DIR, "data", "chat.db")
+# 失败事件卡（模型侧中断）的固定开场白标记 —— 写入与读取判据共用这一个词，避免两处各写一遍。
+# 写入：server.py 落 ⚠️ 卡时打 args.kind='error'；读取：下面 get_messages 给**老数据**补一个读时视图
+# （2026-10-23 之前落的卡没有 kind 标记，库里存量 70+ 条，不能靠改 12GB 主库来补）。
+ERR_CARD_TAG = "本轮中断"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS topics (
     id          TEXT PRIMARY KEY,
@@ -133,6 +137,23 @@ CREATE TABLE IF NOT EXISTS file_edit_history (
 CREATE INDEX IF NOT EXISTS idx_feh_topic ON file_edit_history(topic_id);
 CREATE INDEX IF NOT EXISTS idx_feh_path ON file_edit_history(file_path);
 CREATE INDEX IF NOT EXISTS idx_feh_parent ON file_edit_history(parent_id);
+
+-- 消息反馈（喜欢 / 不喜欢 / 收藏，2026-10-23）
+--  为什么要落库：这三个按钮最初只写 localStorage —— AI 看不到、换设备就丢、
+--  也没有任何回顾入口（用户原话："那个按钮有实际用途不？"）。
+--  like / dislike 互斥（写入时删另一面），fav 独立。
+CREATE TABLE IF NOT EXISTS message_feedback (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic_id    TEXT NOT NULL,
+    msg_id      INTEGER NOT NULL,
+    kind        TEXT NOT NULL,                 -- like / dislike / fav
+    snippet     TEXT DEFAULT '',               -- 消息摘要（列表展示用，不回查 12GB 的消息表）
+    topic_title TEXT DEFAULT '',               -- 任务标题快照（任务删了也还看得懂）
+    created_at  REAL NOT NULL,
+    UNIQUE(topic_id, msg_id, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_msgfb_kind  ON message_feedback(kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_msgfb_topic ON message_feedback(topic_id);
 """
 
 
@@ -629,6 +650,74 @@ class Database:
         self._execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
         self._commit()
 
+    # ── 消息反馈：喜欢 / 不喜欢 / 收藏（2026-10-23）───────────────────
+    # 语义：like / dislike 互斥（写一面就删另一面），fav 与之独立（可同时收藏+点赞）。
+    # on=False 表示取消，只删自己那一面，不动另一面。
+    FEEDBACK_KINDS = ("like", "dislike", "fav")
+
+    def set_message_feedback(self, topic_id, msg_id, kind, on=True, snippet="", topic_title=""):
+        kind = (kind or "").strip()
+        if kind not in self.FEEDBACK_KINDS:
+            raise ValueError("kind must be one of like/dislike/fav")
+        if not topic_id:
+            raise ValueError("topic_id required")
+        try:
+            mid = int(msg_id)
+        except Exception:
+            raise ValueError("msg_id must be an integer")
+        if not mid:
+            raise ValueError("msg_id required")
+        if not on:
+            self._execute("DELETE FROM message_feedback WHERE topic_id=? AND msg_id=? AND kind=?",
+                          (topic_id, mid, kind))
+            self._commit()
+            return True
+        if kind in ("like", "dislike"):
+            self._execute("DELETE FROM message_feedback WHERE topic_id=? AND msg_id=? AND kind IN ('like','dislike')",
+                          (topic_id, mid))
+        self._execute(
+            "INSERT INTO message_feedback (topic_id, msg_id, kind, snippet, topic_title, created_at) "
+            "VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(topic_id,msg_id,kind) DO UPDATE SET "
+            "snippet=excluded.snippet, topic_title=excluded.topic_title, created_at=excluded.created_at",
+            (topic_id, mid, kind, (snippet or "")[:300], (topic_title or "")[:120], time.time())
+        )
+        self._commit()
+        return True
+
+    def get_topic_feedback(self, topic_id):
+        """{ "<msg_id>": {"like":1} | {"dislike":1} | {"fav":1} } —— 前端渲染选中态用。
+        一次拿全任务，避免每条消息各发一次请求（一屏可能 100+ 条）。"""
+        out = {}
+        rows = self._fetchall("SELECT msg_id, kind FROM message_feedback WHERE topic_id=?", (topic_id,)) or []
+        for r in rows:
+            out.setdefault(str(r["msg_id"]), {})[r["kind"]] = 1
+        return out
+
+    def list_message_feedback(self, kind=None, limit=200):
+        """回顾列表（新 → 旧）。带上任务当前标题，任务已删则退回快照标题。"""
+        sql = ("SELECT f.topic_id, f.msg_id, f.kind, f.snippet, f.topic_title, f.created_at, "
+               "COALESCE(NULLIF(t.title,''), f.topic_title, '') AS cur_title, "
+               "CASE WHEN t.id IS NULL THEN 0 ELSE 1 END AS topic_alive "
+               "FROM message_feedback f LEFT JOIN topics t ON t.id=f.topic_id")
+        params = []
+        if kind:
+            sql += " WHERE f.kind=?"
+            params.append(kind)
+        sql += " ORDER BY f.created_at DESC LIMIT ?"
+        params.append(int(limit or 200))
+        rows = self._fetchall(sql, tuple(params)) or []
+        return [dict(r) for r in rows]
+
+    def message_feedback_counts(self):
+        """{like:N, dislike:N, fav:N} —— 设置页 tab 上的数字。"""
+        out = {"like": 0, "dislike": 0, "fav": 0}
+        rows = self._fetchall("SELECT kind, COUNT(*) AS c FROM message_feedback GROUP BY kind") or []
+        for r in rows:
+            if r["kind"] in out:
+                out[r["kind"]] = int(r["c"])
+        return out
+
     def list_meta_keys(self, prefix=""):
         """列出 meta 键（可按前缀过滤），孤儿暂存扫描用。"""
         if prefix:
@@ -836,6 +925,17 @@ class Database:
                 m["args"] = json.loads(r["args"]) if r["args"] else None
             except json.JSONDecodeError:
                 m["args"] = None
+            # 老失败卡兼容：2026-10-23 前的「⚠️ 本轮中断」卡没有 kind 标记（存量 70+ 条）。
+            # 只在读出时补一层视图、不写库（主库 12GB，不值得为几十行开一次写事务）：
+            # 判据是这张卡固定的开场白 ERR_CARD_TAG。补上后前端折成红条、组装 AI 上下文时压成一句提示。
+            if r["role"] == "ai":
+                _head = (r["text"] or "")[:40].lstrip()
+                if _head.startswith("⚠") and ERR_CARD_TAG in _head:
+                    _a = dict(m.get("args") or {})
+                    if not _a.get("kind"):
+                        _a["kind"] = "error"
+                        _a.setdefault("error_msg", ERR_CARD_TAG + "：模型侧持续不可用，已停止。")
+                    m["args"] = _a
             if exclude_thinking:
                 if r["has_thinking"]:
                     m["has_thinking"] = True
