@@ -843,6 +843,62 @@ class Database:
         )
         self._commit()
 
+    def resolve_error_cards(self, topic_id, before_ts=None):
+        """续跑已启动 → 把该话题的失败卡标成「已续跑」（args.resolved=1）。
+
+        为什么要有这一步（2026-10-24 用户反馈）：点了「继续」之后任务已经接着跑起来了，
+        上面那张「⚠ 本轮中断：模型侧持续不可用，已停止」还挂在对话里 —— 界面同时呈现
+        "正在跑"和"已停止"，用户不知道该信哪个，每次回看历史也都要先读一遍这条过期报错。
+
+        为什么**只标记不删除**：卡里的 elapsed / tokens 是本轮**真实花掉**的钱，
+        删了成本报表会少记（同一个原因，落卡时也特意保留了这两项）。
+
+        标记后的效果：前端把它从红条降成一行灰字痕迹；组装 AI 上下文时也跳过
+        （见 server.py role=='ai' 的 kind=='error' 分支）。
+
+        判据兼容两种存量形态：新卡有 args.kind='error'；2026-10-23 之前的老卡
+        只有固定开场白「⚠️ 本轮中断」，args 里没有 kind。
+
+        before_ts: 只标记这个时间点之前的卡（续跑前先量一下，免得把**本次续跑刚落的**
+        新卡也标成已解决 —— 那种情况用户还没点过继续）。
+        返回被标记的条数。
+        """
+        try:
+            rows = self._fetchall(
+                "SELECT id, ts, args FROM messages WHERE topic_id=? AND role='ai' "
+                "AND ((CASE WHEN json_valid(args) THEN json_extract(args,'$.kind') END)='error' "
+                "     OR text LIKE '⚠%本轮中断%')",
+                (topic_id,))
+        except Exception as _e:
+            print(f"[db] resolve_error_cards query failed: {_e}")
+            return 0
+        n = 0
+        for r in rows:
+            if before_ts is not None:
+                try:
+                    if float(r["ts"] or 0) >= float(before_ts):
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            try:
+                a = json.loads(r["args"] or "{}") or {}
+            except (TypeError, ValueError):
+                a = {}
+            if a.get("resolved"):
+                continue
+            a["kind"] = "error"
+            a["resolved"] = 1
+            a["resolved_at"] = time.time()
+            try:
+                self._execute("UPDATE messages SET args=? WHERE id=?",
+                              (json.dumps(a, ensure_ascii=False), r["id"]))
+                n += 1
+            except Exception as _e:
+                print(f"[db] resolve_error_cards update #{r['id']} failed: {_e}")
+        if n:
+            self._commit()
+        return n
+
     def update_message_text(self, msg_id, text):
         """Update a message's text field (used for persisting compressed text)."""
         self._execute("UPDATE messages SET text=? WHERE id=?", (text, msg_id))

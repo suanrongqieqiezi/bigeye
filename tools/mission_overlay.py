@@ -1,15 +1,23 @@
 # -*- coding: utf-8 -*-
-"""多任务数据分段与写缓冲——重要事项全局/任务分段（节点2）+ 写缓冲暂存区（节点4）+ 收尾合并（节点5数据层）。
+"""任务重要信息数据层（原「重要事项」，2026-10-26 正式降级）。
+
+降级原因（实测证据）：全局段 15 条里 13 条是某一次具体任务的技术细节，却作为
+Block 1「对我很重要的事」无条件注入每一个任务 → 每次工作都先读一遍无关的历史
+任务结论，持续误导。现在：
+- 只有「任务段」是活的：combined_entries(tid) 只拼当前任务段；
+- 全局段读写成废：read_matters_raw 保留（审计），set_matters/write_matters_raw
+  返回失败而不是静默写；add_matter 收到 scope=global 会重定向到任务段并说明；
+- 每条信息镜像进记忆网络（tools/matters_memory.py），语义相关时才被召回。
 
 数据模型：
-- 全局段：meta "important_matters"，条目 {id, content, scope:"global", created_by_tid, created_at}
-- 任务段：meta f"important_matters_task_{tid}"，同结构，scope:"task"
-- 叠加视图：combined_entries(tid) = 全局段 + 任务段（+挂起缓冲的叠加预览）
-- 写缓冲：挂起中的任务改全局段时暂存到 meta f"mission_overlay_pending_{tid}"，
-  任务结束 merge_pending_on_finish 合并；挂起期间 AI 通过叠加视图实时可见。
+- 任务段：事件流 scope="task", tid=<tid>（matters_event_store 投影），
+  entry {id, content, scope:"task", created_by_tid, created_at}
+- 全局段：历史遗留（scope="global"），默认空，仅 history_of / 审计可读。
+- 写缓冲（挂起任务暂存全局段改动）：随全局段一起失去意义，仅保留清空路径
+  以免历史残留反过来把全局段写活。
 
 旧格式兼容：全局段旧条目为纯字符串；读取时转新结构（id=位置序号字符串），不回写。
-新条目 id 用 "g-<uuid8>" / "t-<uuid8>"。
+新条目 id 用 "t-<uuid8>"。
 """
 import json
 import os
@@ -25,7 +33,9 @@ if _root not in sys.path:
 
 from db import get_db
 from tools import matters_event_store as evstore
+from tools import matters_memory
 from .registry import stable_state
+
 
 # ⚠️ stable_state：hot_reload 会 reload 本模块，模块级 RLock 被重建 → 出现两把锁，
 # 两个线程可同时读-改-写同一份事项分段/写缓冲（meta JSON 覆写），后写的覆盖先写的。
@@ -51,7 +61,11 @@ def _new_id(scope):
 # ── 原始存取（读写都返回/接收 dict 列表）───────────────
 
 def read_matters_raw():
-    """全局段读取：从事件流重放投影。旧兼容格式不再从 meta 读。"""
+    """全局段读取（**只读审计**：注入与工具层都不再使用）。
+
+    2026-10-26 起全局段冻结为历史数据 —— 保留读取是为了 history_of / 迁移核对
+    还能看到当年的条目，不是为了再把它注入出去。
+    """
     try:
         proj = evstore.project()
         out = []
@@ -70,13 +84,19 @@ def read_matters_raw():
 
 def _reconcile(scope, tid, entries):
     """对账式写入：对比当前投影，把差异追加为事件（add/update/remove），
-    不覆盖历史。同集合不同顺序 = 零事件。返回 True/False。"""
+    不覆盖历史。同集合不同顺序 = 零事件。返回 True/False。
+
+    只服务任务段（scope="task"）：全局段已废止，任何 global 写入一律拒绝。
+    """
+    if scope != "task":
+        print(f"[matters] ⛔ _reconcile 拒绝非任务段写入 scope={scope}")
+        return False
+    if not tid:
+        print("[matters] ⛔ _reconcile 缺少 tid，无法写任务段")
+        return False
     try:
         proj = evstore.project()
-        if scope == "global":
-            current = {e["entry_id"]: e for e in proj["global"]}
-        else:
-            current = {e["entry_id"]: e for e in proj["tasks"].get(tid, [])}
+        current = {e["entry_id"]: e for e in proj["tasks"].get(tid, [])}
         want = {}
         for e in entries:
             want[str(e["id"])] = e
@@ -103,8 +123,15 @@ def _reconcile(scope, tid, entries):
 
 
 def write_matters_raw(entries):
-    """兼容签名：原为整表覆盖，现实现为对账式事件追加。"""
-    return _reconcile("global", None, entries)
+    """全局段写入已废止（2026-10-26 降级）。恒返回 False 并打日志。
+
+    为什么不静默成功：调用方拿到 False 才会走"没保存"的分支 —— 静默丢掉用户/
+    AI 记下的东西是最坏的失败方式。要跨任务留信息请走记忆网络
+    （remember_knowledge / memory 层），那里才是语义检索的地盘。
+    """
+    print(f"[matters] ⛔ 全局段写入已废止，拒绝写入 {len(entries or [])} 条"
+          f"（改用任务段或 remember_knowledge）")
+    return False
 
 
 def read_task_raw(tid):
@@ -161,15 +188,19 @@ def is_suspended(tid):
 # ── 叠加视图 ─────────────────────────────────────────────
 
 def combined_entries(tid=None):
-    """叠加视图：全局段 + 任务段，再应用挂起缓冲预览。视图与序号操作统一走这里。"""
+    """当前任务的完整视图：**只有任务段**（+历史写缓冲预览）。
+
+    2026-10-26 起不再拼全局段 —— 这是「任务隔离」的唯一开关点。注入、工具、
+    前端序号操作全都走这里，所以只改这一处就能保证没有第二条路把全局段带回来。
+    """
     with _matters_lock:
-        entries = read_matters_raw() + read_task_raw(tid)
+        entries = read_task_raw(tid)
         for p in get_pending(tid):
             pid = str(p.get("id") or "")
             if p.get("op") == "add":
                 entries.append({
-                    "id": pid or _new_id("g"), "content": _norm_content(p.get("content")),
-                    "scope": "global", "created_by_tid": tid,
+                    "id": pid or _new_id("task"), "content": _norm_content(p.get("content")),
+                    "scope": "task", "created_by_tid": tid,
                     "created_at": p.get("ts") or 0, "_pending": True,
                 })
             elif p.get("op") == "update":
@@ -184,64 +215,57 @@ def combined_entries(tid=None):
 
 
 def get_matters(tid=None):
-    """兼容旧接口：返回字符串列表（注入与前端显示用）。"""
+    """兼容旧接口：返回字符串列表（注入与前端显示用）。只含任务段。"""
     return [e["content"] for e in combined_entries(tid)]
 
 
 def get_global_contents():
-    """仅全局段内容（去重判断用，不含任务段）。"""
+    """仅全局段内容（历史遗留，审计/迁移核对用；不参与注入）。"""
     return [e["content"] for e in read_matters_raw()]
 
 
 def set_matters(entries):
-    """兼容旧接口：写入全局段。接受 str 列表或 dict 列表，尽量保留原 id。"""
-    with _matters_lock:
-        old = read_matters_raw()
-        out = []
-        for i, e in enumerate(entries):
-            if isinstance(e, dict):
-                d = dict(e)
-                d["content"] = _norm_content(d.get("content"))
-                d.setdefault("id", old[i]["id"] if i < len(old) else _new_id("g"))
-                d.setdefault("scope", "global")
-                d.setdefault("created_by_tid", None)
-                d.setdefault("created_at", 0)
-            else:
-                d = {
-                    "id": old[i]["id"] if i < len(old) else _new_id("g"),
-                    "content": _norm_content(e), "scope": "global",
-                    "created_by_tid": old[i].get("created_by_tid") if i < len(old) else None,
-                    "created_at": old[i].get("created_at", 0) if i < len(old) else 0,
-                }
-            out.append(d)
-        return write_matters_raw(out)
+    """兼容旧接口 —— 已废止：原为整表写全局段，现在恒返回 False。
+
+    历史调用方（reflection 沉淀、老脚本）必须改走任务段或记忆网络，
+    否则会以为存上了而实际什么都没存。"""
+    print(f"[matters] ⛔ set_matters 已废止（原写全局段），收到 {len(entries or [])} 条"
+          f" → 未保存。请改用 add_matter(scope='task') 或 remember_knowledge")
+    return False
+
 
 
 # ── 血统（保持旧签名，reflection 直接复用）─────────────
 
 def _record_lineage(op, index, old_content=None, new_content=None):
-    """重要事项变更留痕。index 可为序号或标签字符串（如 "任务段"）。失败不影响主操作。"""
+    """任务重要信息的变更留痕。index 可为序号或标签字符串（如 "任务段"）。失败不影响主操作。
+
+    落 layer="archival"（2026-10-26 改）：原先写 layer="story"，而 story 层会被
+    Block「我的叙事记忆」**常驻注入**（LIMIT 8）—— 于是"新增重要事项#3：…"这种
+    变更日志也在每个任务里常驻，和它要记录的清单一起占据注意力。变更日志是审计
+    材料不是工作记忆，只留档不参与注入；要读版本链走 matters_event_store.history_of。
+    """
     try:
         ts = time.strftime("%Y%m%d %H:%M")
         if op == "add":
-            change_desc = f'新增重要事项#{index}："{new_content}"'
+            change_desc = f'新增任务重要信息#{index}："{new_content}"'
         elif op == "update":
-            change_desc = f'重要事项#{index}由"{old_content}"改为"{new_content}"'
+            change_desc = f'任务重要信息#{index}由"{old_content}"改为"{new_content}"'
         elif op == "remove":
-            change_desc = f'删除重要事项#{index}："{old_content}"'
+            change_desc = f'删除任务重要信息#{index}："{old_content}"'
         else:
             change_desc = f'变更#{index}："{new_content}"'
         text = f"[血统] {ts} {change_desc}（操作：{op}）"
         from memory.fragment_store import get_store
         from memory.relation_store import RelationStore
         fid = get_store().add(
-            text, source="lineage", tags="重要事项,血统", layer="story",
-            importance=7.0, epistemic="experience",
+            text, source="lineage", tags="任务重要信息,血统", layer="archival",
+            importance=5.0, epistemic="experience",
         )
         RelationStore().add(
-            subject_id=fid, predicate=f"重要事项#{index}被{op}",
+            subject_id=fid, predicate=f"任务重要信息#{index}被{op}",
             object_value=change_desc, edge_type="fact",
-            reason=f"血统记录：{op} 重要事项#{index}",
+            reason=f"血统记录：{op} 任务重要信息#{index}",
         )
     except Exception:
         pass
@@ -319,53 +343,26 @@ def clear_pending(tid):
 
 
 def merge_pending_on_finish(tid):
-    """任务收尾：把挂起缓冲合并进全局段。新增/改/删直通并留痕，目标丢失的记为孤儿。
-    返回 {"merged": n, "orphaned": [...], "detail": [...]}。"""
-    report = {"merged": 0, "orphaned": [], "detail": []}
+    """任务收尾：清掉该任务的挂起缓冲（全局段已废止，缓冲无处可合并）。
+
+    2026-10-26：写缓冲原本是"挂起任务改全局段先暂存、收尾再合并"。全局段取消后
+    缓冲失去目标。这里**不再把内容搬进任何地方**（尤其是不能落回全局段，否则等于
+    给已废止的跨任务清单开后门），只回收缓冲并留一条可审的记录。
+
+    返回 {"merged":0, "orphaned":[...], "detail":[...], "discarded":n}。
+    """
+    report = {"merged": 0, "orphaned": [], "detail": [], "discarded": 0}
     with _matters_lock:
         pend = get_pending(tid)
         if not pend:
             clear_pending(tid)
             return report
-        raw = read_matters_raw()
-        def _fmt_reason(p):
-            r = (p.get("reason") or "").strip()
-            return f"（理由：{r}）" if r else ""
-        for p in pend:
-            op, pid = p.get("op"), str(p.get("id") or "")
-            content = _norm_content(p.get("content"))
-            if op == "add":
-                raw.append({"id": pid or _new_id("g"), "content": content,
-                            "scope": "global", "created_by_tid": tid,
-                            "created_at": p.get("ts") or _now()})
-                _record_lineage("add", f"收尾合并({tid[:8]})", None, content)
-                report["detail"].append(f"新增「{content[:40]}」{_fmt_reason(p)}")
-                report["merged"] += 1
-            elif op == "update":
-                hit = False
-                for e in raw:
-                    if e["id"] == pid:
-                        _record_lineage("update", f"收尾合并({tid[:8]})", e["content"], content)
-                        report["detail"].append(
-                            f"【核心规则】更新「{(e['content'] or '')[:30]}」→「{content[:40]}」{_fmt_reason(p)}")
-                        e["content"] = content
-                        hit = True
-                        break
-                if hit:
-                    report["merged"] += 1
-                else:
-                    report["orphaned"].append(p)
-            elif op == "remove":
-                before = len(raw)
-                raw = [e for e in raw if e["id"] != pid]
-                if len(raw) < before:
-                    _record_lineage("remove", f"收尾合并({tid[:8]})", p.get("old_content"), None)
-                    report["detail"].append(
-                        f"【核心规则】删除「{(p.get('old_content') or '')[:40]}」{_fmt_reason(p)}")
-                    report["merged"] += 1
-                else:
-                    report["orphaned"].append(p)
-        write_matters_raw(raw)
+        report["discarded"] = len(pend)
+        report["orphaned"] = list(pend)
+        report["detail"].append(
+            f"[{tid[:8]}] 挂起缓冲 {len(pend)} 项因「重要信息降级为跟随任务」不再合并，已丢弃"
+            f"（内容仍在 matters_events 事件流里可追溯）")
+        print(f"[matters] ♻️ 丢弃历史挂起缓冲 tid={tid[:8]} n={len(pend)}")
         clear_pending(tid)
         try:
             get_db().set_meta(SUSPEND_KEY + tid, "0")
@@ -407,43 +404,38 @@ def merge_orphans_on_startup():
 # ── 三个核心变更操作（工具与 reflection 共用）─────────
 
 def add_matter(content, scope=None, reason=None, tid=None, by="tool"):
-    """新增重要事项。scope=global 写全局段（挂起任务进缓冲），scope=task 写当前任务段。
-    返回 {success, id, scope, ...} 或 {error}。"""
+    """新增一条「该任务重要的信息」。只写当前任务段。
+
+    2026-10-26 降级：全局段废止。传 scope=global 不再跨任务生效，会被**重定向**
+    到当前任务段并在 note 里说清楚 —— 不静默照做（AI 以为存了全局却没有），
+    也不直接报错（信息本身还是该留下）。真要跨任务沉淀，走 remember_knowledge。
+
+    返回 {success, id, scope:"task", ...} 或 {error}。"""
     content = _norm_content(content)
     if not content:
         return {"error": "内容不能为空"}
     tid = tid or get_active_tid()
-    scope = scope or ("task" if tid else "global")
-    if scope not in ("global", "task"):
-        return {"error": "scope 只能是 global 或 task"}
-    if scope == "task" and not tid:
-        return {"error": "当前没有活跃任务，无法写入任务段"}
+    note = ""
+    if scope and scope != "task":
+        note = ("注意：重要信息已降级为「跟随任务」，不存在跨任务的全局清单。"
+                "本条已写入当前任务段；要跨任务长期留存请用 remember_knowledge。")
+        print(f"[matters] ⚠️ 收到 scope={scope}，已重定向到任务段 tid={str(tid)[:8]}")
+    if not tid:
+        return {"error": "当前没有活跃任务，无法写入任务段（重要信息跟随任务）"}
     with _matters_lock:
-        if scope == "global":
-            if is_suspended(tid):
-                pid = _new_id("g")
-                add_pending("add", pid, content, None, reason, tid)
-                return {"success": True, "id": pid, "scope": "global", "buffered": True,
-                        "note": "当前任务挂起中，已进入写缓冲，任务结束合并生效"}
-            raw = read_matters_raw()
-            if len(raw) >= 20:
-                return {"error": "全局重要事项已达 20 条上限，请先清理"}
-            entry = {"id": _new_id("g"), "content": content, "scope": "global",
-                     "created_by_tid": tid, "created_at": _now()}
-            raw.append(entry)
-            if not write_matters_raw(raw):
-                return {"error": "写入 DB 失败，重要事项未保存。请重试。"}
-            _record_lineage("add", f"全局({by})", None, content)
-            return {"success": True, "id": entry["id"], "scope": "global", "content": content}
-        # 任务段
         traw = read_task_raw(tid)
-        entry = {"id": _new_id("t"), "content": content, "scope": "task",
+        entry = {"id": _new_id("task"), "content": content, "scope": "task",
                  "created_by_tid": tid, "created_at": _now()}
         traw.append(entry)
         if not write_task_raw(tid, traw):
-            return {"error": "写入 DB 失败，重要事项未保存。请重试。"}
+            return {"error": "写入 DB 失败，重要信息未保存。请重试。"}
         _record_lineage("add", f"任务段{tid[:8]}", None, content)
-        return {"success": True, "id": entry["id"], "scope": "task", "content": content}
+        # 连接记忆网络：让它在语义相关时能被召回，而不是靠注入常驻
+        matters_memory.mirror_add(tid, entry["id"], content)
+        out = {"success": True, "id": entry["id"], "scope": "task", "content": content}
+        if note:
+            out["note"] = note
+        return out
 
 
 def _resolve_target(index, mid, tid):
@@ -463,6 +455,7 @@ def _resolve_target(index, mid, tid):
 
 
 def update_matter(index=None, mid=None, content=None, reason=None, tid=None, by="tool"):
+    """改写一条「该任务重要的信息」。只能改当前任务段里的条目。"""
     content = _norm_content(content)
     if not content:
         return {"error": "内容不能为空"}
@@ -476,22 +469,8 @@ def update_matter(index=None, mid=None, content=None, reason=None, tid=None, by=
         if not entry:
             return {"error": label or "找不到目标条目"}
         eid, old = entry["id"], entry["content"]
-        scope = entry.get("scope", "global")
-        if scope == "global":
-            if is_suspended(tid):
-                add_pending("update", eid, content, old, reason, tid)
-                return {"success": True, "id": eid, "scope": "global", "buffered": True,
-                        "note": "当前任务挂起中，已进入写缓冲，任务结束合并生效"}
-            raw = read_matters_raw()
-            for e in raw:
-                if e["id"] == eid:
-                    e["content"] = content
-                    break
-            if not write_matters_raw(raw):
-                return {"error": "写入 DB 失败，重要事项未保存。请重试。"}
-            _record_lineage("update", f"全局({by})", old, content)
-            return {"success": True, "id": eid, "scope": "global", "content": content}
-        traw = read_task_raw(entry.get("created_by_tid") or tid)
+        owner = entry.get("created_by_tid") or tid
+        traw = read_task_raw(owner)
         hit = False
         for e in traw:
             if e["id"] == eid:
@@ -500,13 +479,15 @@ def update_matter(index=None, mid=None, content=None, reason=None, tid=None, by=
                 break
         if not hit:
             return {"error": "任务段条目未找到，可能已被清理"}
-        if not write_task_raw(entry.get("created_by_tid") or tid, traw):
-            return {"error": "写入 DB 失败，重要事项未保存。请重试。"}
+        if not write_task_raw(owner, traw):
+            return {"error": "写入 DB 失败，重要信息未保存。请重试。"}
         _record_lineage("update", f"任务段{tid[:8]}", old, content)
+        matters_memory.mirror_update(eid, content, tid=owner)
         return {"success": True, "id": eid, "scope": "task", "content": content}
 
 
 def remove_matter(index=None, mid=None, reason=None, tid=None, by="tool"):
+    """删除一条「该任务重要的信息」，记忆网络里的镜像一并下掉。"""
     tid = tid or get_active_tid()
     with _matters_lock:
         entry, label = None, None
@@ -517,21 +498,11 @@ def remove_matter(index=None, mid=None, reason=None, tid=None, by="tool"):
         if not entry:
             return {"error": label or "找不到目标条目"}
         eid, old = entry["id"], entry["content"]
-        scope = entry.get("scope", "global")
-        if scope == "global":
-            if is_suspended(tid):
-                add_pending("remove", eid, None, old, reason, tid)
-                return {"success": True, "id": eid, "scope": "global", "buffered": True,
-                        "removed": old,
-                        "note": "当前任务挂起中，已进入写缓冲，任务结束合并生效"}
-            raw = [e for e in read_matters_raw() if e["id"] != eid]
-            if not write_matters_raw(raw):
-                return {"error": "写入 DB 失败，重要事项未保存。请重试。"}
-            _record_lineage("remove", f"全局({by})", old, None)
-            return {"success": True, "id": eid, "scope": "global", "removed": old}
         owner = entry.get("created_by_tid") or tid
         traw = [e for e in read_task_raw(owner) if e["id"] != eid]
         if not write_task_raw(owner, traw):
-            return {"error": "写入 DB 失败，重要事项未保存。请重试。"}
+            return {"error": "写入 DB 失败，重要信息未保存。请重试。"}
         _record_lineage("remove", f"任务段{tid[:8]}", old, None)
+        matters_memory.mirror_remove(eid)
         return {"success": True, "id": eid, "scope": "task", "removed": old}
+

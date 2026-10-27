@@ -21,11 +21,13 @@ import re
 
 import sys
 
-# 反思产物双路沉淀：高价值行为规则 → 重要事项；可复用方法 → 技能书
+# 反思产物双路沉淀：高价值行为规则 → 记忆网络（knowledge 层）；可复用方法 → 技能书
+# 2026-10-26：行为规则原先写「重要事项」全局段 → 每条新规则都被注入进**所有**任务，
+# 15 条塞满后就不再沉淀，且清单被任务细节污染。改走记忆网络：语义相关才被想起。
 _LESSONS_PROMPT = """你是大眼的反思助手。基于下面的任务记录，提炼两类可沉淀的产物。
 
 【判断标准】
-1. <<<重要事项>>>：只提炼"高频行为规则/判断修正"——下次遇到类似情况应该怎么做、
+1. <<<行为规则>>>：只提炼"高频行为规则/判断修正"——下次遇到类似情况应该怎么做、
    用户偏好的做事方式、容易踩的坑。必须是能反复约束后续行为的一句话规则。
    任务本身的描述、普通项目进度、一次性结论不算。
 2. <<<技能>>>：只提炼"可复用的方法流程"——这次任务里摸索出的标准做法、调试套路、
@@ -33,7 +35,7 @@ _LESSONS_PROMPT = """你是大眼的反思助手。基于下面的任务记录�
    倒推判断法：先想下次遇到什么场景会需要它；说不清触发场景的技能不值得沉淀。
 
 【输出格式】严格按下面格式，无则写 NONE，不要额外内容：
-<<<重要事项>>>
+<<<行为规则>>>
 （一句话规则，≤50字）
 
 <<<技能>>>
@@ -46,7 +48,8 @@ _LESSONS_PROMPT = """你是大眼的反思助手。基于下面的任务记录�
 {task_brief}
 """
 
-# 重要事项数量上限（每次对话全量注入，不能无限膨胀）
+# 行为规则不再有"每次对话全量注入"的膨胀压力，上限改为仅防单次重复（记忆层自己查重）。
+# 保留常量名以免外部引用报错。
 _MAX_MATTERS = 15
 
 SEDIMENT_PROMPT = """写一段第一人称的任务回顾，基于以下任务记录。只记[我]做了什么事。
@@ -536,36 +539,65 @@ def _extract_section(text, tag):
 
 
 def _sediment_matter(text):
-    """Add a behavior rule to important matters with dedup + cap. Returns action str."""
+    """把反思出的行为规则沉淀进**记忆网络**（2026-10-26 改）。
+
+    原来写「重要事项」全局段，造成两个问题：① 每条反思产物都被注入进所有任务，
+    与当前工作无关的旧规则常年占着提示最前面；② 到 15 条上限就再也沉淀不进去。
+    现在落 layer=knowledge / authority_level=0：
+    - 不占 recall_guaranteed 的两个"永远该在场"名额（那归领域书和用户拍板的准则）；
+    - 语义相关时才被召回，不相关就不出现；
+    - 没有条数上限，但写入前做文本/近义查重，避免同一教训反复入库。
+
+    返回 action 字符串：added / skipped-empty / skipped-duplicate / error-save / error。
+    """
     try:
         _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if _root not in sys.path:
             sys.path.insert(0, _root)
-        from tools.important_matters import get_matters, set_matters, _record_lineage
+        from memory.fragment_store import get_store
 
         text = text.strip().strip('"').strip("'")
         if not text or text.upper() == "NONE" or len(text) < 8:
             return "skipped-empty"
 
-        matters = get_matters()
-        # 查重：已有语义相似条目（同关键词或长公共子串）则跳过
+        store = get_store()
+        if not store:
+            return "error-save"
+
+        # 查重：同一批教训常被反复提炼出近似变体，只留最早那条。
         import difflib
-        for existing in matters:
-            existing = str(existing)
-            if existing == text:
+        probe = text[:20]
+        for row in store.search_by_text(probe, limit=10):
+            old = (row.get("text") or "").strip()
+            if not old:
+                continue
+            if old == text:
                 return "skipped-duplicate"
-            ratio = difflib.SequenceMatcher(None, existing, text).ratio()
-            # 关键词包含也算重（短规则常见），长规则用相似度
-            if ratio > 0.75 or (len(text) > 12 and text[:12] in existing):
+            if difflib.SequenceMatcher(None, old, text).ratio() > 0.75:
                 return "skipped-duplicate"
 
-        if len(matters) >= _MAX_MATTERS:
-            return "skipped-cap"
-        matters.append(text)
-        if not set_matters(matters):
+        tid = None
+        try:
+            from tools.mission_overlay import get_active_tid
+            tid = get_active_tid()
+        except Exception:
+            pass
+
+        fid = store.add(
+            text[:200],
+            source="reflection_rule",
+            topic_id=tid,
+            tags="行为规则,反思沉淀",
+            layer="knowledge",
+            authority_level=0,          # 关键：不抢"永远该在场"的保底名额
+            importance=7.0,
+            epistemic="opinion",        # 反思出的判断，不是既成事实
+        )
+        if not fid:
             return "error-save"
         try:
-            _record_lineage("add", len(matters), new_content=text)
+            from tools.mission_overlay import _record_lineage
+            _record_lineage("add", "反思沉淀", None, text)
         except Exception:
             pass
         return "added"
@@ -673,9 +705,10 @@ def _sediment_skill(parsed_text, llm_prompt_fn=None):
 
 
 def _sediment_behavior_lessons(task, dag, llm_prompt_fn=None):
-    """Task-end: extract behavior rules → important matters, methods → skills.
+    """Task-end: extract behavior rules → 记忆网络, methods → skills.
 
     双路沉淀：LLM 从任务记录提炼，无新增价值则跳过，不阻塞任务完成。
+    （2026-10-26 起行为规则不再写「重要事项」全局段 —— 那条清单已降级为跟随任务。）
     Returns dict {"matter": action, "skill": action}.
     """
     result = {"matter": "skipped", "skill": "skipped"}
@@ -687,7 +720,7 @@ def _sediment_behavior_lessons(task, dag, llm_prompt_fn=None):
         if not raw:
             return result
 
-        matter_text = _extract_section(raw, "重要事项")
+        matter_text = _extract_section(raw, "行为规则")
         if matter_text and matter_text.upper() != "NONE":
             result["matter"] = _sediment_matter(matter_text)
 

@@ -88,6 +88,13 @@ def _llm_prompt(system_prompt, user_prompt, config=None):
     try:
         from llm import chat_once_cached
         result = chat_once_cached(config, messages)
+        # 反思回路同样是"非任务对话"的模型开销，记进同一本台账。
+        # 记账失败绝不影响反思本身（mind_spend.record 内部全兜住）。
+        try:
+            from tools import mind_spend
+            mind_spend.record("反思", getattr(config, "model", "") or "", result.get("usage"))
+        except Exception:
+            pass
         return result.get("text", "")
     except Exception as e:
         print(f"[memory] LLM error: {e}")
@@ -181,6 +188,28 @@ class MemoryAI:
                     print(f"[memory] reflection loop errors: {report['errors']}")
             except Exception as e:
                 print(f"[memory] reflection loop failed: {e}")
+
+            # ── 收敛进常驻层（行事备忘）──
+            # 碎片写进记忆网络后走召回，但召回拦不住"没想起来要查"这类错。
+            # 实测：「动手前核实实际状态」被写了 39 遍还在犯。
+            # 所以把反复出现的收敛成 ≤1000 字常驻（tools/self_memo.py）。
+            # 节流：≥8 条新增碎片 且 距上次 ≥12h —— 它在 system 恒定区，
+            # 一变整段前缀缓存失效，不能每轮重写。
+            try:
+                from tools.self_memo import maybe_converge
+                rep = maybe_converge(llm_config=self._llm_config)
+                if rep.get("success"):
+                    print(f"[memory] self memo: +{len(rep.get('rules_added') or [])} 条纪律, "
+                          f"归并 {len(rep.get('rules_merged') or [])}, "
+                          f"用户备注 +{len(rep.get('notes_added') or [])}")
+                elif rep.get("unchanged"):
+                    print("[memory] self memo: 无变化")
+                elif rep.get("skipped"):
+                    print(f"[memory] self memo 跳过({rep['skipped']})")
+                elif rep.get("error"):
+                    print(f"[memory] self memo 未更新: {rep['error']}")
+            except Exception as e:
+                print(f"[memory] self memo failed: {e}")
 
             # 反思成功后落盘 checkpoint（标记这些话题已处理到最新消息）
             _save_checkpoint(updated)

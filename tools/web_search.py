@@ -49,6 +49,78 @@ def paid_ready() -> bool:
     c = paid_config()
     return bool(c["enabled"] and c["key"])
 
+# 余额查询：GET {base}/user/balance（官方文档口径，跟聊天 key 同一把）
+# 返回 balance_infos[0] 的 currency / total_balance / granted_balance / topped_up_balance。
+# 面板会反复刷新，加个 60s 内存缓存，别把官方接口当时钟敲。
+BALANCE_TTL = 60
+_balance_cache = stable_state("deepseek_balance_cache", dict)   # {"at": ts, "data": {...}}
+_balance_lock = stable_state("deepseek_balance_lock", threading.Lock)
+
+def _dig(obj, path: str):
+    """按 a.b.0.c 取值，任一步缺失返回 None。"""
+    cur = obj
+    for part in path.split("."):
+        if cur is None:
+            return None
+        if isinstance(cur, list):
+            try:
+                cur = cur[int(part)]
+            except Exception:
+                return None
+        elif isinstance(cur, dict):
+            cur = cur.get(part)
+        else:
+            return None
+    return cur
+
+def paid_balance(key: str = "", base: str = "", force: bool = False) -> dict:
+    """查 DeepSeek 余额。任何失败都返回 ok=False + 人话 error，绝不抛异常。
+    key/base 不传就用 db 里已保存的配置。"""
+    cfg = paid_config()
+    k = (key or cfg["key"] or "").strip()
+    b = (base or cfg["base"] or DEFAULT_PAID_BASE).rstrip("/")
+    if not k:
+        return {"ok": False, "error": "未配置 API Key"}
+    ck = f"{b}|{k[-6:]}"
+    now = time.time()
+    if not force:
+        with _balance_lock:
+            hit = _balance_cache.get(ck)
+        if hit and now - hit["at"] < BALANCE_TTL:
+            return hit["data"]
+    url = f"{b}/user/balance"
+    data = None
+    try:
+        import httpx
+        r = httpx.get(url, headers={"Authorization": f"Bearer {k}", "Accept": "application/json"},
+                      timeout=PAID_TIMEOUT)
+        status = r.status_code
+        try:
+            body = r.json()
+        except Exception:
+            body = None
+        if status != 200:
+            data = {"ok": False, "status": status, "error": _paid_err_reason(status, body)}
+        else:
+            infos = (body or {}).get("balance_infos") or []
+            first = infos[0] if infos else {}
+            total = first.get("total_balance")
+            data = {
+                "ok": True,
+                "is_available": bool((body or {}).get("is_available")),
+                "currency": first.get("currency") or "CNY",
+                "total": total,
+                "total_num": (float(total) if str(total or "").replace(".", "", 1).isdigit() else None),
+                "granted": first.get("granted_balance"),
+                "topped_up": first.get("topped_up_balance"),
+                "all": infos,
+            }
+    except Exception as e:
+        data = {"ok": False, "error": f"网络请求失败（{type(e).__name__}: {e}）"}
+    with _balance_lock:
+        _balance_cache[ck] = {"at": now, "data": data}
+    return data
+
 # ---------------------------------------------------------------- fetch
 
 def _fetch(url: str, timeout: int = TIMEOUT) -> str | None:

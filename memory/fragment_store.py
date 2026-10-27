@@ -1787,6 +1787,25 @@ class FragmentStore:
         finally:
             conn.close()
 
+    def find_by_tag(self, tag, limit=10):
+        """按标签片段精确定位（外部对象 ↔ 碎片的映射，如任务重要信息的 mid:<id>）。
+
+        与 search_by_text 的区别：不按权重排序，按 id 倒序取最新；
+        供"同一外部条目只维护一条碎片"这类同步逻辑用。
+        """
+        if not tag:
+            return []
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM memory_fragments "
+                "WHERE dirty=1 AND tags LIKE ? ORDER BY id DESC LIMIT ?",
+                (f"%{tag}%", limit)
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
     def get_chain(self, fragment_id, include_archived=False):
         conn = self._conn()
         try:

@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
-"""重要事项工具层——多任务分段 + 写缓冲。
+"""「该任务重要的信息」工具层——跟随任务，不跨任务（2026-10-26 降级）。
 
-实现迁移到 tools/mission_overlay.py（数据层单文件），本文件提供：
-- AI 工具：important_matters_add/update/remove/list
+原先是「重要事项」：一份全局清单，以 Block 1【对我很重要的事】注入每个任务。
+实测 15 条里 13 条是某一次具体任务的技术细节，却每次对话都读一遍，持续误导
+工作方向。正式降级为**跟随任务的信息**：
+- 只属于当前任务，注入位置挪到【当前任务】之后；别的任务看不到；
+- 每条同时镜像进记忆网络（tools/matters_memory.py），语义相关时才被召回；
+- 跨任务该记的东西不属于这里 —— 行为准则进领域书，知识/教训进 remember_knowledge。
+
+本文件提供：
+- AI 工具：important_matters_add/update/remove/list（名字保留，语义已降级）
 - 互动基调：get_tone/set_tone/interaction_tone_update
-- 旧接口兼容：get_matters/set_matters（reflection 等调用方不变）
-
-注入（提示词里的列表）由 server 侧 get_matters(active_tid) 生成：全局段+任务段+缓冲叠加。
+- 旧接口兼容：get_matters/set_matters（set_matters 已废止，恒 False）
 """
 import json
 
@@ -24,12 +29,13 @@ from tools.mission_overlay import (
 # ── 旧接口兼容（reflection / server / 老脚本）─────────────
 
 def get_matters(tid=None):
-    """字符串列表视图：全局段+任务段+挂起缓冲叠加。"""
+    """字符串列表视图：只有该任务段（全局段已废止）。"""
     return _get_matters_impl(tid)
 
 
 def set_matters(entries):
-    """整表写全局段（兼容旧调用）。返回 True/False。"""
+    """已废止（原为整表写全局段）。恒返回 False —— 调用方必须据此报错，
+    不要以为存上了。"""
     return _set_matters_impl(entries)
 
 
@@ -61,25 +67,29 @@ def set_tone(data):
 
 @register_tool(
     name="important_matters_add",
-    description="新增一条重要事项（200字内）。默认写入当前任务段，只对本任务可见，任务结束自动清空；"
-                "确属跨任务长期有效才用 scope=global 写全局段（全局段有20条上限，慎加）。",
+    description="记一条「该任务重要的信息」：只属于当前任务，别的任务看不到，也不会变成跨任务规则。"
+                "适合记 —— 这个任务里反复要用到的约定／参数／路径／用户明确偏好／已拍板的决策"
+                "（记下来才不用每次都问或每次都猜）。"
+                "不适合记 —— 跨任务通用的行为准则（写领域书）、可复用的知识或踩过的坑"
+                "（用 remember_knowledge / remember）、任务进度与下一步（用 update_task_brief）。"
+                "写完的同时会进记忆网络，任务结束也不会消失，语义相关时才被想起。",
     parameters={
         "type": "object",
         "properties": {
-            "content": {"type": "string", "description": "事项内容，一句话，≤200字"},
-            "scope": {"type": "string", "description": "global=全局长期有效；task=仅当前任务（默认）"},
-            "reason": {"type": "string", "description": "为什么重要（一句话，挂起缓冲合并时留痕用）"}
+            "content": {"type": "string", "description": "信息内容，一句话说清，≤200字"},
+            "reason": {"type": "string", "description": "为什么记（一句话，审计留痕用）"}
         },
         "required": ["content"]
     }
 )
-def important_matters_add(content: str, scope: str = None, reason: str = ""):
-    return add_matter(content, scope=scope, reason=reason, by="tool")
+def important_matters_add(content: str, reason: str = ""):
+    return add_matter(content, scope="task", reason=reason, by="tool")
 
 
 @register_tool(
     name="important_matters_update",
-    description="修改一条重要事项。优先用 important_matters_list 拿到的 id 定位；也可用注入列表里的序号。",
+    description="改写一条「该任务重要的信息」。用 important_matters_list 拿 id 定位，"
+                "也可用注入列表里的序号。只在内容真的变了才改（信息过期比没有更误导）。",
     parameters={
         "type": "object",
         "properties": {
@@ -97,7 +107,8 @@ def important_matters_update(content: str, id: str = None, index: int = None, re
 
 @register_tool(
     name="important_matters_remove",
-    description="删除一条重要事项（已过期/已失效/被更好的条目取代）。用 list 拿 id 定位。",
+    description="删除一条「该任务重要的信息」（已失效／已过期／被更好的条目取代）。"
+                "用 list 拿 id 定位。留着过期信息比不记更糟 —— 它会一直以“重要”的身份被读到。",
     parameters={
         "type": "object",
         "properties": {
@@ -114,7 +125,8 @@ def important_matters_remove(id: str = None, index: int = None, reason: str = ""
 
 @register_tool(
     name="important_matters_list",
-    description="查看全部重要事项的结构化清单（id/序号/归属/内容）。改删前用它拿准 id。",
+    description="查看当前任务的重要信息清单（id/序号/内容）。改删前用它拿准 id。"
+                "注意：只看得到当前任务这一份，别的任务的信息不在这里。",
     parameters={"type": "object", "properties": {}}
 )
 def important_matters_list():

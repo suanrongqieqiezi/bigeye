@@ -121,19 +121,96 @@ def _fallback_summary(content: str, label: str) -> str:
     )
 
 
-def _fallback_pyramid_summary(pack_rows, layer: int) -> str:
-    """金字塔上层摘要的机械降级：拼接下层摘要前 N 字。"""
+def _fallback_pyramid_summary(pack_rows, layer: int, per_slice: int = 200) -> str:
+    """金字塔上层摘要的机械降级：拼接下层内容前 N 字。
+
+    产出要能直接拿去搜索，所以不写"未生成""无"这类占位话：
+    开头的字会进向量，占位话会挤掉真内容，检索时先看到的是废话。
+    """
     parts = []
     for r in pack_rows:
-        s = (r["summary"] or "")[:200].replace("\n", " ")
+        # 底层晶体 summary 恒为 None（build_slices_only 不生成摘要），
+        # 只看 summary 拼出来就是一堆空行，所以空了必须退回 content
+        s = (r["summary"] or "").strip()
+        if s:
+            s = _strip_pyramid_marks(s)
+        else:
+            s = (r["content"] or "").strip()
+        s = " ".join(s.split())[:per_slice]
         parts.append(f"- [{r['id']}] {s}")
-    combined = "\n".join(parts)
+    head = "\n".join(parts)
     return (
-        f"<<<结论>>>\n（未生成，{len(pack_rows)} 个 Layer {layer} 晶体合并）\n\n"
-        f"<<<为什么>>>\n{combined[:600]}…\n\n"
-        f"<<<下一步>>>\n无\n\n"
-        f"<<<覆盖范围>>>\n{','.join(r['id'] for r in pack_rows)}"
+        f"<<<合并第 {layer + 1} 层：{len(pack_rows)} 个下层晶体>>>\n"
+        f"{head}\n"
+        f"<<<覆盖>>>{','.join(r['id'] for r in pack_rows)}"
     )
+
+
+def _pyramid_layer_chars(rows) -> int:
+    """一层晶体真正要占多少字符（顶层能否塞进上下文的判断依据）。
+
+    必须和 _pyramid_source_text 分开：后者会截断（那是压缩手段），
+    用截断后的长度做判断会误判成「已经够小了」而提前停层，
+    实测 10 个上层真实 9770 字，截断后算成 5000，直接少建一层。
+    """
+    total = 0
+    for r in rows:
+        total += len(_pyramid_row_text(r))
+    return total
+
+
+def _pyramid_row_text(row) -> str:
+    """取一行的正文。行可能是只 SELECT 了部分列的 Row，缺键不能崩。"""
+    try:
+        s = (row["summary"] or "").strip()
+    except (IndexError, KeyError):
+        s = ""
+    if s:
+        return s
+    try:
+        return (row["content"] or "").strip()
+    except (IndexError, KeyError):
+        return ""
+
+
+_PYRAMID_MARK_RE = None
+
+
+def _strip_pyramid_marks(text: str) -> str:
+    """剥掉上层摘要自带的合并标记，只留正文。
+
+    上层摘要本身长这样：
+        <<<合并第 1 层：4 个下层晶体>>>
+        - [fc_xxx] 正文…
+        <<<覆盖>>>fc_a,fc_b
+    再往上一层聚合时，这些标记是结构壳不是内容，裹进去只会一层层套娃，
+    把真正的信息挤掉。所以聚合前先剥干净。
+    """
+    global _PYRAMID_MARK_RE
+    if _PYRAMID_MARK_RE is None:
+        import re as _re
+        _PYRAMID_MARK_RE = _re.compile(r"<<<[^>]*>>>")
+    out = []
+    for line in text.split("\n"):
+        s = _PYRAMID_MARK_RE.sub("", line).strip()
+        # 去掉 "- [fc_xxx] " 这种行内 id 前缀
+        if s.startswith("- [") and "] " in s:
+            s = s.split("] ", 1)[1]
+        if s:
+            out.append(s)
+    return "\n".join(out)
+
+
+def _pyramid_source_text(row) -> str:
+    """取一个晶体用于向上聚合的文本。
+
+    底层晶体（build_slices_only 建的）summary 恒为 None。
+    只看 summary 会让整座金字塔变空壳，所以空了必须退回 content。
+    """
+    s = (row["summary"] or "").strip()
+    if s:
+        return _strip_pyramid_marks(s)[:500]
+    return (row["content"] or "").strip()[:800]
 
 
 def _compute_hash(content: str) -> str:
@@ -692,10 +769,10 @@ class FileCrystalStore:
                 except Exception as e:
                     print(f"[file_crystal] vec_index query 警告: {e}")
 
-            # 降级：全表扫描
+            # 降级：全表扫描（不能限 layer=0，否则金字塔上层永远召不回）
             if not candidates:
                 rows = conn.execute(
-                    "SELECT * FROM file_crystals WHERE layer=0"
+                    "SELECT * FROM file_crystals WHERE 1=1"
                     + (" AND status='active'" if not include_stale else "")
                 ).fetchall()
                 # 简单 cosine 相似度
@@ -813,18 +890,31 @@ class FileCrystalStore:
     MAX_PYRAMID_LAYERS = 5         # 最多 5 层，超出强制扩大打包数
     DEFAULT_PACK_SIZE = 4          # 每层打包多少下层晶体
     TOP_LAYER_TOKEN_BUDGET = 5000  # 顶层总长预算（字符数近似）
+    DEFAULT_MAX_SLICES = 200       # 走 LLM 时的上限（每包一次调用，防烧钱）
+    LOCAL_MAX_SLICES = 2000        # 纯本地聚合上限（零 LLM 调用，只花 embed 时间）
 
-    def build_pyramid(self, path: str, pack_size: int = None) -> dict:
+    def build_pyramid(self, path: str, pack_size: int = None,
+                      use_llm: bool = False, force: bool = False,
+                      max_slices: int = None) -> dict:
         """对某文件的所有 layer=0 晶体建金字塔。
 
-        策略：每 pack_size 个 layer=N 晶体打包，调 LLM 摘要成 1 个 layer=N+1 晶体。
-        持续直到顶层晶体总长 < TOP_LAYER_TOKEN_BUDGET 或达到 MAX_PYRAMID_LAYERS。
+        策略：每 pack_size 个 layer=N 晶体打包成 1 个 layer=N+1 晶体，
+        持续到顶层总长 < TOP_LAYER_TOKEN_BUDGET 或达到 MAX_PYRAMID_LAYERS。
+
+        use_llm=False（默认）走纯本地聚合：零 LLM 调用、不联网、立刻出结构。
+        use_llm=True 才调 LLM 精炼摘要，慢且花钱，按需开。
 
         Returns:
             {"layers_built": N, "top_layer": L, "top_total_chars": C, "path": path}
+            跳过时返回 {"skipped": True, "reason": ...}
         """
         if pack_size is None:
             pack_size = self.DEFAULT_PACK_SIZE
+        if max_slices is None:
+            # 本地聚合只花 embed 时间，不花钱，卡太紧会把正常大文件挡在门外
+            # （实测 server.py 205 片，原 200 上限直接拒了）。
+            # 走 LLM 时每包一次调用，必须严守小上限防烧钱。
+            max_slices = self.DEFAULT_MAX_SLICES if use_llm else self.LOCAL_MAX_SLICES
 
         conn = self._conn()
         try:
@@ -836,6 +926,35 @@ class FileCrystalStore:
                 return {"error": f"文件未建晶体: {path}", "path": path}
             source_type = source_type_row["source_type"]
             authority = source_type_row["authority_level"]
+
+            # 文件已不存在就别建：库里有一堆临时文件留下的死路径，建了纯浪费
+            if not os.path.isfile(path) and not force:
+                return {"skipped": True, "reason": "文件已不存在",
+                        "path": path, "layers_built": 0, "top_layer": 0}
+
+            # 可重入：已有上层就跳过，避免每次调用重复叠层
+            _existing = conn.execute(
+                "SELECT count(*) c FROM file_crystals WHERE source_path=? AND layer>0 AND status='active'",
+                (path,)
+            ).fetchone()["c"]
+            if _existing:
+                if not force:
+                    return {"skipped": True, "reason": f"已有 {_existing} 个上层晶体",
+                            "path": path, "layers_built": 0, "top_layer": 0}
+                # force 的语义就是重建：先清旧上层，否则会叠上去
+                conn.execute("DELETE FROM file_crystals WHERE source_path=? AND layer>0", (path,))
+                conn.commit()
+
+            # 单文件切片过多会一次吃掉上千次调用（3755 片那个要 1252 次），默认不碰
+            layer0_count = conn.execute(
+                "SELECT count(*) c FROM file_crystals WHERE source_path=? AND layer=0 AND status='active'",
+                (path,)
+            ).fetchone()["c"]
+            if not force and layer0_count > max_slices:
+                return {"skipped": True,
+                        "reason": f"底层晶体 {layer0_count} 个超过上限 {max_slices}，需 force=True",
+                        "path": path, "layers_built": 0, "top_layer": 0,
+                        "layer0_count": layer0_count}
 
             layers_built = 0
             current_layer = 0
@@ -850,38 +969,46 @@ class FileCrystalStore:
                 if not rows:
                     break
 
-                # 如果当前层总长已经够小，停止
-                total_chars = sum(len(r["summary"] or "") for r in rows)
+                # 当前层总长已经够小就停。
+                # 必须算「真正会喂给上层的文本」—— 底层晶体的 summary 恒为 None
+                # （build_slices_only 建的时候就不生成摘要），只看 summary 会让这里
+                # 恒等于 0 <= 预算，第一轮直接 break，这就是原来金字塔永远建不起来的根因。
+                total_chars = _pyramid_layer_chars(rows)
                 if total_chars <= self.TOP_LAYER_TOKEN_BUDGET:
                     break
 
-                # 如果当前层只有 1 个晶体，无法再合并
+                # 只剩 1 个晶体，没法再合并
                 if len(rows) <= 1:
                     break
 
-                # 打包合并
                 next_layer = current_layer + 1
-                # 动态扩大 pack_size 如果层数过多
                 effective_pack = pack_size
                 if current_layer >= self.MAX_PYRAMID_LAYERS - 1:
                     effective_pack = len(rows)  # 最后一层全打包
 
                 new_count = 0
+                pending_vec = []
                 for i in range(0, len(rows), effective_pack):
                     pack = rows[i:i + effective_pack]
                     if len(pack) < 2:
                         # 不足 2 个不合并，保留原样
                         continue
 
-                    # 调 LLM 生成上层摘要
+                    # 组装上层原料：summary 优先，空了退回 content。
+                    # 老代码直接拿 summary 拼，喂给 LLM 的是一包空壳，生成的摘要等于瞎编。
                     crystals_json = json.dumps([{
                         "id": p["id"],
-                        "summary": (p["summary"] or "")[:500],
+                        "summary": _pyramid_source_text(p),
                         "slice_index": p["slice_index"],
                     } for p in pack], ensure_ascii=False)
-                    prompt = format_pyramid_prompt(path, current_layer, crystals_json)
-                    summary = _call_llm_for_summary(prompt)
-                    if not summary:
+
+                    if use_llm:
+                        prompt = format_pyramid_prompt(path, current_layer, crystals_json)
+                        summary = _call_llm_for_summary(prompt)
+                        if not summary:
+                            summary = _fallback_pyramid_summary(pack, current_layer)
+                    else:
+                        # 纯本地聚合：拼接下层文本当上层摘要，结构真实、可下钻、零调用
                         summary = _fallback_pyramid_summary(pack, current_layer)
 
                     emb = embed(summary)
@@ -912,32 +1039,53 @@ class FileCrystalStore:
                             (crystal_id, p["id"])
                         )
 
-                    # 同步 vec_index（vec0 rowid 必须 INTEGER，用隐式 rowid）
-                    try:
-                        rw = conn.execute("SELECT rowid FROM file_crystals WHERE id=?", (crystal_id,)).fetchone()
-                        if rw:
-                            self.vec_index.insert(self._vec_table, rw["rowid"], emb)
-                    except Exception as e:
-                        print(f"[file_crystal] vec_index insert 警告: {e}")
-
+                    # 向量先攒着，等 commit 完再写。
+                    # 原因：vec_index 用的是新连接，这里 conn 还攥着写事务，
+                    # 直接插会卡在 busy_timeout（30s × 包数），实测能把整个调用拖死。
+                    pending_vec.append((crystal_id, emb))
                     new_count += 1
 
                 conn.commit()
+
+                # 事务落盘后再批量写向量（vec0 rowid 必须 INTEGER，用隐式 rowid）
+                if pending_vec:
+                    try:
+                        items = []
+                        for _cid, _emb in pending_vec:
+                            rw = conn.execute(
+                                "SELECT rowid FROM file_crystals WHERE id=?", (_cid,)
+                            ).fetchone()
+                            if rw:
+                                items.append((rw["rowid"], _emb))
+                        if items:
+                            self.vec_index.insert_many(self._vec_table, items)
+                    except Exception as e:
+                        print(f"[file_crystal] vec_index 批量写入警告: {e}")
+                    pending_vec.clear()
+
+                # 一个上层都没建出来（比如这层每包都不足 2 个），再循环就是死转
+                if new_count == 0:
+                    break
+
                 layers_built += new_count
                 current_layer = next_layer
 
             # 统计顶层
+            # 必须把 content 也选上：底层切片 summary 恒为 None，
+            # 只选 summary 会让 top_total_chars 恒为 0，与实际占用完全不符
             top_rows = conn.execute(
-                "SELECT summary FROM file_crystals WHERE source_path=? AND layer=? AND status='active'",
+                "SELECT summary, content FROM file_crystals "
+                "WHERE source_path=? AND layer=? AND status='active'",
                 (path, current_layer)
             ).fetchall()
-            top_total = sum(len(r["summary"] or "") for r in top_rows)
+            top_total = _pyramid_layer_chars(top_rows)
 
             return {
                 "layers_built": layers_built,
                 "top_layer": current_layer,
                 "top_total_chars": top_total,
                 "path": path,
+                "use_llm": use_llm,
             }
         finally:
             conn.close()

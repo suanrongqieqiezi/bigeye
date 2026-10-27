@@ -24,7 +24,7 @@ from db import get_db
 _VOCAB = {
     "self_aware": {
         # Block 标题
-        "matters_title": "【对我很重要的事】",
+        "matters_title": "【该任务重要的信息】",
         "book_title": "【我的工具书】",
         "task_title": "【我现在在做什么】",
         "dag_title": "【任务流程图】",
@@ -54,11 +54,11 @@ _VOCAB = {
         "anchor_empty_hint": "📌 update_task_brief 写一个，帮自己切换任务时恢复状态",
         "anchor_update_hint": "📌 update_task_brief 更新",
         # 重要事项管理提示
-        "matters_manage_hint": "💡 important_matters_add/update/remove 管理",
+        "matters_manage_hint": "💡 只记本任务里反复要用的约定/参数/用户偏好（跨任务准则进领域书，知识用 remember_knowledge）；important_matters_add/update/remove 管理",
     },
     "human": {
         # Block 标题
-        "matters_title": "【对我很重要的事】",
+        "matters_title": "【该任务重要的信息】",
         "book_title": "【我的工具书】",
         "task_title": "【我在做的事】",
         "dag_title": "【我的计划】",
@@ -88,7 +88,7 @@ _VOCAB = {
         "anchor_empty_hint": "📌 update_task_brief 写一个，下次回来能接上",
         "anchor_update_hint": "📌 update_task_brief 更新",
         # 重要事项管理提示
-        "matters_manage_hint": "💡 important_matters_add/update/remove 管理",
+        "matters_manage_hint": "💡 只记本任务里反复要用的约定/参数/用户偏好（跨任务准则进领域书，知识用 remember_knowledge）；important_matters_add/update/remove 管理",
     },
 }
 

@@ -230,13 +230,16 @@ def _get_matters(tid=None):
 
 
 def _get_matter_items(tid=None):
-    """完整条目视图（带缓冲标记），前端区分已生效/缓冲中。"""
+    """该任务重要信息的完整条目视图（2026-10-26 起只含任务段）。
+    带 id/scope 让前端能定位，pending 标记历史挂起缓冲（正常为空）。"""
     try:
         from tools.mission_overlay import combined_entries
         if tid is None:
             from tools.task_context import get_current_topic
             tid = get_current_topic()
-        return [{"content": e["content"], "pending": bool(e.get("_pending"))}
+        return [{"id": e.get("id"), "content": e["content"],
+                 "scope": e.get("scope", "task"),
+                 "pending": bool(e.get("_pending"))}
                 for e in combined_entries(tid)]
     except Exception:
         return [{"content": c, "pending": False} for c in _get_matters()]
@@ -871,7 +874,7 @@ def _suggestion_template():
 
 
 def _suggestion_context():
-    """给分析模型看的素材：最近任务 + 重要事项 + 记忆统计。"""
+    """给分析模型看的素材：最近任务 + 本任务重要信息 + 记忆统计。"""
     db = get_db()
     lines = []
     try:
@@ -886,7 +889,7 @@ def _suggestion_context():
         pass
     try:
         for m in _get_matters()[:5]:
-            lines.append(f"- 重要事项：{str(m.get('title') or m.get('content') or '')[:60]}")
+            lines.append(f"- 本任务重要信息：{str(m.get('title') or m.get('content') or '')[:60]}")
     except Exception:
         pass
     try:
@@ -958,6 +961,52 @@ def _suggestion_refresh_loop():
         except Exception as e:
             print(f"[大眼X] [suggestion] refresh err: {e}")
         time.sleep(3600)
+
+
+def _mind_auto_tick(name, load_cfg, is_running, fired_day, mark_fired, starter):
+    """到点就跑一次。抽出来是因为「备忘整理」和「记忆网络整理」两套配置要同样的判断。
+
+    用 30 分钟窗口而不是"这一刻正好等于设定值" —— sleep(60) 会跨过整分钟边界
+    （03:00:58 睡到 03:01:58），严格相等比较必然漏触发。
+    当天已跑标记落 meta 不落内存：服务半夜重启后内存标记会丢，同一天会跑两次
+    （用户会发现备忘莫名多了一版）。
+    """
+    cfg = load_cfg()
+    if not cfg.get("auto") or is_running():
+        return
+    now = datetime.datetime.now()
+    day = now.strftime("%Y-%m-%d")
+    if fired_day() == day:
+        return
+    try:
+        hh, mm = [int(x) for x in str(cfg.get("at") or "03:00").split(":")[:2]]
+        target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        delta = (now - target).total_seconds()
+    except Exception:
+        return
+    if 0 <= delta <= 1800:
+        mark_fired(day)
+        r = starter()
+        print(f"[大眼X] [mind] {name}定时整理已触发: {r}")
+
+
+def _mind_schedule_loop():
+    """「自我思绪整理」的定时触发守护：备忘整理 + 记忆网络整理，各看各的配置。"""
+    time.sleep(45)
+    while True:
+        try:
+            from tools import mind_organize as _mind
+            from tools import mind_network as _mnet
+            _mind_auto_tick("备忘", _mind.load_cfg, _mind.is_running,
+                            _mind.auto_fired_day, _mind.mark_auto_fired,
+                            lambda: _mind.start(trigger="schedule",
+                                                resolver=_mind_llm_config))
+            _mind_auto_tick("记忆网络", _mnet.load_cfg, _mnet.is_running,
+                            _mnet.auto_fired_day, _mnet.mark_auto_fired,
+                            lambda: _mnet.start(trigger="schedule"))
+        except Exception as e:
+            print(f"[大眼X] [mind] schedule err: {e}")
+        time.sleep(60)
 
 
 def _auto_compress(text: str, llm_callable=None, force=False) -> tuple[str, str | None]:
@@ -1938,42 +1987,64 @@ def get_model_config():
     return _model_config
 
 
+def _resolve_model_target(provider, model, old):
+    """把 (provider, model) 解析成完整连接参数。
+
+    抽成模块级函数是为了让「任务级模型」和「自我思绪整理模型」共用同一份解析 ——
+    第三方源 / 本地模型 / fallback_chain 三条分支都在这里，各写一份必然改一处漏一处。
+    """
+    urls = {'anthropic': 'https://api.anthropic.com',
+            'openai': 'https://api.openai.com/v1',
+            'deepseek': 'https://api.deepseek.com',
+            'ollama': 'http://localhost:11434/v1',
+            'llamacpp': local_llm.base_url()}
+    if provider in ('llamacpp', 'ninfer'):
+        profile = local_llm.resolve_profile(model)
+        if not profile:
+            raise ValueError(f'本地模型未配置槽位: {model}')
+        cfg = local_llm.get_config()
+        target = next(p for p in cfg.get('profiles', []) if p.get('name') == profile)
+        return dict(provider=provider, model=model,
+                    base_url=f"http://127.0.0.1:{int(target.get('port') or cfg.get('port') or 8080)}/v1",
+                    api_key='', protocol='openai')
+    cp = _custom_provider(provider)
+    if cp:
+        return dict(provider=provider, model=model, base_url=cp['base_url'],
+                    api_key=cp.get('api_key', ''), protocol=cp.get('protocol', ''),
+                    extra_headers=cp.get('extra_headers', {}))
+    # Registered fallback configs retain their own credentials and protocol.
+    with open(os.path.join(ROOT_DIR, 'model_config.json'), encoding='utf-8') as f:
+        _raw = json.load(f)
+    for item in _raw.get('fallback_chain', []):
+        if item.get('provider') == provider:
+            return dict(provider=provider, model=model,
+                        base_url=item.get('base_url') or urls.get(provider, ''),
+                        api_key=item.get('api_key') or _get_provider_key(old, provider),
+                        protocol=item.get('protocol', ''), extra_headers=item.get('extra_headers', {}))
+    if provider not in urls and provider != old.provider:
+        raise ValueError('Unknown model provider')
+    return dict(provider=provider, model=model,
+                base_url=old.base_url if provider == old.provider else urls.get(provider, ''),
+                api_key=_get_provider_key(old, provider))
+
+
 def get_task_model_config(tid):
     def resolve(provider, model, old):
-        urls = {'anthropic': 'https://api.anthropic.com',
-                'openai': 'https://api.openai.com/v1',
-                'deepseek': 'https://api.deepseek.com',
-                'ollama': 'http://localhost:11434/v1',
-                'llamacpp': local_llm.base_url()}
-        if provider in ('llamacpp', 'ninfer'):
-            profile = local_llm.resolve_profile(model)
-            if not profile:
-                raise ValueError(f'本地模型未配置槽位: {model}')
-            cfg = local_llm.get_config()
-            target = next(p for p in cfg.get('profiles', []) if p.get('name') == profile)
-            return dict(provider=provider, model=model,
-                        base_url=f"http://127.0.0.1:{int(target.get('port') or cfg.get('port') or 8080)}/v1",
-                        api_key='', protocol='openai')
-        cp = _custom_provider(provider)
-        if cp:
-            return dict(provider=provider, model=model, base_url=cp['base_url'],
-                        api_key=cp.get('api_key', ''), protocol=cp.get('protocol', ''),
-                        extra_headers=cp.get('extra_headers', {}))
-        # Registered fallback configs retain their own credentials and protocol.
-        with open(os.path.join(ROOT_DIR, 'model_config.json'), encoding='utf-8') as f:
-            _raw = json.load(f)
-        for item in _raw.get('fallback_chain', []):
-            if item.get('provider') == provider:
-                return dict(provider=provider, model=model,
-                            base_url=item.get('base_url') or urls.get(provider, ''),
-                            api_key=item.get('api_key') or _get_provider_key(old, provider),
-                            protocol=item.get('protocol', ''), extra_headers=item.get('extra_headers', {}))
-        if provider not in urls and provider != old.provider:
-            raise ValueError('Unknown model provider')
-        return dict(provider=provider, model=model,
-                    base_url=old.base_url if provider == old.provider else urls.get(provider, ''),
-                    api_key=_get_provider_key(old, provider))
+        return _resolve_model_target(provider, model, old)
     return task_runtime.snapshot(get_model_config(), task_runtime.load_selection(get_db(), tid), resolve)
+
+
+def _mind_llm_config(provider, model):
+    """「自我思绪整理」用的模型。provider/model 为空 = 跟随主模型。"""
+    base = get_model_config()
+    if not provider or not model:
+        return base
+    try:
+        return base.clone_with(**_resolve_model_target(provider, model, base))
+    except Exception as e:
+        print(f"[大眼X] [mind] 整理模型解析失败，回退主模型: {e}")
+        return base
+
 
 
 def _save_model_config():
@@ -3779,6 +3850,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 else:
                     d = self.db.get_topic_tail(tid)
                     d["has_dag"] = _topic_has_dag(tid)
+                    # 可续跑的断点（失败时写）—— 前端错误卡上「继续 / 用备用源继续」的开关。
+                    # 必须走尾部探针一起回：断点是 meta 里的一行，**不产生新消息**，last_id 不变，
+                    # 前端那套"有新消息才刷新"的判据永远命中不了它（2026-10-24 实测：卡在屏上、
+                    # 断点在库、服务端 /api/messages 也回 true，但按钮一直不出现）。
+                    # 主键查一行，与 get_topic_tail 同量级，3s 轮询无压力。
+                    try:
+                        d["resume_ok"] = bool(self.db.get_topic_meta(tid, "resume_ctx"))
+                    except Exception:
+                        d["resume_ok"] = False
                     try:
                         w = get_working(tid)
                         if isinstance(w, dict):
@@ -3820,6 +3900,85 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # 前端设置页用：主模型持续不可用时是否自动换源
                 "auto_fallback": _auto_fallback_enabled(),
             })
+        # ── 自我思绪整理（把反思碎片收敛成常驻纪律，过程可见）──
+        # GET 走轻量状态：前端 1.5s 轮询，live 读的是进程内存，不碰 DB。
+        # 模型列表单独一个 /api/mind/models —— 那个要联网拉 provider 清单，
+        # 混进轮询接口会让每次轮询都等一次网络超时（输入框那边踩过这个坑）。
+        elif path == "/api/mind":
+            try:
+                from tools import mind_organize as _mind
+                from tools import mind_network as _mnet
+                from tools import self_memo as _memo
+                lite = str(params.get("lite", ["0"])[0]).lower() in ("1", "true", "yes")
+                if lite:
+                    # 两个会话并列返回：备忘整理和网络整理是两条独立线程，
+                    # 前端一个轮询同时喂两个面板（各自读进程内存，零 DB 成本）。
+                    # 别把 net_stats 放进来 —— 那是 5 个 SQL，1.5s 一次会把库拖垮。
+                    self._json(200, {
+                        "live": _mind.live(), "running": _mind.is_running(),
+                        "net_live": _mnet.live(), "net_running": _mnet.is_running(),
+                    })
+                else:
+                    out = _mind.state()
+                    out["network"] = _mnet.state()
+                    try:
+                        out["auto"] = _memo.auto_status()
+                        out["auto_history"] = _memo.history(12)
+                    except Exception as e:
+                        out["auto"] = {"error": str(e)}
+                        out["auto_history"] = []
+                    self._json(200, out)
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+        # ── 单条详情：点标题进去看全文 ──
+        # 列表接口里的文本全是截断过的（故事 300 / 权威 150 / 知识页只有标题），
+        # 全文只能单独取。逻辑在 tools/mind_network.detail()（那个能热加载），
+        # 这里只做转发 —— 以后调详情逻辑不用再重启进程。
+        elif path == "/api/mind/detail":
+            try:
+                from tools import mind_network as _mnet
+                self._json(200, _mnet.detail(
+                    params.get("kind", [""])[0],
+                    params.get("id", [""])[0],
+                    params.get("v", [""])[0] or None))
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+        elif path == "/api/mind/models":
+            try:
+                from tools import mind_organize as _mind
+                cfg = get_model_config()
+                models = _build_model_list(cfg)
+                mcfg = _mind.load_cfg()
+                cur_p, cur_m = mcfg.get("provider") or "", mcfg.get("model") or ""
+                follow = not (cur_p and cur_m)
+                # current 标记改成「整理当前用的那个」—— 前端靠它显示「当前」标签。
+                # 跟随主模型时标记主模型那一个，用户一眼能看出默认走的是谁。
+                for m in models:
+                    if follow:
+                        m["current"] = (m.get("provider") == cfg.provider
+                                        and (m.get("id") or m.get("model")) == cfg.model)
+                    else:
+                        m["current"] = (m.get("provider") == cur_p
+                                        and (m.get("id") or m.get("model")) == cur_m)
+                # 兜底只在"用户指定了模型、但列表里找不到"时做。
+                # 跟随主模型时**不能**兜底 —— 「跟随主模型」那一行已经是当前项，
+                # 再给列表第一个打「当前」就成了两个当前，用户没法判断到底用谁
+                # （截图里实拍到了：跟随主模型 + DeepSeek V4 Flash 同时标当前）。
+                if (not follow) and not any(m.get("current") for m in models):
+                    for m in models:
+                        if m.get("available", True):
+                            m["current"] = True
+                            break
+                self._json(200, {
+                    "models": models,
+                    "recent": _recent_model_view(self.db, models),
+                    "provider": cur_p, "model": cur_m,
+                    "follow_main": follow,
+                    "main_model": cfg.model, "main_provider": cfg.provider,
+                })
+            except Exception as e:
+                self._json(500, {"error": str(e), "models": []})
+
         # ── Models fallback chain ──
         elif path == "/api/models/fallback-chain":
             cfg = get_model_config()
@@ -3940,6 +4099,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 })
             except Exception as e:
                 self._json(500, {"error": f"读取搜索配置失败: {e}"})
+
+        # ── 付费搜索引擎：余额（GET 用已保存 key，?force=1 绕过 60s 缓存） ──
+        elif path == "/api/settings/web_search/balance":
+            try:
+                import tools.web_search as _ws
+                force = (params.get("force", [""])[0] or "") in ("1", "true")
+                b = _ws.paid_balance(force=force)
+                self._json(200, b)
+            except Exception as e:
+                self._json(200, {"ok": False, "error": f"{type(e).__name__}: {e}"})
 
         # ── LLM 响应本地缓存 ──
         elif path == "/api/settings/llm_cache":
@@ -4417,15 +4586,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self._json(500, {"error": str(e)})
 
-        # ── 空态活标语：AI 建议池随机 > 时段模板 > 静态兜底 ──
+        # ── 空态活标语：时段模板（原「AI 自动建议池」已并入自我思绪整理，不再生成）──
+        # 保留 /api/slogan 这个接口形状不变：前端只认 {text, source}，改形状会白屏。
         elif path == "/api/slogan":
-            import random
-            cfg = _suggestion_cfg()
-            pool = _suggestion_pool() if cfg["enabled"] else []
-            if pool:
-                self._json(200, {"text": random.choice(pool), "source": "ai"})
-            else:
-                self._json(200, {"text": _suggestion_template(), "source": "tpl"})
+            self._json(200, {"text": _suggestion_template(), "source": "tpl"})
 
         # ── Domain book ──
         elif path == "/api/domain-book":
@@ -6107,6 +6271,72 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     resp["gen_at"] = float(db.get_meta("suggestion_gen_at") or 0)
             self._json(200, resp)
 
+        # ── 自我思绪整理：触发 / 取消 / 存配置 ──
+        elif path == "/api/mind":
+            try:
+                from tools import mind_organize as _mind
+                from tools import mind_network as _mnet
+                from tools import self_memo as _memo
+                action = str(data.get("action") or "")
+                if action == "start":
+                    r = _mind.start(trigger="manual", resolver=_mind_llm_config)
+                elif action == "cancel":
+                    r = _mind.cancel()
+                elif action == "clear":
+                    r = _mind.clear_sessions()
+                # ── 记忆网络整理（与上面完全独立的线程，互不影响）──
+                elif action == "net_start":
+                    r = _mnet.start(trigger="manual")
+                elif action == "net_cancel":
+                    r = _mnet.cancel()
+                elif action == "net_clear":
+                    r = _mnet.clear_sessions()
+                elif action == "net_save_cfg" or any(
+                        k in data for k in ("net_auto", "net_at", "net_max_minutes")):
+                    kw = {}
+                    if "net_auto" in data:
+                        kw["auto"] = bool(data["net_auto"])
+                    if "net_at" in data:
+                        kw["at"] = str(data["net_at"] or "")
+                    if "net_max_minutes" in data:
+                        kw["max_minutes"] = data["net_max_minutes"]
+                    r = {"success": True, "net_cfg": _mnet.save_cfg(**kw)}
+                # ── 常驻备忘的回滚（自动收敛跑了 7 版，得能退回去）──
+                elif action == "memo_rollback":
+                    ok, msg = _memo.rollback(data.get("version"))
+                    r = {"success": True, "message": msg} if ok else {"error": msg}
+                elif action == "save_cfg" or any(
+                        k in data for k in ("auto", "at", "provider", "model",
+                                            "max_rounds", "follow_main")):
+                    kw = {}
+                    if "auto" in data:
+                        kw["auto"] = bool(data["auto"])
+                    if "at" in data:
+                        kw["at"] = str(data["at"] or "")
+                    if data.get("follow_main"):
+                        kw["provider"] = ""
+                        kw["model"] = ""
+                    elif "provider" in data or "model" in data:
+                        kw["provider"] = str(data.get("provider") or "")
+                        kw["model"] = str(data.get("model") or "")
+                    if "max_rounds" in data:
+                        kw["max_rounds"] = data["max_rounds"]
+                    r = {"success": True, "cfg": _mind.save_cfg(**kw)}
+                else:
+                    r = {"error": f"未知操作: {action or '(空)'}"}
+                out = _mind.state()
+                out["network"] = _mnet.state()
+                try:
+                    out["auto"] = _memo.auto_status()
+                    out["auto_history"] = _memo.history(12)
+                except Exception as e:
+                    out["auto"] = {"error": str(e)}
+                    out["auto_history"] = []
+                out["result"] = r
+                self._json(200 if not r.get("error") else 400, out)
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+
         # ── 阻塞式提问回答（ask_user）──
         elif path == "/api/ask_user/answer":
             from tools.ask_user import submit_answer
@@ -7587,6 +7817,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             print(f"[agent] resume after break (attempt {int(_resume_ctx.get('attempts') or 1)}, "
                   f"steps={int(_resume_ctx.get('step_count') or 0)}) topic {tid[:8]}")
             self.db.update_topic(tid, updated_at=time.time())
+            # 续跑已经过完全部校验、马上要起循环了 → 把上一张「⚠ 本轮中断」卡降级。
+            # 不这样做的话，用户点完「继续」、任务已经接着在跑，那张"已停止"的红条还挂着，
+            # 界面同时说两件事（2026-10-24 用户截图实证，卡与"处理中…"并排）。
+            # 只标记不删除（耗时/Token 是本轮真实成本）；本条续跑若又失败，会在下面重新落一张新卡。
+            try:
+                _n_res = self.db.resolve_error_cards(tid)
+                if _n_res:
+                    print(f"[agent] {_n_res} error card(s) marked resolved (topic {tid[:8]})")
+            except Exception as _rc_err:
+                print(f"[agent] resolve error cards failed: {_rc_err}")
         else:
             # 用户发了新消息 = 旧断点作废（否则卡片上的「继续」会拿过期快照去续）
             try:
@@ -7628,16 +7868,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # ── Build system message (v4.0 structured blocks) ──
         blocks = []
 
-        # Block 1: 身份与行为规则（重要事项）—— 视角敏感的标题
+        # Block 0.9: 视角词汇（后续所有 Block 标题都靠它，必须最先拿）
         from tools.perspective import vocab as _vocab
-        matters = _get_matters(tid)
-        if matters:
-            rule_lines = []
-            for i, entry in enumerate(matters, 1):
-                rule_lines.append(f"{i}. {entry}")
-            rule_lines.append("")
-            rule_lines.append(_vocab("matters_manage_hint"))
-            blocks.append(_vocab("matters_title") + "\n" + "\n".join(rule_lines))
+
+        # Block 0.5: 我的行事备忘（全局自我反省的**常驻收敛层**）
+        #
+        # 为什么必须常驻而不是靠召回（2026-10-26，真库实测）：
+        #   memory/reflection.py 已经在写全局反思碎片，实存 279 条 / 31,234 字。
+        #   但它们走记忆网络召回，而召回是"带着当前这句话去查相关记忆"——
+        #   它犯的错恰恰是"没想起来要查"。「动手前先核实实际状态」这条教训
+        #   被它自己写了 39 遍、4,473 字，还在犯。逻辑上不成立：用检索拦"忘记检索"。
+        #   所以把反复出现的收敛成 ≤1000 字，每次都在眼里。
+        #
+        # 为什么放这一组：它属于行为纪律，不是当下状态 ⇒ 落在「身份与规则」组
+        # ⇒ 命中 _SYS_STATIC_SECTIONS ⇒ 进 system 恒定区吃前缀缓存。
+        # 它的变化频率受 tools/self_memo.py 的节流控制（≥8 条新增 且 ≥12h），
+        # 平均一天不到一版，不会像时间戳那样把缓存冲掉。
+        try:
+            from tools.self_memo import render as _self_memo_render
+            _memo_text, _memo_st = _self_memo_render()
+            if _memo_text:
+                blocks.append(_memo_text)
+        except Exception:
+            pass
+
+        # Block 1: 身份与行为规则
+        # 2026-10-26：「重要事项」不再放这里（曾是 Block 1【对我很重要的事】）。
+        # 位置就是权重 —— 放在身份区最前面，AI 会把任务参数当行为准则来守；
+        # 现在它降级为「该任务重要的信息」，跟着 Block 2 当前任务一起注入。
 
         # Block 1.1: 互动基调（氛围记忆，表达调节）——中性标题，不随视角切换
         try:
@@ -7714,6 +7972,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "引用它用 \"产出/<文件名>\" 即可，不用抄下面这行绝对路径。"
             )
         blocks.append(_vocab("task_title") + "\n" + task_header)
+
+        # Block 2.02: 该任务重要的信息（跟随任务；2026-10-26 从 Block 1 降级搬来）
+        # 只含本任务段 —— 全局段已废止，跨任务的清单不再存在。
+        # 它回答的是"这个任务里我该记住什么"，不是"我该怎么做事"：后者归领域书，
+        # 通用知识归记忆网络（remember_knowledge），所以这里紧跟任务描述、不做强调。
+        try:
+            _matters_now = _get_matters(tid)
+        except Exception as _me:
+            print(f"[matters] 注入读取失败: {_me}")
+            _matters_now = []
+        if _matters_now:
+            _info_lines = [f"{i}. {entry}" for i, entry in enumerate(_matters_now, 1)]
+            _info_lines.append("")
+            _info_lines.append(_vocab("matters_manage_hint"))
+            blocks.append(_vocab("matters_title") + "\n" + "\n".join(_info_lines))
 
         # Block 2.05: 交互（一行提示，省上下文；需要时 discover_tools('interaction')）
         blocks.append(
@@ -7917,6 +8190,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                                  current_topic=tid)
                     # 记忆 Block 只显示 core + knowledge，story 已在 Block 5a 常驻
                     non_stories = [f for f in all_fragments if (f.get("layer") or "core") != "story"]
+                    # 本任务的重要信息已经在 Block「该任务重要的信息」里逐条列出，
+                    # 召回层再推一遍就是同一句话说两次（白烧 token 还容易让模型以为
+                    # 是两条不同信息）。这里只剔除"本任务的" —— 别的任务的路下来。
+                    non_stories = [
+                        f for f in non_stories
+                        if not (f.get("source") == "task_matter"
+                                and f.get("topic_id") == tid)
+                    ]
 
                     if non_stories:
                         now_ts = _time.time()
@@ -7996,7 +8277,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             text = f['text']
                             if is_knowledge and len(text) > 200:
                                 text = text[:200] + "…"
-                            mem_lines.append(f"[{ts[:8]} {ts[8:14]}]{layer_mark} {text}{auth}{decay_mark}")
+                            # 跨任务来源必须标出来（与叙事记忆块同一做法）：任务重要信息
+                            # 一旦跨任务浮现，不加标记就等于冒充"本任务的约束"，而它其实
+                            # 可能是另一个任务的专用参数。隔离靠标注，不靠硬拦。
+                            _ftid = f.get("topic_id") or ""
+                            other_mark = " [别的任务]" if (_ftid and tid and _ftid != tid) else ""
+                            mem_lines.append(
+                                f"[{ts[:8]} {ts[8:14]}]{layer_mark} {text}{auth}{decay_mark}{other_mark}")
                         if mem_lines:
                             mem_lines.append("")
                             mem_lines.append(_vocab("memory_tool_hint"))
@@ -8082,7 +8369,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # 支持两种视角的标题（self_aware / human）。
         _BLOCK_LEVELS = {
             # Level 15: 永不删除（身份 + 任务）
-            "【对我很重要的事】": 15,
+            # 2026-10-26：「【对我很重要的事】」→「【该任务重要的信息】」。
+            # 这条改名必须和 _BLOCK_GROUPS 一起改 —— 只改一处会让新标题在
+            # _block_group_key 里落到 (99,99)，被 _compose_system 静默丢弃
+            # （探针第一版就是这么全绿的"假通过"：数据在、块也在，就是不显示）。
+            # 2026-10-26（同日第二轮）：新增「【我的行事备忘】」，同样两处一起登记。
+            "【我的行事备忘】": 15,
+            "【该任务重要的信息】": 15,
             "【我现在在做什么】": 15,
             "【我在做的事】": 15,
             # Level 14: 核心框架（锚点 + DAG）
@@ -8169,12 +8462,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # 工具/记忆/环境放中间（弱注意力），行动依据(DAG+思维链)放尾部（强注意力）。
         _BLOCK_GROUPS = [
             (1, "━━━ 身份与规则 ━━━", [
-                ("【对我很重要的事】", 1),
+                # 行事备忘排最前：它是"我该怎么做事"，比"我在做什么"更靠前才对。
+                ("【我的行事备忘】", 1),
                 ("【我在做的事】", 2), ("【我心里记着的】", 2), ("【心智锚点】", 2),
             ]),
             (2, "━━━ 当前任务 ━━━", [
                 ("【我现在在做什么】", 1),
-                ("【思维导图】", 2),
+                # 跟随任务：重要信息是"这个任务的备注"，不是身份/行为规则，
+                # 所以从第 1 组（身份与规则）搬到这里（2026-10-26 降级）。
+                ("【该任务重要的信息】", 2),
+                ("【思维导图】", 3),
             ]),
             (3, "━━━ 工具与知识 ━━━", [
                 ("【工具使用】", 1),
@@ -8197,12 +8494,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             ]),
         ]
         def _block_group_key(b):
-            """返回 (section_order, block_order)，未知 block 排到最后组最后位"""
+            """返回 (section_order, block_order)。
+
+            🔴 未登记的 block 必须落到一个**有 section header 的组**（这里取最后一组
+            的末尾）。曾经的写法是返回 (99, 99)，而 _compose_system 里
+            `next((sh for so, sh, _ in _BLOCK_GROUPS if so == 99), None)` 得到 None
+            就 `continue` —— 新增 block 静默消失：注入代码跑了、数据也在，模型看不到。
+            2026-10-26 加「该任务重要的信息」时就踩了这个坑（探针断言全绿是假象，
+            因为它只查数据层）。未知块宁可挤在末尾，也不能人间蒸发。
+            """
             for sec_order, sec_header, block_list in _BLOCK_GROUPS:
                 for prefix, blk_order in block_list:
                     if b.startswith(prefix):
                         return (sec_order, blk_order)
-            return (99, 99)
+            return (_BLOCK_GROUPS[-1][0], 99)
         def _compose_system(blocks, focus_level, custom_blocks, auto_note=""):
             """按注意力等级过滤 block 并组装 system prompt。返回 (system_msg, removed_titles)。
 
@@ -9325,13 +9630,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         return
                     Handler._last_narrative_ts = now_ts  # 先占位防并发重复触发
                 from memory.reflection_loop import get_loop
+                from tools import mind_network as _mnet
                 loop = get_loop()
                 backlog = loop.fragment_store.count_unconsolidated_cores()
                 if backlog < 30:
+                    _mnet.note_light("idle", 0, backlog)
                     return
-                n = loop.narrative_consolidation()
-                print(f"[memory] lightweight narrative: +{n} stories (backlog was {backlog})")
+                # 有人在「整理记忆网络」就别抢：两边都调 narrative_consolidation，
+                # 会同时给同一批碎片造故事（同主题唯一化只在单次调用内生效）。
+                # 用非阻塞锁试一下，抢不到就当没这回事——后台任务不该跟用户的操作抢。
+                if not _mnet.NET_BUSY.acquire(blocking=False):
+                    _mnet.note_light("busy", 0, backlog)
+                    return
+                try:
+                    n = loop.narrative_consolidation()
+                    _mnet.note_light("ok", n, backlog)
+                    print(f"[memory] lightweight narrative: +{n} stories (backlog was {backlog})")
+                finally:
+                    try:
+                        _mnet.NET_BUSY.release()
+                    except Exception:
+                        pass
             except Exception as e:
+                try:
+                    _mnet.note_light("error", 0, 0, str(e))
+                except Exception:
+                    pass
                 print(f"[memory] lightweight narrative failed: {e}")
         threading.Thread(target=_lightweight_narrative, daemon=True).start()
         _stats = _task_stats_args()
@@ -9405,10 +9729,13 @@ def main():
         print(f"[大眼X] 有界引用库初始化失败（超限输出将回退旧截断）: {e}")
     # Start suggestion refresher — 空态 AI 建议池按频率静默刷新
     try:
-        threading.Thread(target=_suggestion_refresh_loop, daemon=True).start()
-        print(f"[大眼X] Suggestion refresher started")
+        threading.Thread(target=_mind_schedule_loop, daemon=True).start()
+        print(f"[大眼X] [mind] 自我思绪整理定时器已启动")
     except Exception as e:
-        print(f"[大眼X] Suggestion refresher failed: {e}")
+        print(f"[大眼X] [mind] 定时器启动失败: {e}")
+    # 「AI自动建议」已并入「自我思绪整理」：建议池不再后台静默刷新（那条链路没人看了，
+    # 继续跑只是白烧 token）。空态建议改由 _suggestion_template() 的时段模板兜底，0 token。
+    # 需要恢复时把上面那行换成 threading.Thread(target=_suggestion_refresh_loop, ...) 即可。
     # 预热动态工具检索索引（后台线程，不阻塞启动；失败静默，首次请求会懒加载）
     try:
         from tools import tool_router

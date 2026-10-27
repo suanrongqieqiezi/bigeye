@@ -4,6 +4,21 @@
   --surface:#0a0a0a;
   --surface2:#161616;
   --surface3:#202020;
+  /* 浮面：**浮在内容之上的那一层**。它不能复用 --surface2 —— 暗色下 --surface2(#161616)
+     与 --bg(#0a0a0a) 只差 12 级灰度，浮起来的东西会"看不见"，气泡文字直接从岛里透出来。
+     语义只有一条：暗色越浮越亮、浅色越浮越白（+ 阴影）。 */
+  --float-bg:#232326;
+  /* ── 统一材质（第 6 轮）：岛 / 胶囊 / 输入框共用一套，值取自输入框 ────────────
+     用户原话："把顶栏的透明算法还有颜色，做的跟输入框算法一模一样"。
+     原来顶栏是另一套（中性灰膜 .30 + blur 24 + saturate 45% + brightness .50 + 六层 inset），
+     单独看像玻璃，摆到输入框旁边就是两块材质。现在填充 / 模糊 / 描边 / 投影全走这四个变量。
+     🔴 不进 THEME_VARS：那边是"每套主题全量内联"，白主题只要在
+        html[data-theme="white"]{} 里盖一个 --mat-fill；进那边就得维护三份，
+        而"同一件事写三遍"正是这个文件历来的病根（见 §72b、§82）。 */
+  --mat-fill:rgba(22,22,22,.62);
+  --mat-blur:blur(12px) saturate(125%);
+  --mat-top:rgba(255,255,255,.09);
+  --mat-lift:0 6px 22px rgba(0,0,0,.16);
   --ab:#161616;
   --border:rgba(255,255,255,.07);
   --border2:rgba(255,255,255,.14);
@@ -37,7 +52,39 @@
   --radius-sm:9px;
   --radius-md:14px;
   --radius-lg:20px;
-  --panel-head-h:45px;   /* 面板头部统一高度：主区顶栏 / 侧栏头部 / 设置页头部 共用（原 56px，2026-09-18 收窄 ~20%） */
+  --surface-rgb:10,10,10; /* 顶栏玻璃底的不透明通道（与 --surface 同源，三个主题各自给值）。
+                             顶栏要 backdrop-blur，background 只能带 alpha；而 syncFrameColor()
+                             读 computed backgroundColor 时只取 RGB 三通道 —— 所以桌面壳顶边
+                             拿到的仍是纯色，不会因为半透明变成黑条。 */
+  --panel-head-h:58px;   /* 面板头部统一高度：主区顶栏 / 侧栏头部 / 设置页头部 共用。
+                            2026-10-24 顶栏改成 iOS 两行（标题行 + 副标题行）后回到 58px；
+                            🔴 侧栏竖线 #sidebar::after 的 top 也吃这个变量，改这里必须一起验，
+                                否则竖线会比顶栏底边高/低一截。 */
+  /* —— 顶栏三段高度（§85 顶栏两行）——
+     🔴 --hdr-glass-h 是**唯一真源**：☰ 圆钮 / 右岛胶囊 / 两行信息块三者同高（手机 38，见文末 @media）。
+        以前 .hdr-pill{height:40px} 和 #btnMenu{width:40px;height:40px} 各写一遍，
+        改一处另一处不动，两端的"玻璃高度"当场就不等了。 */
+  --hdr-glass-h:40px;
+  --hdr-pad-top:4px;     /* 信息块离窗口顶边的距离 —— 整个顶栏贴到最顶，只留这一条缝 */
+  --hdr-edge:12px;       /* §98 顶栏两端的窗口边留白（☰ 左缘 / 右岛右缘）。
+                            🔴 顶栏**不再**跟 760 内容列对齐：第 23 轮用户圈住 ☰ 与右岛、
+                               箭头直指两侧边缘「这两个图标请靠边」。1920 窗口下旧算法
+                               = max(12px, (1628-760)/2) = 434px，两端图标全悬在中间。 */
+  --hdr-soft:10px;       /* 留白带余量：玻璃底边之下再留这么一段纯透明底 */
+  --hdr-fade:30px;       /* 9b. 顶部淡入 30px（F2）：10px 是"切"，30px 才读得出"淡" */
+  /* 派生值放 :root，不放 main{}（§92）：看板是 mainPanel 的子元素、不是 main 的后代，
+     写在 main{} 里它取不到 ⇒ top:auto ⇒ 整块顶出屏幕。calc 仍然延迟求值，
+     手机断点改 --hdr-glass-h 之后这两个数照样跟着变。 */
+  --hdr-band:calc(var(--hdr-pad-top) + var(--hdr-glass-h) + var(--hdr-soft));
+  --hdr-clear:calc(var(--hdr-band) - var(--hdr-soft) + var(--hdr-fade));
+  /* §107 顶部淡出带（**唯一真源**）：0..(band - soft) 整段 alpha=0（顶栏那一带是干净的底），
+     再在 --hdr-fade(30px) 内淡成全实，终点正好落在 --hdr-clear = 内容起点。
+     看板的 .mb-body / .mb-detail 直接吃这一条；main 因为底下还接了一段淡出，
+     仍是「上半截 + 下半截」合成的那一条（§9b），别把这里当成第二份定义去改它。 */
+  --fade-top:linear-gradient(to bottom,
+    transparent 0,
+    transparent calc(var(--hdr-band) - var(--hdr-soft)),
+    #000 var(--hdr-clear));
   --sb-gutter:12px;      /* 侧栏水平内缩单一真源：搜索框 / 新建按钮 / 任务卡片 共用同一左边缘 */
   --sb-track:6px;        /* 侧栏任务列表滚动条宽度（与 #topicList 的 padding-right 配合，保证卡片左右留白相等） */
   --sb-ctl-h:32px;       /* 侧栏头部行控件高度：搜索框与新建按钮等高（窄窗 31px） */
@@ -139,8 +186,8 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
    好处：竖线顶端由主区顶栏高度决定，与侧栏头部高度彻底解耦。
    以后侧栏头部调 52/56/60 都不会再让 L 形拐角错位。
    侧栏收起时主区贴到窗口最左，此时隐藏，避免窗口左边留 1px 竖线。 */
-#mainPanel > main,#mainPanel > footer{border-left:1px solid var(--border)}
-#sidebar.closed ~ #mainPanel > main,#sidebar.closed ~ #mainPanel > footer{border-left-color:transparent}
+#mainPanel > main,#mainPanel > footer,#mainPanel > #mindBoard{border-left:1px solid var(--border)}
+#sidebar.closed ~ #mainPanel > main,#sidebar.closed ~ #mainPanel > footer,#sidebar.closed ~ #mainPanel > #mindBoard{border-left-color:transparent}
 
 /* 桌面壳窗口控制按钮：仅 body.is-desktop 时显示 */
 .win-ctrls{display:none;align-items:center;gap:2px;margin-left:6px;flex-shrink:0}
@@ -150,7 +197,8 @@ body.is-desktop .win-ctrls{display:flex}
 .win-ctrls button:hover{background:rgba(255,255,255,.09);color:var(--text)}
 .win-ctrls #btnWinClose:hover{background:#e81123;color:#fff}
 #btnMenu{background:none;border:none;color:var(--text);font-size:19px;cursor:pointer;padding:6px 9px;line-height:1;flex-shrink:0;-webkit-tap-highlight-color:transparent;display:block;border-radius:var(--radius-sm);transition:background .15s}
-#btnMenu:hover{background:rgba(255,255,255,.07)}
+/* hover 的底色统一由 §8d 覆盖块给：这里再写一次只会改到「颜色」那一半，
+   级联是按属性算的 —— 实测 hover 后 background-color 变成 .07 白，实底被抽掉。 */
 header h1{margin:0;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;letter-spacing:.01em}
 #sDot{width:7px;height:7px;border-radius:50%;background:var(--success);flex-shrink:0;box-shadow:0 0 8px rgba(var(--success-rgb),.55)}
 #sDot.thinking{background:var(--warn);box-shadow:0 0 8px rgba(var(--warn-rgb),.55);animation:dotBreath 1.2s ease-in-out infinite}
@@ -196,8 +244,22 @@ main{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 12px;display:flex;fle
 .row.you .av{background:var(--ub)}.row.ai .av{background:linear-gradient(135deg,#333a4d,#252b3a);border:1px solid var(--border)}
 .av img{width:100%;height:100%;border-radius:50%;object-fit:cover}
 .bubble{padding:10px 14px;border-radius:var(--radius-md);font-size:13.5px;line-height:1.6;word-break:break-word;overflow-wrap:anywhere;overflow:hidden;min-width:0}
-.row.you .bubble{background:var(--ub);color:#052823;border-bottom-right-radius:4px;white-space:pre-wrap;box-shadow:0 3px 14px rgba(var(--accent-rgb),.22)}
-.row.ai .bubble{background:var(--ab);border:1px solid var(--border);border-bottom-left-radius:4px;box-shadow:var(--shadow-sm)}
+/* 2026-10-27 手机端气泡被撑出视口（用户报「显示图片气泡变宽，都挤出去」）：
+   .row 的直接 flex 子项不是 .bubble，而是它外面那层**无类 div**（render 里写的是
+   `<div class="av">…</div><div><div class="bubble">…</div>…</div>`）。
+   那层 min-width:auto ⇒ 收缩下限 = 内容的 min-content，而气泡里路径行是 white-space:nowrap，
+   实测把它顶到 468px ⇒ 390 屏上气泡量出 492px、比 .row(98%=357.7px) 还宽，右边被 chatBox 裁掉。
+   🔴 `.bubble{min-width:0}` 改不动它 —— 它不是 flex item。必须给这层也写 min-width:0，
+   让宽度由 flex 分配、内容溢出交给 .bubble 的 overflow:hidden 去裁（路径行本来就要裁头留尾）。 */
+ .row>div:not(.av){min-width:0}
+/* 2026-10-25 气泡高度：marked 把一句话渲染成单独一个 <p>，`.bubble p{margin:5px 0}` 的上下
+   5px 在 overflow:hidden（BFC）下不折叠 ⇒ 单段落气泡凭空高 10px。单段落一律不吃 margin。 */
+.bubble .msg-body>p:only-child{margin:0}
+/* 超短单行消息（≤12 字符、无换行，用户 2026-10-25「单字气泡太高」）：
+   padding 收到 6px 上下，一个字的气泡从竖长绿砖变横向小胶囊；圆角不变（14px 自动收边）。 */
+.bubble.tight{padding:6px 12px;line-height:1.45}
+.row.you .bubble{background:var(--ub);color:#052823;white-space:pre-wrap;box-shadow:0 3px 14px rgba(var(--accent-rgb),.22)}
+.row.ai .bubble{background:var(--ab);border:1px solid var(--border);border-top-left-radius:4px;box-shadow:var(--shadow-sm)}
 .meta{font-size:10.5px;color:var(--tdim);margin-top:4px;opacity:.85}.row.you .meta{text-align:right}
 .msg-stat{font-variant-numeric:tabular-nums;white-space:nowrap;margin-left:10px}
 /* ══ 气泡底部动作条（2026-10-23 二次改造）═════════════════════════════
@@ -338,6 +400,12 @@ html[data-theme="white"] #msgToast{background:rgba(34,38,45,.94)}
 .err-btn.primary:hover{background:rgba(var(--accent-rgb),1)}
 .err-btn[disabled]{opacity:.5;cursor:default}
 .err-btn svg{width:11px;height:11px;display:block}
+/* 已续跑的失败卡（服务端续跑时给它打 args.resolved）：
+   任务已经接着跑了，就不能再挂「⚠ 本轮中断」红条和排障详情 —— 界面上"正在跑"和"已停止"
+   并排出现，用户不知道该信哪个（2026-10-24 用户实拍）。但也不能整条消失：
+   点完「继续」得有东西证明"确实续上了"，所以留一行灰字痕迹。 */
+.err-done{flex:1;min-width:0;padding:2px 2px 0;font-size:11.5px;line-height:1.55;color:var(--tdim);opacity:.78}
+.err-done-ico{font-style:normal;margin-right:4px}
 /* 未得到回复的用户消息：气泡正下方的「重新发送」按钮（2026-10-07 用户要求） */
 .resend-btn{display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:2px 9px;font-size:10.5px;font-family:inherit;line-height:1.5;color:var(--accent);background:rgba(var(--accent-rgb),.12);border:1px solid rgba(var(--accent-rgb),.3);border-radius:11px;cursor:pointer;vertical-align:middle;transition:background .15s,color .15s}
 .resend-btn:hover{background:rgba(var(--accent-rgb),.24)}
@@ -353,6 +421,24 @@ html[data-theme="white"] #msgToast{background:rgba(34,38,45,.94)}
  .row.you .msg-att{background:#2a2a2a}
  .msg-att-img{display:block;max-width:min(260px,100%);max-height:220px;width:auto;height:auto;border-radius:10px;cursor:zoom-in;margin:2px 0}
  .msg-att-media{display:block;max-width:min(280px,100%);border-radius:10px;margin:2px 0}
+ /* ── 气泡内本地媒体的就地展示（2026-10-27）─────────────────────────────
+    AI 常把成品图的绝对路径单独写成一段代码块，用户看到的是"一大块路径框"。
+    现在这段路径在**原位置**换成图片/视频/音频 + 一行极淡路径：
+      · 媒体可点 → 复用 #imgLightbox 放大（imgViewerFromEl）
+      · 路径只剩一行 14px、opacity .45；放不下时向左裁（文件名永远可见）
+      · 🔴 完整路径原样留在 DOM：copyMsg/朗读读的是 .msg-body 的 innerText，
+        拿省略号当过场会让"复制这条消息"丢内容 —— 裁切只许走 CSS。
+    margin-right:auto 是关键：有余量时把路径顶到左边（短路径别右对齐），
+    溢出时 auto 退化成 0，justify-content:flex-end 才接管 → 尾部可见、头部被裁。 */
+ .lm-emb{margin:6px 0;max-width:100%}
+ .lm-img{display:block;max-width:min(560px,100%);max-height:min(56vh,520px);width:auto;height:auto;border-radius:10px;cursor:zoom-in;margin:0}
+ .lm-media{display:block;max-width:min(420px,100%);border-radius:10px;margin:0}
+ .lm-path{display:flex;align-items:baseline;justify-content:flex-end;overflow:hidden;white-space:nowrap;
+   max-width:100%;margin-top:4px;font:10.5px/14px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+   color:var(--tdim);opacity:.45;cursor:copy;user-select:none;-webkit-user-select:none;transition:opacity .15s}
+ .lm-path>span{flex:0 0 auto;margin-right:auto}
+ .lm-path:hover{opacity:.85}
+ .lm-emb.bad .lm-path{white-space:normal;word-break:break-all;opacity:.62;cursor:text}
  /* 图片查看浮窗（body 级，z-index 高于画中画 9990 与所有模态 100） */
 #imgLightbox{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.96);display:none;flex-direction:column;overscroll-behavior:contain;
   transition:background .28s linear}
@@ -1003,28 +1089,35 @@ body.fb-over #fileBrowser{z-index:12;box-shadow:-18px 0 44px rgba(0,0,0,.55)}
 #fbHeadBtns{display:flex;align-items:center;gap:8px;flex-shrink:0}
 #fbHeadBtns.hide{display:none}
 /* ── 文件标签工具条（粘贴/队列）：从全局顶栏迁入文件视图内容区 ── */
-/* 工具区是 flex-shrink:0（按钮不压缩），内容宽是硬需求；2026-09-28 图标化之前它要 ~445px，
-   而 #fileBrowser 拖窄时只有 ~380px，溢出部分会被 #fileBrowser{overflow:hidden} 直接裁掉
-   （「队列」整颗按钮消失、「查看 缩略图」被切一半）。这里让路径行自己横向可滑：宽屏
-   scrollWidth==clientWidth 毫无变化，窄栏下滑一下就能拿到被裁的按钮 —— 比强行压缩/换行更不打扰网格区高度。
-   ⚠️ 图标化后工具区实测只要 ~232px（300px 窄栏里也只 196px），这条横向兜底平时不再触发，
-   但保留 —— 窄栏 + 「粘贴」按钮 + 传输队列同时出现时仍可能用到。 */
-.fb-path-row{display:flex;align-items:center;gap:6px;padding-right:12px;border-bottom:1px solid var(--border);background:var(--surface2);flex-shrink:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+/* 工具区是 flex-shrink:0（按钮不压缩），内容宽是硬需求；2026-09-28 图标化之前它要 ~445px。
+   2026-09-28～10-24 间靠"路径行自己横向可滑"兜底被裁的按钮，但那条兜底同时把路径压成了缝，
+   2026-10-24 起改成"放不下就把路径整段换到第二行"（见下条），工具区从此不会再被裁。
+   行容器仍留 overflow-x:auto —— 窄栏 + 「粘贴」按钮 + 传输队列同时出现时的最后兜底。 */
+/* 路径行（2026-10-24 重写）：放得下就一行（路径在左、工具贴右），放不下就把**路径整段**换到第二行。
+   用户诉求：路径变长超出容器时要"直接放在第二行"，不要被挤成一条缝、还在字符中间切断
+   （手机 390px 实测：路径只拿到 125px，`工作区 › __pycache__` 最后半个字被切掉）。
+   ⇒ 路径 flex:0 0 auto（**不参与压缩**：只要它还能压缩，就永远不会换行，只会继续被切）
+   ＋ 行容器 flex-wrap:wrap-reverse（单行时顺序不变；需要换行时，被换下去的那一行落在下方，
+      于是路径落到第二行，而不是把工具区挤到路径下面）。
+   ⚠️ 别改成 wrap + order：order 在单行时也会重排，工具区会跑到路径左边去。
+   ⚠️ 也别把路径改回 overflow-x:auto 横向滚：滚动条已隐藏，用户根本发现不了右边还有字。 */
+.fb-path-row{display:flex;align-items:center;gap:0 6px;padding-right:12px;border-bottom:1px solid var(--border);background:var(--surface2);flex-shrink:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;flex-wrap:wrap-reverse}
 .fb-path-row::-webkit-scrollbar{height:0}
-.fb-path-row #fbWorkspace{border-bottom:none;background:none;flex:1 1 auto;min-width:88px;padding-right:4px;flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
-.fb-path-row #fbWorkspace::-webkit-scrollbar{height:0;display:none}
-#fbFileTools{display:flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;flex-wrap:wrap}
+/* 路径盒：独占一行时宽度＝整行；单段名字比整行还长时在盒子里折行（最多 3 行，再多竖向滚） */
+.fb-path-row #fbWorkspace{border-bottom:none;background:none;flex:0 0 auto;min-width:0;max-width:100%;padding-right:4px;flex-wrap:wrap;align-content:flex-start;white-space:normal;word-break:break-all;overflow-x:hidden;overflow-y:auto;max-height:calc(1.55em * 3 + 18px);scrollbar-width:none}
+.fb-path-row #fbWorkspace::-webkit-scrollbar{width:0;height:0;display:none}
+/* 工具区：换行后在自己那一行里靠右（单行时也贴右，与改前观感一致） */
+#fbFileTools{display:flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;flex-wrap:wrap;margin-left:auto}
 /* ── 窄面板紧凑模式（#fileBrowser 宽 < 340px 时由 fbNarrowFit() 打上 body.fb-narrow）──
    5 个控件（筛选框/排序/分类/查看/队列，粘贴按钮平时隐藏）的硬需求宽度：图标化前 445px，
    拖到最小 300px 会折 3 行、路径行撑到 88px 高；**2026-09-28 图标化后只要 ~232px**
    （300px 窄栏里实测 196px / 1 行 / 路径行 38px）。这里只压 padding/字号/间距（不动文案与顺序），
    保证控件全部可见且最多折 2 行 —— 用户 2026-09-28 拍板「全部可见，最多折 2 行」。 */
-body.fb-narrow .fb-path-row #fbWorkspace{min-width:70px}
 body.fb-narrow #fbFileTools{gap:4px}
 body.fb-narrow #fbFileTools button{padding:4px 6px;font-size:11px;gap:2px}
 body.fb-narrow .fb-path-row .fb-q{flex:0 1 84px;width:84px;padding:3px 6px;font-size:11px}
 #fbFileTools button,.ab-browse-tools button{background:var(--surface3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius-sm);padding:4px 10px;font-size:11.5px;cursor:pointer;transition:all .15s;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;gap:4px}
-/* 文件名筛选框（左栏工具条 / 右栏浏览头共用）：宽屏给固定宽，窄了让路径列先收缩 */
+/* 文件名筛选框（左栏工具条 / 右栏浏览头共用）：宽屏给固定宽；窄了不压它，改用"路径整段落第二行"让位（见 1010 行） */
 .fb-q{background:var(--surface3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius-sm);padding:4px 8px;font-size:11.5px;outline:none;flex:0 1 104px;width:104px;min-width:0;transition:border-color .15s}
 .fb-q::placeholder{color:var(--tdim)}
 .fb-q:focus{border-color:rgba(var(--accent-rgb),.55);background:var(--surface2)}
@@ -1063,11 +1156,20 @@ body.fb-narrow .fb-path-row .fb-q{flex:0 1 84px;width:84px;padding:3px 6px;font-
 /* (旧 #wsPanel/#wsRail 浮层已移除：画布现为文件管理面板内部视图) */
 
 /* 回到底部浮键：向上翻阅时出现 */
-#btnJump{position:absolute;right:16px;bottom:82px;z-index:5;width:36px;height:36px;border-radius:50%;background:var(--surface3);border:1px solid var(--border2);color:var(--tdim);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity .18s,transform .18s,border-color .18s,color .18s,box-shadow .18s;box-shadow:0 4px 14px rgba(0,0,0,.4)}
-#btnJump svg{display:block}
-#btnJump.show{opacity:1;pointer-events:auto;transform:translateY(0)}
-#btnJump:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 4px 16px rgba(var(--accent-rgb),.25)}
-@media(max-width:768px){#btnJump{bottom:74px;right:12px}}
+/* §106 回到底部浮键：中间正下方 · 与 ☰/右岛/输入框同一套 --mat-* 材质。
+   定位用 left:50% + translateX(-50%)，不需要补偿量：桌面 #mainPanel 是 292..1440，
+   中轴 866；输入框 486..1246，中轴也是 866（main 的 padding 左右对称）。手机 195/195。
+   纵向 = bottom:calc(--composer-h + 14px)，与输入框留 20px。第 33 轮从 +26 收到 +14
+   （用户「再靠下一点」）；再往下就要撞输入框的圆角高光了，14 是这条线的下限。 */
+#btnJump{position:absolute;left:50%;right:auto;bottom:calc(var(--composer-h,68px) + 14px);z-index:40;width:38px;height:38px;border-radius:999px;background:var(--mat-fill);-webkit-backdrop-filter:var(--mat-blur);backdrop-filter:var(--mat-blur);border:1px solid var(--border2);color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;pointer-events:none;transform:translate(-50%,8px);transition:opacity .18s ease,transform .18s ease,color .15s ease,background-color .15s ease;box-shadow:inset 0 1px 0 var(--mat-top),var(--mat-lift)}
+#btnJump svg{display:block;width:18px;height:18px}
+#btnJump.show{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
+/* 有实底之后 hover 只能叠一层提亮，不能写 background 简写（会把 --mat-fill 一起换掉，§84 坑 2）。
+   这里与 #btnMenu:hover 同构，两个按钮鼠标上去是同一种反馈。 */
+#btnJump:hover{color:var(--text);background-color:var(--mat-fill);background-image:linear-gradient(var(--hover),var(--hover))}
+#btnJump:active{transform:translate(-50%,0) scale(.94)}
+/* 位置由 bottom:calc(--composer-h + 14px) 统一管，窄屏只收尺寸（38→36，与 ☰ 的 40→38 同节奏） */
+@media(max-width:768px){#btnJump{width:36px;height:36px}}
 
 /* ── 工具条图标按钮：排序 / 分类 / 查看 / 队列（2026-09-28 图标化）──
    用户口径：「这里还是改成图标的方式，不然太丑了」（参考资源管理器的图标按钮 + 菜单）。
@@ -1351,7 +1453,6 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
 .fv-body>.fv-md,.fv-body>.fv-pre{flex:0 0 auto;overflow:visible}
 /* 4. 移动端记忆面板缩小，留出滑动主页的空间；关联图画布交给自定义手势 */
 @media(max-width:768px){
-  #sysMemoryModal .modal-box{max-height:88vh;width:94%}
 }
 #fragGraph{touch-action:none}
 
@@ -1463,7 +1564,9 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
    "等待你确认"只剩开头一行、选项和输入框根本看不到（2026-09-24 反馈）。
    改成给正文区设上限 → 盒高 = 表头 + 正文上限 + 卡片自然高，卡片永远完整；
    正文超出部分照旧在 .proc-body 内部滚动，盒子高度依然恒定不跳。 */
-.row.proc-live .proc-box{background:var(--surface2);border-color:rgba(255,255,255,.16);opacity:1;color:var(--text);font-size:12px;max-height:none;animation:neonGlow 14s linear infinite;filter:none}
+/* height 必须进 transition：空态(108px) ↔ 有内容(352px) 靠它平滑拉开，
+   否则第一个 token 到达的瞬间，下面整块对话会被顶下去 244px。 */
+.row.proc-live .proc-box{background:var(--surface2);border-color:rgba(255,255,255,.16);opacity:1;color:var(--text);font-size:12px;max-height:none;animation:neonGlow 14s linear infinite;filter:none;transition:max-height .35s cubic-bezier(.22,1,.36,1),height .35s cubic-bezier(.22,1,.36,1),opacity .15s,border-color .15s}
 /* 🔴 height 必须写死，不能只给 max-height：正文比 48px 短的时候（模型刚吐头两行思考），
    body 的自然高就是内容高 → 盒子跟着内容一路长高（实测 66px→76px→88px 三段），
    每长一档就把整个对话顶上去 9~12px，用户看到的就是「一发送，画面跳几下」。
@@ -1471,6 +1574,31 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
 .row.proc-live .proc-box .proc-body{flex:1 1 auto;height:48px;max-height:48px}      /* 折叠档：盒高恒 ≈ 88px（与原档位一致） */
 .row.proc-live .proc-box.open{max-height:352px;height:352px}
 .row.proc-live .proc-box.open .proc-body{max-height:312px}             /* 展开档：盒高固定 352px（内容增长只滚动正文，盒子不跳），正文上限 312 与原值一致 */
+/* ── 空态展开档（.proc-empty，JS 判据见 _syncProcEmpty）─────────────────────
+   旧写法展开就是 352px 的空盒子，里面只有一行「等待模型输出…」——模型还没吐
+   第一个 token 时点开，看到的是一个又窄又高、还裹着霓虹灯的空壳，像坏了。
+   这里把展开档高度压到 108px：点开能看见"我在等"，但不再是一片虚空。
+   🔴 height 用**固定值**而不是 auto —— auto ↔ 352px 无法插值，内容一到位
+   会"啪"地跳一下；固定值才能被上面那条 height transition 平滑拉开。
+   🔴 必须 :not(.proc-asking)：提问卡在场时高度归 .proc-asking 管（auto），
+   否则这条（特异性更高）会把卡片压扁裁掉。 */
+.row.proc-live .proc-box.open.proc-empty:not(.proc-asking){height:108px;max-height:108px}
+.row.proc-live .proc-box.open.proc-empty:not(.proc-asking) .proc-body{flex:1 1 auto;min-height:0;height:auto;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
+/* 占位行：三点呼吸 —— 让"没内容"读成"在等"，而不是"坏了"。
+   min-width 是给盒子定宽用的：盒宽本来跟 head 行（"思考中… 简约"）走，只有 ~126px，
+   三点 + 文案会把最后那个「…」顶出右边界（实测被裁）。这条把占位行撑到 200px，
+   盒子随之变宽，文案完整（手机上被 .proc-box 的 max-width:100% 兜住）。 */
+.w-live-wait{display:flex;align-items:center;gap:6px;min-width:200px}
+.w-live-dots{display:inline-flex;align-items:center;gap:3px;flex:0 0 auto}
+.w-live-dots i{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.4;animation:wlwPulse 1.2s ease-in-out infinite}
+.w-live-dots i:nth-child(2){animation-delay:.18s}
+.w-live-dots i:nth-child(3){animation-delay:.36s}
+@keyframes wlwPulse{0%,100%{opacity:.35;transform:translateY(0)}50%{opacity:1;transform:translateY(-1px)}}
+@media(prefers-reduced-motion:reduce){.w-live-dots i{animation:none;opacity:.6}}
+/* 空态里那个空占位容器别带外边距 —— 否则 justify-content:center 会被
+   .w-live-log:not(:empty){margin-top:4px} 加 .w-think{margin:2px 0} 顶偏 8px */
+.row.proc-live .proc-box.open.proc-empty:not(.proc-asking) .proc-body .w-live-log{margin-top:0}
+.row.proc-live .proc-box.open.proc-empty:not(.proc-asking) .proc-body .w-think:empty{display:none}
 /* ⚠️ 必须排在 .open 之后（同特异性取后者）：提问态要压掉展开档的高度 ——
    实测旧写法在展开态把正文挤到 25px（几乎没有正文），卡片再高一点又同样被裁。 */
 .row.proc-live .proc-box.proc-asking{max-height:none;height:auto}
@@ -1714,7 +1842,7 @@ html[data-theme="white"] #btnFlowChart:hover{opacity:1;background:rgba(var(--acc
         <div class="sf-cost" id="sidebarCost" data-page-node-id="lFNDZOHVUfANvJ0sMLD6aT"><div class="sf-cost-inner" data-page-node-id="wEbmiKqDjRyUK3UaEtBvil"><span class="sf-cost-val" id="sidebarCostVal" data-page-node-id="pP6UEcembVIhEeyMrV5WFC">¥ —</span><span class="sf-tokens" id="sidebarTokens" data-page-node-id="ifS7Iazd545yl8GVkSv5yN">— tok</span></div></div>
         <button class="sf-btn" onclick="openSettings('mobile')" title="移动端" data-page-node-id="uFxzvABPrzXVp2XtepeMHq"><span class="sf-icon" data-page-node-id="LRFu1vyUtALGJBh5TkQWtg"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="xybs8iFWKXBM39Y70C9HPP"><rect x="7" y="2" width="10" height="20" rx="2" data-page-node-id="3ZZG1wDaXJq4mOt3EnVKVI"/><line x1="11" y1="18" x2="13" y2="18" data-page-node-id="mnaHEYGXr5aNK5tQE7RHVw"/></svg></span></button>
         <button class="sf-btn" onclick="openSettings()" title="设置" data-page-node-id="G8Wiy08ziHqFMtF4M0U9AZ"><span class="sf-icon" data-page-node-id="mvXxhydqUaehQpKfnIzPAx"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="fmMu45gb5RMtYRJ9EDghT9"><circle cx="12" cy="12" r="3" data-page-node-id="NsNKjR3QaH33pbCiRthHL1"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" data-page-node-id="s0oE5uEHmlarqCY4pZJZ1B"/></svg></span></button>
-        <button class="sf-btn" onclick="openSysMemory()" title="状态" data-page-node-id="dMJHlvXgsBsQOK5vG84HNi"><span class="sf-icon" data-page-node-id="5lngUmJeInOFcW1anX2U4Z"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="IM3qerWhMZVdVvhocE0dDy"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" data-page-node-id="fAoVgWWSf4FVNl9LEjsD7G"/></svg></span></button>
+        <button class="sf-btn" onclick="openMindBoard('mem')" title="状态" data-page-node-id="dMJHlvXgsBsQOK5vG84HNi"><span class="sf-icon" data-page-node-id="5lngUmJeInOFcW1anX2U4Z"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="IM3qerWhMZVdVvhocE0dDy"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" data-page-node-id="fAoVgWWSf4FVNl9LEjsD7G"/></svg></span></button>
       </div>
     </div>
     <div id="sidebarSettings" data-page-node-id="0t3QzIw0ht908jWd0Rc6JL">
@@ -1735,16 +1863,6 @@ html[data-theme="white"] #btnFlowChart:hover{opacity:1;background:rgba(var(--acc
     <div class="modal-body" id="changelogBody" data-page-node-id="lFKGcPOboEcxTBinAVuqzW">加载中…</div>
   </div>
 </div>
-<div id="sysMemoryModal" class="modal-overlay" onclick="closeSysMemory(event)" data-page-node-id="qQIp95eW58wofORhi4G4O8">
-  <div class="modal-box" style="max-width:680px" onclick="event.stopPropagation()" data-page-node-id="GWO1gP0T2ejKSn6CoBKEFM">
-    <div class="modal-header" data-page-node-id="WnrJtDcrOauxlSXen5GwGU">
-      <span data-page-node-id="vQXTKofSNBfTLRF7S6jR8P">状态</span>
-      <button class="modal-close" onclick="document.getElementById('sysMemoryModal').classList.remove('show')" data-page-node-id="HxJwmlQsDiBl3CPr6R4KMJ">✕</button>
-    </div>
-    <div class="modal-body" id="sysMemoryBody" style="max-height:78vh;overflow-y:auto" data-page-node-id="opUaSEqoBuwySQnsGDBhcp">加载中…</div>
-  </div>
-</div>
-
 <!-- Task Flow Chart Modal -->
 <div id="flowChartModal" class="modal-overlay" onclick="closeFlowChart(event)" data-page-node-id="C9SKlkMEcrIBOYCgv7FCmH">
   <div class="modal-box" style="max-width:1320px;width:96vw;height:92vh;max-height:92vh;display:flex;flex-direction:column" onclick="event.stopPropagation()" data-page-node-id="qghOSQUcVYai8HAk1CZmnq">
@@ -1763,16 +1881,35 @@ html[data-theme="white"] #btnFlowChart:hover{opacity:1;background:rgba(var(--acc
 <div id="mainPanel" data-page-node-id="Nxvhkjz3sTUbKKMSNL8hCD">
 <div id="dropChatHint" class="drop-hint" data-page-node-id="GuWH6ukhTVxAoBtBhePMWD">松开添加为附件</div>
 <header class="win-drag" data-page-node-id="Cou3E7IGVfcEWkTBFu4TT9">
-  <button id="btnMenu" onclick="toggleSidebar()" data-page-node-id="vCCw8NemUwQvzJuA9gyVpx">☰</button>
-  <div id="sDot" data-page-node-id="1I2MsGBwa95VYv4M36vESf"></div>
-  <div id="workingDot" data-page-node-id="P1FDSObIu3xDGkSd16vvfn"></div>
-  <h1 id="topicTitle" class="hp-skel" data-page-node-id="DX8yp6XCOrDqgrGWPys9nR"><span id="topicTitleText" data-page-node-id="QHfKdiIwPflwfbT6HBADQW">AI</span><button id="btnFlowChart" type="button" onclick="openFlowChart()" title="查看任务流程图" aria-label="查看任务流程图" data-page-node-id="BtnFlowChartEntry"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="5" rx="1.5"/><rect x="2" y="16.5" width="6" height="5" rx="1.5"/><rect x="16" y="16.5" width="6" height="5" rx="1.5"/><path d="M12 7.5v3"/><path d="M12 10.5H5.5a1 1 0 0 0-1 1v5"/><path d="M12 10.5h6.5a1 1 0 0 1 1 1v5"/></svg></button></h1>
-  <span id="sText" style="display:none" data-page-node-id="5fvIIpnUaZxH1bKR4k7tvT"></span>
-  <span id="tokenDisplay" class="hp-skel" style="font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;min-width:60px;text-align:center" data-page-node-id="FOBO7vamDYScRoSQ1DlI8d">—</span>
-  <span id="wmDisplay" title="工作记忆使用率" style="display:none;align-items:center;gap:5px;font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;line-height:1" data-page-node-id="B46HI1kM7BB4xgJmgwNHtC"><svg width="14" height="14" viewBox="0 0 36 36" style="display:block;flex-shrink:0" data-page-node-id="H6FiOC1tcFz41Gosf55bE9"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="6" data-page-node-id="LjJCsBUmCaMFCTchrEpFVv"/><circle id="wmRing" cx="18" cy="18" r="14" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round" stroke-dasharray="0 88" transform="rotate(-90 18 18)" data-page-node-id="dA5pvxYsF6BlrbxYtta9Kq"/></svg><span id="wmPct" data-page-node-id="2A7JAGUEHWYOC8Y4y6PBCA">—</span></span>
-  <span id="balanceDisplay" class="hp-skel" style="display:inline-flex;align-items:center;font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap;line-height:1" data-page-node-id="YRbGjBGDY1qWHIS3gM9dW7"><span id="balLbl" style="white-space:pre">余额 </span><span id="balText">—</span></span>
-  <button id="btnFiles" onclick="toggleFileBrowser()" title="工作区文件（Esc 关闭）" data-page-node-id="gyN19HiRLgwHXuSmo89RcX"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="FY0maM0KOiYKW1qOqOALv8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" data-page-node-id="u6SKPAS6NsdomlHN2I6id5"/></svg></button>
-  <button id="btnDebug" onclick="toggleDebugPanel()" title="调试面板" data-page-node-id="c8zFNAuu46kNHCSvRjFZ5d"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="HLPgQILxXRrOznMrMVMQAm"><rect x="8" y="7" width="8" height="13" rx="4" data-page-node-id="GW6fRfl9f0CECGmTr2YUUZ"/><path d="M12 7V5" data-page-node-id="ajUNdVxfHK2VbyUFCj6RHH"/><path d="M10 5.5 9 3.5" data-page-node-id="KbHkliUrWFSx5zgcqaTWAI"/><path d="M14 5.5 15 3.5" data-page-node-id="i92pOGPJRWzWCH2xEjreP0"/><path d="M8 11H4" data-page-node-id="ix260ARmzGqvvb9nqStRyu"/><path d="M8 15H5" data-page-node-id="yqwVNChRcUqkgaofipPsi8"/><path d="M8 18.5H4" data-page-node-id="VOALKF0ad1SrftlyHDN8Au"/><path d="M16 11h4" data-page-node-id="uWcTCixEL8ycNd8sOoUzks"/><path d="M16 15h3" data-page-node-id="7NbGMcdWH8HEvWw4xMqgwC"/><path d="M16 18.5h4" data-page-node-id="q7IAJKUmVcYtlLjNukZ8JU"/></svg></button>
+  <div class="hdr-pill hdr-pill-l win-drag" data-page-node-id="Cou3HdrPillL">
+    <!-- §101：按钮 = 悬浮层，内容 = 另一层（用户定的 ui 标注）。
+         ☰ 与 ← **两枚按钮**合成一条胶囊；「状态」是内容，独立在胶囊外面。
+         对话态不套壳 —— ☰ 还是它自己那枚圆钮（§8d）。 -->
+    <div class="hdr-btnbar" id="hdrBtnBar">
+      <button id="btnMenu" onclick="toggleSidebar()" title="任务列表" aria-label="任务列表" data-page-node-id="vCCw8NemUwQvzJuA9gyVpx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3.8 6.6h16.4"/><path d="M3.8 12h16.4"/><path d="M3.8 17.4h16.4"/></svg></button>
+      <!-- §94：看板打开时的返回入口。跟 ☰ 同一套圆钮，并排住在同一条胶囊里。 -->
+      <button id="mbHdrBack" type="button" onclick="mbBack()" title="返回（Esc）"
+            aria-label="返回对话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15 18 9 12 15 6"/></svg></button>
+    </div>
+    <div class="hdr-info" data-page-node-id="HdrInfoCol">
+      <h1 id="topicTitle" class="hp-skel" data-page-node-id="DX8yp6XCOrDqgrGWPys9nR"><span id="topicTitleText" data-page-node-id="QHfKdiIwPflwfbT6HBADQW">AI</span><span id="mbHdrTitle">状态</span></h1>
+      <div class="hdr-sub" data-page-node-id="HdrSubRow">
+        <div id="workingDot" data-page-node-id="P1FDSObIu3xDGkSd16vvfn"></div>
+        <div id="sDot" data-page-node-id="1I2MsGBwa95VYv4M36vESf"></div>
+        <span id="wmDisplay" title="工作记忆使用率" style="display:none" data-page-node-id="B46HI1kM7BB4xgJmgwNHtC"><svg width="14" height="14" viewBox="0 0 36 36" style="display:block;flex-shrink:0" data-page-node-id="H6FiOC1tcFz41Gosf55bE9"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="6" data-page-node-id="LjJCsBUmCaMFCTchrEpFVv"/><circle id="wmRing" cx="18" cy="18" r="14" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round" stroke-dasharray="0 88" transform="rotate(-90 18 18)" data-page-node-id="dA5pvxYsF6BlrbxYtta9Kq"/></svg><span id="wmPct" data-page-node-id="2A7JAGUEHWYOC8Y4y6PBCA">—</span></span><span id="balanceDisplay" class="hp-skel" data-page-node-id="YRbGjBGDY1qWHIS3gM9dW7"><span id="balLbl" style="white-space:pre">余额 </span><span id="balText">—</span></span>
+      </div>
+    </div>
+    <!-- §96：分页搬到看板底部那条（#mbTabs）。header 只留 ☰ / ← 返回 / 「状态」——
+         三个 tab 挤在标题右边，等于把"页面导航"塞进了"标题栏"（用户指的就是这个）。 -->
+  </div>
+  <div class="hdr-dragzone win-drag" data-page-node-id="Cou3HdrDrag"></div>
+  <div class="hdr-pill hdr-pill-r win-drag" data-page-node-id="Cou3HdrPillR">
+    <button id="btnFlowChart" type="button" onclick="openFlowChart()" title="查看任务流程图" aria-label="查看任务流程图" data-page-node-id="BtnFlowChartEntry"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.90 20.40C11.98 17.80 12.34 15.20 12.50 13.20" stroke-width="1.9"/><path d="M12.50 13.20C12.10 10.20 8.90 8.20 8.37 8.08" stroke-width="1.9"/><path d="M12.50 13.20C13.50 9.80 16.20 7.80 16.60 7.37" stroke-width="1.9"/><circle cx="5.50" cy="7.40" r="2.30" stroke-width="1.9"/><circle cx="18.60" cy="5.20" r="2.30" stroke-width="1.9"/></svg></button>
+    <button id="btnFiles" onclick="toggleFileBrowser()" title="工作区文件（Esc 关闭）" data-page-node-id="gyN19HiRLgwHXuSmo89RcX"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="FY0maM0KOiYKW1qOqOALv8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" data-page-node-id="u6SKPAS6NsdomlHN2I6id5"/></svg></button>
+    <button id="btnDebug" onclick="toggleDebugPanel()" title="调试面板" data-page-node-id="c8zFNAuu46kNHCSvRjFZ5d"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="HLPgQILxXRrOznMrMVMQAm"><rect x="8" y="7" width="8" height="13" rx="4" data-page-node-id="GW6fRfl9f0CECGmTr2YUUZ"/><path d="M12 7V5" data-page-node-id="ajUNdVxfHK2VbyUFCj6RHH"/><path d="M10 5.5 9 3.5" data-page-node-id="KbHkliUrWFSx5zgcqaTWAI"/><path d="M14 5.5 15 3.5" data-page-node-id="i92pOGPJRWzWCH2xEjreP0"/><path d="M8 11H4" data-page-node-id="ix260ARmzGqvvb9nqStRyu"/><path d="M8 15H5" data-page-node-id="yqwVNChRcUqkgaofipPsi8"/><path d="M8 18.5H4" data-page-node-id="VOALKF0ad1SrftlyHDN8Au"/><path d="M16 11h4" data-page-node-id="uWcTCixEL8ycNd8sOoUzks"/><path d="M16 15h3" data-page-node-id="7NbGMcdWH8HEvWw4xMqgwC"/><path d="M16 18.5h4" data-page-node-id="q7IAJKUmVcYtlLjNukZ8JU"/></svg></button>
+  </div>
   <span id="uInfo" data-page-node-id="GyIR4VoHerEVhatorecOFR"></span>
   <span class="win-ctrls" id="winCtrls" data-page-node-id="5dL1LttssDBFHXn8eNZYVo">
     <button id="btnWinMin" title="最小化" data-page-node-id="3CeGS2UX47yebDeCLN8QP8"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" data-page-node-id="OtbXevF5DZrTbcTZbc3ajy"><path d="M1.5 6h9" data-page-node-id="RTm5Tfqex3RP13EOqCTil9"/></svg></button>
@@ -1802,8 +1939,8 @@ html[data-theme="white"] #btnFlowChart:hover{opacity:1;background:rgba(var(--acc
     <div class="skel-row you"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:48%"></i></span></div>
   </div>
 </main>
-<button id="btnJump" onclick="jumpBottom()" title="回到底部" data-page-node-id="suot2KpdKZwotcUDgWBAm3"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="9uaf8d8N7ip3FrrEm8kxOK"><path d="M12 4v11" data-page-node-id="IEHeiNEtrPJVDy8cCV3xWy"/><path d="m7 11 5 5 5-5" data-page-node-id="7Su29ETinw6TZ8Ib9taZEB"/><path d="M6 20h12" data-page-node-id="H2HtDKmUeFTWUmV0WFwvct"/></svg></button>
-<footer data-page-node-id="HCHcKJDyDuJ4GjQiJqU2kp"><div id="attachPreview" style="display:none;flex-wrap:wrap;gap:6px;padding:6px 8px;background:var(--surface2);border-top:1px solid var(--border)" data-page-node-id="yhOv5DMFkpuyyAh58krcBG"></div><div class="input-row" data-page-node-id="SrZNQIQvUw3jq3L6WJVMwW"><input type="file" id="fileInput" multiple style="display:none" onchange="onFileSelect(this)" data-page-node-id="CqWIYwKndzTfTL9tgFzdBT"><button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="添加附件" data-page-node-id="RJwZ0SRzpcwJt1ugersOTE"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="iuiDCKfmIlScUkrGpd0opv"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" data-page-node-id="bOzZUrTJtPrw3JGDMyiyep"/></svg></button><textarea id="msgInput" rows="1" placeholder="输入消息…" onkeydown="onKey(event)"></textarea><button class="send" id="btnSend" onclick="toggleSend()" title="发送" data-page-node-id="983AB8HRgBx90LPUBkVEHF"><svg class="ico-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="3y7v19Me6vEKpjfi6DT2M3"><path d="M12 19V5" data-page-node-id="K4uPQwgfuDxBYFCEELQ4HB"/><path d="m6 11 6-6 6 6" data-page-node-id="Wb9lgQ6gY5qCtazXxWs7Zx"/></svg><svg class="ico-stop" viewBox="0 0 24 24" data-page-node-id="OIoaAyHWyka0aqXAr7TBuw"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" data-page-node-id="DkbLuNJzVJeirdWFyNCB9E"/></svg></button></div></footer>
+<button id="btnJump" onclick="jumpBottom()" title="回到底部" data-page-node-id="suot2KpdKZwotcUDgWBAm3"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="9uaf8d8N7ip3FrrEm8kxOK"><path d="m6 9 6 6 6-6" data-page-node-id="IEHeiNEtrPJVDy8cCV3xWy"/></svg></button>
+<footer data-page-node-id="HCHcKJDyDuJ4GjQiJqU2kp"><div class="ft-meta" data-page-node-id="FtMetaRow"><span id="sText" style="display:none" data-page-node-id="5fvIIpnUaZxH1bKR4k7tvT"></span><span id="tokenDisplay" class="hp-skel" data-page-node-id="FOBO7vamDYScRoSQ1DlI8d">—</span></div><div id="attachPreview" style="display:none;flex-wrap:wrap;gap:6px;padding:6px 8px;background:var(--surface2);border-top:1px solid var(--border)" data-page-node-id="yhOv5DMFkpuyyAh58krcBG"></div><div class="input-row" data-page-node-id="SrZNQIQvUw3jq3L6WJVMwW"><input type="file" id="fileInput" multiple style="display:none" onchange="onFileSelect(this)" data-page-node-id="CqWIYwKndzTfTL9tgFzdBT"><button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="添加附件" data-page-node-id="RJwZ0SRzpcwJt1ugersOTE"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="iuiDCKfmIlScUkrGpd0opv"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" data-page-node-id="bOzZUrTJtPrw3JGDMyiyep"/></svg></button><textarea id="msgInput" rows="1" placeholder="输入消息…" onkeydown="onKey(event)"></textarea><button class="send" id="btnSend" onclick="toggleSend()" title="发送" data-page-node-id="983AB8HRgBx90LPUBkVEHF"><svg class="ico-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="3y7v19Me6vEKpjfi6DT2M3"><path d="M12 19V5" data-page-node-id="K4uPQwgfuDxBYFCEELQ4HB"/><path d="m6 11 6-6 6 6" data-page-node-id="Wb9lgQ6gY5qCtazXxWs7Zx"/></svg><svg class="ico-stop" viewBox="0 0 24 24" data-page-node-id="OIoaAyHWyka0aqXAr7TBuw"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" data-page-node-id="DkbLuNJzVJeirdWFyNCB9E"/></svg></button></div></footer>
 </div>
 <div id="debugPanel" data-page-node-id="ldff4vcJfpKOl1QPmP4E0Z">
   <div class="debug-header" data-page-node-id="z1fBKBp45BrE15jkmZjBdS">
@@ -2702,18 +2839,28 @@ function setBal(label, value){
   if(balText) balText.textContent = value;
   else if(balanceDisplay) balanceDisplay.textContent = label + value;
 }
+/* 余额配色改由 CSS 状态类接管（#balanceDisplay.bal-*）。原来这里是十处
+   balanceDisplay.style.color=… 的内联赋值，两个毛病：
+     ① 内联优先级高于样式表，顶栏怎么调都改不动它；
+     ② 正常态给的是 --accent —— 副标题行里绿点 + 青色记忆环 + 青色金额凑成一行三色，
+        最该安静的数字反而最响。
+   现在 JS 只贴状态：ok=正常（正文色）/ warn / crit / dim=无数据，颜色在 CSS 里一条一条写着。
+   ⚠ 别退回内联写法，否则顶栏配色又变成改不动。 */
+function balPaint(kind){
+  if(!balanceDisplay) return;
+  balanceDisplay.classList.remove('bal-ok','bal-warn','bal-crit','bal-dim');
+  if(kind) balanceDisplay.classList.add('bal-'+kind);
+}
 function updateBalance(data){
   updateBalanceBanner(data);
   if(!balanceDisplay) return;
   if(balMode==='off'){ balanceDisplay.style.display='none'; return; }
   if(data.note === 'accumulated_cost'){
     var cost = parseFloat(data.total_balance) || 0;
-    if(cost <= 0) { setBal('用量 ', '—'); balanceDisplay.style.color = 'var(--tdim)'; return; }
+    if(cost <= 0) { setBal('用量 ', '—'); balPaint('dim'); return; }
     setBal('用量 ', '$' + cost.toFixed(4));
     balanceDisplay.title = '累计费用 (USD): $' + cost.toFixed(6) + ' | 厂商: ' + (data.provider||'?');
-    if(cost < 0.01) balanceDisplay.style.color = 'var(--accent)';
-    else if(cost < 0.1) balanceDisplay.style.color = 'var(--warn)';
-    else balanceDisplay.style.color = '#f85149';
+    balPaint(cost < 0.01 ? 'ok' : (cost < 0.1 ? 'warn' : 'crit'));
     return;
   }
   var bal = parseFloat(data.total_balance) || 0;
@@ -2724,9 +2871,9 @@ function updateBalance(data){
   if(cur === 'PTS' || cur === 'POINTS' || cur === 'CREDIT'){
     balanceDisplay.title = (data.provider ? '来源: ' + data.provider + ' | ' : '')
       + '积分制余额（不折算金额）';
-    if(!(bal > 0)){ setBal('积分 ', '—'); balanceDisplay.style.color = 'var(--tdim)'; return; }
+    if(!(bal > 0)){ setBal('积分 ', '—'); balPaint('dim'); return; }
     setBal('积分 ', Math.round(bal).toLocaleString());
-    balanceDisplay.style.color = bal <= 0 ? '#f85149' : 'var(--accent)';
+    balPaint(bal <= 0 ? 'crit' : 'ok');
     return;
   }
   // 币种符号跟随后端：第三方源里 one-api 系大多记 USD，硬编码 ¥ 会显示成
@@ -2734,14 +2881,12 @@ function updateBalance(data){
   var sym = (cur === 'USD' || cur === 'USDT') ? '$' : (cur === 'EUR' ? '€' : '¥');
   var isCny = (cur === 'CNY' || cur === 'RMB');
   var loWarn = isCny ? 1 : 0.15, hiWarn = isCny ? 10 : 1.5;   // 阈值也按币种给
-  if(bal <= 0) { setBal('余额 ', '—'); balanceDisplay.style.color = 'var(--tdim)'; return; }
+  if(bal <= 0) { setBal('余额 ', '—'); balPaint('dim'); return; }
   setBal('余额 ', sym + bal.toFixed(2));
   balanceDisplay.title = (data.provider ? '厂商: ' + data.provider + ' | ' : '')
     + '充值: ' + sym + (parseFloat(data.topped_up_balance)||0).toFixed(2)
     + ' | 赠送: ' + sym + (parseFloat(data.granted_balance)||0).toFixed(2);
-  if(bal < loWarn) balanceDisplay.style.color = '#f85149';
-  else if(bal < hiWarn) balanceDisplay.style.color = 'var(--warn)';
-  else balanceDisplay.style.color = 'var(--accent)';
+  balPaint(bal < loWarn ? 'crit' : (bal < hiWarn ? 'warn' : 'ok'));
 }
 
 /* 顶栏余额取数入口 —— 不要再直接 fetch('/api/balance')，否则会把任务级
@@ -3358,6 +3503,139 @@ function fmtThink(t){
   if(fences%2===1) t+='\n```';
   return fmt(t);
 }
+/* ── 气泡内本地绝对路径 → 就地内联媒体（2026-10-27）─────────────────────────
+   用户要的：AI 说"图画好了，路径 E:\...\xx.png"时，别让他在气泡里对着一段
+   路径发呆 —— 直接在**路径原来的位置**看图，路径只留一行淡脚注。
+   服务端用既有的 /api/fs-raw/<b64dir>/<name>（server.py：绝对目录 + 原文件，
+   编码口径 urlsafe_b64encode 去 padding），这里只算 b64、拼 URL、换 DOM。
+   🔴 只认"整段内容就是一个路径"：整块 pre、整段 code、整个文本节点。
+      半句话里夹一个路径不碰 —— 那里没有"原位置"可换，换了排版只会更碎。
+   🔴 完整路径原样留在 .lm-path 的文本里，视觉裁切只走 CSS（见 P1 注释）。
+   🔴 每泡按路径去重：同一张图在正文里出现三次只画一张，其余留原样。 */
+var _LM_IMG_RE=/\.(png|jpe?g|gif|webp|bmp|svg|ico|avif)$/i;
+var _LM_VID_RE=/\.(mp4|webm|mov|m4v)$/i;
+var _LM_AUD_RE=/\.(mp3|wav|ogg|m4a|flac|aac)$/i;
+var _LM_RE=/(?:[A-Za-z]:[\\/]|file:\/\/)/i;   // 渲染前的廉价闸门（绝不能带 /g，否则 test 有状态）
+
+function _lmMediaInfo(t){
+  if(t==null) return null;
+  t=String(t).trim();
+  if(t.length<6||t.length>1024) return null;
+  if(t.indexOf('\n')>=0||t.indexOf('\r')>=0) return null;
+  if(/^file:\/\//i.test(t)){
+    try{ t=decodeURIComponent(t.replace(/^file:\/{1,3}/i,'')); }catch(e){ t=t.replace(/^file:\/{1,3}/i,''); }
+  }
+  if(!/^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/.test(t)) return null;
+  if(/[<>"|?*]/.test(t)) return null;            // HTML 残留 / Windows 非法字符 ⇒ 不认
+  var kind=null;
+  if(_LM_IMG_RE.test(t)) kind='img';
+  else if(_LM_VID_RE.test(t)) kind='vid';
+  else if(_LM_AUD_RE.test(t)) kind='aud';
+  if(!kind) return null;
+  return {kind:kind, path:t};
+}
+
+function _lmB64u(s){
+  var u8=new TextEncoder().encode(s), bin='';
+  for(var i=0;i<u8.length;i++) bin+=String.fromCharCode(u8[i]);
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function _lmRawUrl(p){
+  var i=Math.max(p.lastIndexOf('\\'),p.lastIndexOf('/'));
+  var dir=p.slice(0,i), name=p.slice(i+1);
+  if(!dir||!name) return '';
+  if(/^[A-Za-z]:$/.test(dir)) dir+='\\';   // "E:" 不算绝对目录（os.path.isabs 判 False）
+  return '/api/fs-raw/'+_lmB64u(dir)+'/'+encodeURIComponent(name);
+}
+function _lmBuildEl(info, ver){
+  var url=_lmRawUrl(info.path);
+  if(!url) return null;
+  // 版本号 = 这条消息的时间戳：同一条消息里 URL 恒定（能吃到浏览器缓存、重渲染不闪），
+  // 但 AI 重画同名文件后新消息的 ts 变了 ⇒ 一定重新取，不会拿旧图糊弄人。
+  if(ver) url+='?v='+encodeURIComponent(String(ver));
+  var nm=info.path.replace(/\\/g,'/').split('/').pop()||'media';
+  var media;
+  if(info.kind==='img'){
+    media='<img class="lm-img" loading="lazy" alt="'+esc(nm)+'" src="'+url+'" data-full="'+url
+         +'" onclick="imgViewerFromEl(this)" onload="_lmImgLoaded()" onerror="_lmMediaBad(this)">';
+  }else if(info.kind==='vid'){
+    media='<video class="lm-media" controls preload="metadata" src="'+url+'" onerror="_lmMediaBad(this)"></video>';
+  }else{
+    media='<audio class="lm-media" controls preload="metadata" src="'+url+'" onerror="_lmMediaBad(this)"></audio>';
+  }
+  var w=document.createElement('div');
+  w.className='lm-emb';
+  w.innerHTML=media+'<div class="lm-path" title="'+esc(info.path)+'" onclick="_lmCopyPath(this)"><span>'+esc(info.path)+'</span></div>';
+  return w;
+}
+// 图读不到（文件被删/改名/路径写错）时不许"只剩一个破图标"：藏掉媒体、
+// 把那一行路径放开显示（.lm-emb.bad），用户仍然拿到他真正需要的东西。
+function _lmMediaBad(el){
+  try{
+    var w=el.parentNode;
+    while(w&&w.nodeType===1&&!(w.classList&&w.classList.contains('lm-emb'))) w=w.parentNode;
+    if(!w||w.nodeType!==1||!w.classList) return;
+    w.classList.add('bad');
+    el.style.display='none';
+  }catch(e){}
+}
+// 高度是异步长出来的（图加载完才知道多高）：用户本来就贴底时要跟着贴底，
+// 否则最后一条回复的图会把视口顶掉一截，看起来像"没滚到底"。
+function _lmImgLoaded(){
+  try{
+    if(typeof chatStick==='undefined'||!chatStick) return;
+    if(typeof chatBox==='undefined'||!chatBox) return;
+    chatBox.scrollTop=chatBox.scrollHeight;
+    if(typeof updateJumpBtn==='function') updateJumpBtn();
+  }catch(e){}
+}
+function _lmCopyPath(el){
+  var t=String((el&&el.textContent)||'');
+  if(!t) return;
+  var done=function(){ try{ if(typeof toast==='function') toast('已复制路径'); }catch(e){} };
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(done,function(){ _legacyCopy(t); done(); });
+    }else{ _legacyCopy(t); done(); }
+  }catch(e){ try{ _legacyCopy(t); done(); }catch(e2){} }
+}
+function _lmSameText(a,b){ return String(a||'').replace(/\s+/g,'')===String(b||'').replace(/\s+/g,''); }
+
+function _embedLocalMedia(root, ver){
+  if(!root||!root.querySelectorAll) return 0;
+  var seen={}, n=0;
+  var blocks=root.querySelectorAll('pre,code');
+  for(var i=0;i<blocks.length;i++){
+    var el=blocks[i];
+    if(!el.parentNode) continue;
+    if(el.tagName==='CODE'&&el.parentNode.tagName==='PRE') continue;   // 交给外层 pre，别换两次
+    var info=_lmMediaInfo(el.textContent);
+    if(!info||seen[info.path]) continue;
+    var node=_lmBuildEl(info, ver);
+    if(!node) continue;
+    seen[info.path]=1; n++;
+    var host=el, par=el.parentNode;
+    if(par&&par!==root&&par.tagName==='P'&&_lmSameText(par.textContent,info.path)) host=par;  // <p><code>路径</code></p> 整段换，别留空 p 的边距
+    host.parentNode.replaceChild(node,host);
+  }
+  var tw=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null,false), list=[], t;
+  while((t=tw.nextNode())) list.push(t);
+  for(var j=0;j<list.length;j++){
+    var tn=list[j], pt=tn.parentNode;
+    if(!pt) continue;
+    if(pt.closest&&pt.closest('.lm-emb')) continue;
+    if(/^(CODE|PRE|A|SCRIPT|STYLE|TEXTAREA)$/.test(pt.tagName)) continue;
+    var inf=_lmMediaInfo(tn.nodeValue);
+    if(!inf||seen[inf.path]) continue;
+    var nd=_lmBuildEl(inf, ver);
+    if(!nd) continue;
+    seen[inf.path]=1; n++;
+    var h=tn;
+    if(pt.tagName==='P'&&pt.childNodes.length===1&&_lmSameText(pt.textContent,inf.path)) h=pt;
+    if(h.parentNode) h.parentNode.replaceChild(nd,h);
+  }
+  return n;
+}
 
 function closeSidebar(anim){ setSidebarOpen(false, anim); }
 function openSidebar(anim){ setSidebarOpen(true, anim); }
@@ -3932,10 +4210,17 @@ var _renderedTopic='';
 function _renderSig(){
   // 带上 msgOffset：加载更早的历史时，工具密集的任务折叠后可见行可能一条都不多，
   // 但顶部提示行的"已加载 N 条"要跟着变，否则用户看不出加载在推进。
-  var s=(currentTopic?currentTopic.id:'~')+'|'+(_topicBusy()?1:0)+'|'+(allLoaded?1:0)+'|'+msgOffset+'|'+(userAvatar?userAvatar.length:0)+'|'+messages.length;
+  var s=(currentTopic?currentTopic.id:'~')+'|'+(_topicBusy()?1:0)+'|'+(allLoaded?1:0)+'|'+msgOffset+'|'+(userAvatar?userAvatar.length:0)+'|'+messages.length
+    // 断点状态（resume_ok → 「继续 / 用备用源继续」）。它只改错误卡的**画法**，一条消息都不增删
+    // —— 不进签名的话，重取结论后内容一模一样 ⇒ render 被短路 ⇒ 按钮补不上（与上面 |E 同一类坑）。
+    +'|R'+(_resumeOk?1:0);
   for(var i=0;i<messages.length;i++){
     var m=messages[i];
     s+='\n'+(m.type||m.role||'')+'|'+(m.ts||0)+'|'+((m.text&&m.text.length)||0)+'|'+(m.open?1:0)+'|'+(m.live?1:0)+'|'+(m.error?1:0)+'|'+((m.attachments&&m.attachments.length)||0)+'|'+((m.thinking&&m.thinking.length)||0);
+    // 失败卡的"已续跑"状态（服务端 args.resolved → errDone / 点了继续的本地乐观标志 _cardGone）：
+    // 它只改这条消息的**画法**（红条 ↔ 一行灰字），文字一个字都不变 —— 不进签名的话，
+    // errResume 里打完标志再 render() 会被上面的签名短路掉，红条原地不动（2026-10-24 探针实证）。
+    s+='|E'+((m.errDone||m._cardGone)?1:0);
     if(m.type==='proc'){
       var st=m.steps||[];
       for(var j=0;j<st.length;j++) s+=','+st[j].kind+':'+(st[j].name||'')+':'+((st[j].text&&st[j].text.length)||0)+':'+((st[j].out&&st[j].out.length)||0);
@@ -4029,6 +4314,8 @@ function render(){
       dp.className=pcls;
       dp.setAttribute('data-uid', mid(m));
       dp.innerHTML='<div class="av"><img src="/icon.png" alt="AI"></div><div class="proc-wrap"><div class="proc-box'+(m.open?' open':'')+(m.live?' proc-live':'')+'" onclick="toggleProc('+mid(m)+',event)"><div class="proc-head-line"><span class="proc-caret">▶</span><span class="proc-sum">'+procSummary(m)+'</span>'+(m.live?'<span class="proc-live-dot"></span><span class="proc-mode-btn" title="点击切换：简约（只显示思考）/ 复杂（含工具动作与正在打的字）" onclick="event.stopPropagation();toggleProcMode()">'+procModeLabel()+'</span>':'')+'</div><div class="proc-body">'+((m.open||m.live)?procBodyHTML(m):'')+'</div></div></div>';
+      // 首帧就定好空态：不然先按 352px 画出来再缩回 108px，肉眼看到的是闪一下
+      if(m.live&&m.open) _syncProcEmpty(dp.querySelector('.proc-box'), dp.querySelector('.proc-body'), m);
       _frag.appendChild(dp);
       i++;
       continue;
@@ -4063,6 +4350,17 @@ function render(){
       // 后端为让 AI 看到附件清单注入的 [附件: xxx] 行,展示时去掉(附件块已显示文件名)
       if(m.role==='you'&&m.attachments&&m.attachments.length){ displayText=displayText.replace(/\n?\[附件: [^\]]*\]\s*$/,''); }
       var bubbleHTML=(m.working||m.log)?m.text:fmt(displayText);
+      // ① pre-wrap 吃尾部换行（2026-10-25 实测出的真凶）：fmt()/marked 的输出以 "\n" 结尾，
+      //    而 `.row.you .bubble{white-space:pre-wrap}` 把这个换行渲染成一个**真实空行** ⇒
+      //    每个用户气泡凭空多一行高（单字气泡 73px，去掉后 51px）。只 trim 尾部，中间换行不动。
+      if(!m.working&&!m.log&&bubbleHTML) bubbleHTML=String(bubbleHTML).replace(/(?:[ \t]*\n)+$/,'');
+      // ② 超短单行消息 → 紧凑气泡（.bubble.tight，CSS 见 .bubble 定义处）。
+      // 判据：单行（无换行）、去空白后 ≤24 个字符、不是卡片/错误/过程/思考类气泡。
+      //    24 而不是 12：单行气泡必须高度一致，否则相邻的「修」和「继续吧，谢谢」会一矮一高。
+      // 🔴 由文本直接算出（无标志位）：每次 render 都重算，不需要进 _renderSig()。
+      var _tightText=String(displayText==null?'':displayText).trim();
+      var _bubbleTight=(!m.type&&!m.error&&!m.working&&!m.log&&!m.think
+        &&_tightText.indexOf('\n')<0&&Array.from(_tightText).length<=24);
       var attHTML='';
       if(m.attachments&&m.attachments.length){
         attHTML='<div style="margin-top:4px">';
@@ -4116,6 +4414,15 @@ function render(){
         var _ehead=(_elines.shift()||'').replace(/^\s*⚠️?\s*/,'').replace(/^本轮中断\s*[:：]?\s*/,'')
                     || '原因未记录';
         var _ebody=esc(_elines.join('\n').replace(/^\s*\n+/,''));
+        // 已续跑（服务端在 resume 时打 args.resolved；或刚点完「继续」本地乐观打的 _cardGone）：
+        // 这一轮的报错使命结束了 —— 只留一行灰字，不再挂红条、排障详情和续跑按钮。
+        // 否则界面会同时呈现"⚠ 已停止"和"处理中…"，用户不知道该信哪个（2026-10-24 实拍）。
+        if(m.errDone||m._cardGone){
+          d.classList.add('err-row');
+          d.innerHTML='<div class="av">'+avContent+'</div>'
+            +'<div class="err-done"><i class="err-done-ico">↻</i>已续跑，上次中断：'+esc(_ehead)+'</div>';
+          _frag.appendChild(d); i++; continue;
+        }
         d.classList.add('err-row');
         // 「继续」只在服务端还有断点时出现（旧版本留下的卡没有断点，长了按钮点了也只会 409）
         var _actsHTML='';
@@ -4169,7 +4476,11 @@ function render(){
         quoteHTML+='<div class="quote-block" title="引用'+_qwho+'的一条消息"><div class="qb-body">'+esc(_qt)+'</div><div class="qb-sub">引用</div></div>';
       }
       var bodyHTML='<div class="msg-body">'+bubbleHTML+attHTML+'</div>';
-      d.innerHTML='<div class="av">'+avContent+'</div><div><div class="bubble"'+(m.log||m.working?' onclick="this.classList.toggle(\'open\')"':'')+'>'+quoteHTML+bodyHTML+barHTML+'</div>'+thinkHTML+'<div class="meta">'+metaHTML+'</div></div>';
+      d.innerHTML='<div class="av">'+avContent+'</div><div><div class="bubble'+(_bubbleTight?' tight':'')+'"'+(m.log||m.working?' onclick="this.classList.toggle(\'open\')"':'')+'>'+quoteHTML+bodyHTML+barHTML+'</div>'+thinkHTML+'<div class="meta">'+metaHTML+'</div></div>';      // 气泡里"整段就是一个本地路径"的，就地换成媒体（见 _embedLocalMedia）。
+      // 工作泡/日志泡跳过：它们每 500ms 重建一次，反复换 <img> 会看得见地闪。
+      if(!m.working&&!m.log&&!m.error&&displayText&&_LM_RE.test(String(displayText))){
+        try{ _embedLocalMedia(d.querySelector('.msg-body'), m.ts); }catch(e6){}
+      }
       _frag.appendChild(d);
       i++;
     }
@@ -4249,6 +4560,7 @@ async function loadTopics(){
 }
 
 async function newTopic(){
+  try{ if(typeof closeMindBoard === 'function') closeMindBoard(); }catch(e){}
   if(_searchMode) ssClear();   // 新建任务时退出搜索态，让新任务出现在列表里
   // 草稿跟随任务：先把旧任务的字落回**旧**键，再清空输入框 —— 新任务是一张白纸，
   // 不能让上一个任务没发出去的残留跟进来（不处理的话 400ms 防抖还会把它写进新任务的键）。
@@ -4296,6 +4608,7 @@ async function newTopic(){
 
 var switchSeq=0;
 async function switchTopic(tid){
+  try{ if(typeof closeMindBoard === 'function') closeMindBoard(); }catch(e){}
   if(currentTopic&&currentTopic.id===tid){ if(window.innerWidth<=768) closeSidebar(true); return; }
   if(window._switching) return;
   window._switching=true;
@@ -4336,7 +4649,7 @@ async function switchTopic(tid){
   // 顺序：先把遗留的 live 泡定格（服务端可能早就跑完了），再 groupProcess 归一 ——
   // 反过来的话归一化会先看到 live，把它当唯一表示保留，那份"本地口径"的凝固泡就顶掉了
   // 服务端占位（步数口径还不一致）。见 _collapseProcSegments。
-  messages=groupProcess(cleanupLiveMsgs(dedupeMsgs(cached&&cached.messages?cached.messages:[])));
+  messages=groupProcess(cleanupLiveMsgs(_sortMerged(dedupeMsgs(cached&&cached.messages?cached.messages:[]))));
   for(var ci2=0;ci2<messages.length;ci2++) messages[ci2]._seen=true;
   // 缓存里可能没有「未送达」那条（它是本地存档，未必写进缓存）→ 这里先补一次，
   // 否则用户要等下一次服务端同步（结论视图 3s 重取）才看得见。2026-10-09
@@ -4395,7 +4708,7 @@ async function switchTopic(tid){
             }
             var _rowsBefore=messages.length;
             var _lastBefore=messages[messages.length-1];
-            messages=groupProcess(_keep.concat(_page));
+            messages=groupProcess(_sortMerged(_keep.concat(_page)));
             for(var _mi=0;_mi<messages.length;_mi++) messages[_mi]._seen=true;
             var _lastAfter=messages[messages.length-1];
             if(messages.length===_rowsBefore&&_lastBefore&&_lastAfter&&_lastBefore.ts===_lastAfter.ts&&
@@ -4507,6 +4820,30 @@ function dedupeMsgs(list){
     seen[key]=1; seen[key2]=1; out.push(m);
   }
   return out;
+}
+// ── 合并后的顺序收口（2026-10-27）────────────────────────────────────────
+// 现象：在 A 设备发消息，B 设备（已打开这个任务、末尾还挂着实时泡）拉回来时，
+//   顺序变成「思考泡 → 我的问题 → 回复」，切一下任务再回来才恢复。
+// 机制：本端合成节点的 ts 用的是**本机此刻**（实时泡 makeLiveProc 的 ts=Date.now()、
+//   未送达气泡同理），而别人的消息是**随后**才从服务端拉回来的、ts 比它早
+//   （loadNewMessages 的 after_ts 还刻意往回退 5s，就是为了把边界外的行也捞回来）；
+//   concat 只追加不排序 ⇒ 更早的消息被排到更晚的节点**后面**。
+//   切任务会整份重取服务端数据（已排序）⇒ 于是"切一下就好了"。
+// 规则：live/working 泡是"此刻正在长"的节点，永远钉在队尾；其余按 ts 稳定排序。
+// 稳定 = ts 相同（同一秒落库的多行、旁路并列）时保持原有先后，不能交给 sort 的默认行为。
+function _sortMerged(list){
+  var body=[], tail=[];
+  for(var i=0;i<list.length;i++){
+    var m=list[i];
+    if(!m) continue;
+    if(m.working||(m.type==='proc'&&m.live)) tail.push(m);
+    else body.push(m);
+  }
+  var idx=[];
+  for(var j=0;j<body.length;j++){ body[j]._ord=j; idx.push(body[j]); }
+  idx.sort(function(a,b){ return ((a.ts||0)-(b.ts||0))||((a._ord||0)-(b._ord||0)); });
+  for(var k=0;k<idx.length;k++) delete idx[k]._ord;
+  return idx.concat(tail);
 }
 // ══ 加载提示（spinner + 剩余时间 / 完成信号）══════════════════════════════
 // 并发计数：切任务、增量同步、思考懒加载可能同时在跑，谁最后结束谁才收起，
@@ -4756,7 +5093,7 @@ function _mapServerMsgs(msgs, stillWorking){
       // 去重签名也必须基于去掉后的文本：否则"本地乐观气泡(原文)"与"服务端行(原文+[附件:…])"
       // 签名不同 → 同一条消息在界面上渲染两次（看起来像"重复发送"，实测带附件/粘贴截图必现）。
       if(role==='you'&&atts.length){ text=text.replace(/\n?\[附件: [^\]]*\]\s*$/,''); }
-      fresh.push({role:role,text:text,ts:ts,id:m.id,thinking:'',has_thinking:!!(m.has_thinking||m.thinking),error:err,error_msg:err?(m.args.error_msg||'系统错误'):null,attachments:atts,original_text:m.original_text||'',cmid:(m.args&&m.args.cmid)||'',quotes:quoteListOf(m.args||{}),elapsedSec:(m.args&&m.args.elapsed)||0,tokens:(m.args&&m.args.tokens)||0,tokensEst:(m.args&&m.args.est)?1:0,kind:_kind});
+      fresh.push({role:role,text:text,ts:ts,id:m.id,thinking:'',has_thinking:!!(m.has_thinking||m.thinking),error:err,error_msg:err?(m.args.error_msg||'系统错误'):null,attachments:atts,original_text:m.original_text||'',cmid:(m.args&&m.args.cmid)||'',quotes:quoteListOf(m.args||{}),elapsedSec:(m.args&&m.args.elapsed)||0,tokens:(m.args&&m.args.tokens)||0,tokensEst:(m.args&&m.args.est)?1:0,kind:_kind,errDone:(m.args&&m.args.resolved)?1:0});
     }
   }
   fresh.sort(function(a,b){ return (a.ts||0)-(b.ts||0); });
@@ -4845,6 +5182,13 @@ async function loadConclusions(tid){
     var url='/api/messages?topic_id='+encodeURIComponent(tid)+'&conclusions=1&exclude_thinking=1&limit=1';
     var md=await _fetchJsonProgress(url);
     if(!md||md.concl!==true) return null;
+    // resume_ok：这个任务还有没有可续跑的断点 —— 错误卡上「继续 / 用备用源继续」的开关。
+    // 🔴 结论视图（默认视图）的刷新只走这个函数（refreshCurrentTopic 里 _conclView 为真就
+    //    return 在这条路上，根本不进 loadNewMessages）⇒ 这里不读就等于**按钮永远不出现**。
+    //    断点是 meta 里的一行，不产生新消息，没有别的任何路径会"顺带"再问它一次
+    //    （2026-10-24 实测：断点在库、服务端 /api/messages 回 resume_ok=true，
+    //     但页面 8 秒内 resumeOk 一直是 false，卡上没有按钮）。
+    if(typeof md.resume_ok!=='undefined') _resumeOk=!!md.resume_ok;
     var raw=md.messages||[];
     var fresh=groupProcess(_mapServerMsgs(raw, md.working&&md.working.status&&md.working.status!=='idle'));
     var seenKeys={};
@@ -4920,7 +5264,8 @@ async function loadNewMessages(tid){
     // 入场动画：以合并前的 key 集合为基准，已有内容不重播（proc 泡按 steps 数签名，重组后 key 不变）
     var beforeKeys={};
     for(var k=0;k<messages.length;k++) beforeKeys[_seenKey(messages[k])]=true;
-    var merged=groupProcess(dedupeMsgs(messages.concat(incoming)));
+    // 合并后必须归位：本地合成节点(实时泡/未送达)的 ts 可能晚于随后才拉回的服务端行
+    var merged=groupProcess(_sortMerged(dedupeMsgs(messages.concat(incoming))));
     var unseen=0;
     for(var q=0;q<merged.length;q++){
       if(beforeKeys[_seenKey(merged[q])]) merged[q]._seen=true;
@@ -4991,7 +5336,7 @@ async function loadMoreMessages(){
         var _st=fresh[c1].steps||[];
         for(var c2=0;c2<_st.length;c2++) chars+=(((_st[c2].text||'').length)+((_st[c2].out||'').length));
       }
-      messages=groupProcess(dedupeMsgs(fresh.concat(messages)));
+      messages=groupProcess(_sortMerged(dedupeMsgs(fresh.concat(messages))));
       for(var si2=0;si2<messages.length;si2++) messages[si2]._seen=true;
       msgOffset+=result.rawCount||fresh.length;
       // render 前读取用户实际位置(await 期间可能自己滚过),统一按"当前位置+新增高度"补偿:
@@ -5346,6 +5691,37 @@ function procMode(){
   try{ return localStorage.getItem('proc_view_mode')==='full'?'full':'simple'; }catch(e){ return 'simple'; }
 }
 function procModeLabel(){ return procMode()==='full'?'复杂':'简约'; }
+// 占位行的唯一出口（三处渲染都调它，别再各写一份字面量）。
+// 两种"空"必须分开说：真的还没吐字 vs 这个模型压根不给 reasoning。
+// 后者在简约档是**永久**空态（DeepSeek-V4-Flash 全库 thinking 长度 0），
+// 一直写"等待模型输出…"等于骗人 —— 直说并指路切「复杂」档。
+function procWaitHTML(m){
+  var hasOther = !!String((m&&m.resp)||'').trim() || !!String((m&&m.inter)||'').trim();
+  // §108：文案**不带省略号**（用户：「这里等待输出的后面3个点去掉」）。
+  // 那三个点读起来像"话还没说完"，而"还在等"这件事已经由左边的 .w-live-dots 转圈表达；
+  // 文字再补一个"…"就是同一语义画两遍（§17/21/29 的老毛病）。
+  var txt = (procMode()!=='full' && hasOther)
+    ? '该模型没有返回思考过程 · 点右侧切到「复杂」看执行细节'
+    : '等待模型输出';
+  return '<div class="w-live-wait"><span class="w-live-dots"><i></i><i></i><i></i></span><span>'+txt+'</span></div>';
+}
+// 展开体此刻是不是"一个字都没有"：判据问 DOM，不看 m.thinking 之类的数据位。
+// 简约/复杂两档渲染出来的东西不一样（简约档只有 reasoning），只有 DOM 知道
+// 用户眼前到底有没有内容；按数据位猜会得到"明明有内容却被压成空态"的错误结论。
+function _procBodyEmpty(body){
+  if(!body) return true;
+  var t=body.textContent||'';
+  var ws=body.querySelectorAll('.w-live-wait');
+  for(var i=0;i<ws.length;i++) t=t.replace(ws[i].textContent,'');
+  return !t.replace(/\s+/g,'');
+}
+// 空态 → 展开档压矮（样式见 CSS 里 .proc-empty 那几条）。只改 class，不动 DOM。
+function _syncProcEmpty(box, body, w){
+  if(!box||!box.classList) return;
+  // 快速通道：有 reasoning 就一定不空（省掉大段 textContent 拷贝；reasoning 动辄上万字）
+  var empty = (w && String(w.thinking||'')) ? false : _procBodyEmpty(body);
+  box.classList.toggle('proc-empty', empty);
+}
 // 就地切换：写档位 → 重建当前所有 live 气泡的展开体（静态气泡不动）。
 function toggleProcMode(){
   var next=(procMode()==='full')?'simple':'full';
@@ -5383,7 +5759,7 @@ function liveLogHTML(m){
   if(resp) h+='<div class="w-resp md">'+fmt(resp)+'</div>';
   // 三块全空（刚起轮、模型还没吐第一个 token）才占位。thinking 非空时不占位 ——
   // 思考已经占满面板，再加一行"等待输出"反而误导。
-  if(!h && !((m&&m.thinking)||'')) h='<div class="w-live-wait">等待模型输出…</div>';
+  if(!h && !((m&&m.thinking)||'')) h=procWaitHTML(m);
   return h;
 }
 // 思考框 body 渲染：live 态 = 实时思考(reasoning) + 过程日志(动作叙述/当前轮打字)；
@@ -5400,7 +5776,7 @@ function procBodyHTML(m){
     if(procMode()==='full'){
       h+='<div class="w-live-log">'+liveLogHTML(m)+'</div>';
     } else {
-      h+='<div class="w-live-log">'+(m.thinking?'':'<div class="w-live-wait">等待模型输出…</div>')+'</div>';
+      h+='<div class="w-live-log">'+(m.thinking?'':procWaitHTML(m))+'</div>';
     }
     return h;
   }
@@ -5475,9 +5851,11 @@ function syncLiveProcBody(body, w){
       logEl._sig=lsig;
       logEl.innerHTML=(procMode()==='full')
         ? liveLogHTML(w)
-        : ((w.thinking||'')?'':'<div class="w-live-wait">等待模型输出…</div>');
+        : ((w.thinking||'')?'':procWaitHTML(w));
     }
   }
+  // 内容一到就摘掉空态（height 会从 108 平滑长到 352），反之回缩
+  _syncProcEmpty(body.parentNode, body, w);
 }
 // 选区是否落在某个元素里（给"别在用户选中文字时重建 DOM"用）
 function _selInside(el){
@@ -6000,10 +6378,21 @@ async function errResume(btn, force){
   var tid=currentTopic?currentTopic.id:'';
   if(!tid) return;
   var row=btn.closest?btn.closest('.err-row'):null;
+  // 这张卡在 messages 里的对应对象（点完继续要立刻把它降级，见 render 的 errDone 分支）。
+  // 用 data-mid 定位，不靠"最后一张 error 卡"猜 —— 一个话题里可能同时挂着好几张历史卡。
+  var _card=null;
+  if(row&&row.getAttribute('data-mid')){
+    var _cmid=String(row.getAttribute('data-mid'));
+    for(var ci=0;ci<messages.length;ci++){ if(String(messages[ci].id)===_cmid){ _card=messages[ci]; break; } }
+  }
   var btns=row?row.querySelectorAll('.err-btn'):[btn];
   var old={};
   for(var i=0;i<btns.length;i++){ old[i]=btns[i].textContent; btns[i].disabled=true; }
   btn.textContent=force?'正在用备用源续跑…':'正在续跑…';
+  // 乐观降级：/api/chat resume 会一直阻塞到这一轮跑完（几分钟），但"这张卡已经过期"是**当下**
+  // 就成立的事实 —— 先把它收成灰字，界面才不会一边说"已停止"一边冒出"处理中…"。
+  // 真失败了再把红条放回来（原因还是要看得见）。
+  if(_card){ _card._cardGone=1; render(); }
   try{
     var r=await fetch('/api/chat',{
       method:'POST',headers:{'Content-Type':'application/json'},
@@ -6017,8 +6406,11 @@ async function errResume(btn, force){
   }catch(e){
     var msg=(e&&e.message)||'续跑失败';
     if(typeof toast==='function') toast(msg,4200); else console.warn(msg);
+    // 续跑没起来 → 红条还原（失败原因仍要看得见，不能因为乐观降级就把它吞掉）
+    if(_card){ _card._cardGone=0; }
     // 409 那几种（断点没了 / 没有备用源 / 任务正在跑）都是"按钮不该再挂着"的状态
     if(/断点|备用源|正在运行/.test(msg)){ _resumeOk=false; render(); return; }
+    render();
   }finally{
     for(var j=0;j<btns.length;j++){ btns[j].disabled=false; btns[j].textContent=old[j]; }
   }
@@ -10558,7 +10950,7 @@ function openImgLightbox(src,name){ ivOrigin=null; openImgViewer([{src:src,name:
 function imgViewerFromEl(el){
   if(!el) return;
   var scope=(el.closest&&(el.closest('#attachPreview')||el.closest('.row')))||document.body;
-  var imgs=scope.querySelectorAll('img.msg-att-img,img.att-thumb');
+  var imgs=scope.querySelectorAll('img.msg-att-img,img.att-thumb,img.lm-img');
   var list=[],idx=0;
   for(var i=0;i<imgs.length;i++){
     var s=imgs[i].getAttribute('data-full')||imgs[i].getAttribute('src');
@@ -13175,13 +13567,15 @@ var THEME_DARK={
 };
 // 每套主题都给出完整变量集，切换时全量写入，避免上套主题的内联变量残留
 var THEME_VARS={
-  black:Object.assign({'--bg':'#0a0a0a','--surface':'#0a0a0a','--surface2':'#161616','--surface3':'#202020','--ab':'#161616'},THEME_DARK),
-  gray:Object.assign({'--bg':'#171717','--surface':'#171717','--surface2':'#202020','--surface3':'#171717','--ab':'#202020'},THEME_DARK),
+  black:Object.assign({'--bg':'#0a0a0a','--surface':'#0a0a0a','--surface-rgb':'10,10,10','--surface2':'#161616','--surface3':'#202020','--float-bg':'#232326','--ab':'#161616'},THEME_DARK),
+  gray:Object.assign({'--bg':'#171717','--surface':'#171717','--surface-rgb':'23,23,23','--surface2':'#202020','--surface3':'#171717','--float-bg':'#2e2e32','--ab':'#202020'},THEME_DARK),
   white:{
     '--bg':'#f5f6f8',
     '--surface':'#ffffff',
+    '--surface-rgb':'255,255,255',
     '--surface2':'#f0f1f4',
     '--surface3':'#eceef2',
+    '--float-bg':'#ffffff',
     '--ab':'#f6f7f9',
     '--border':'rgba(0,0,0,.10)',
     '--border2':'rgba(0,0,0,.16)',
@@ -13274,7 +13668,7 @@ function loadThemeSettings(){
   var cachedMsgs=[];
   if(cache&&cache.messages&&cache.messages.length){
     cachedTopicId=cache.topicId;
-    messages=groupProcess(cleanupLiveMsgs(dedupeMsgs(Array.isArray(cache.messages)?cache.messages.slice():[])));
+    messages=groupProcess(cleanupLiveMsgs(_sortMerged(dedupeMsgs(Array.isArray(cache.messages)?cache.messages.slice():[]))));
     for(var ci3=0;ci3<messages.length;ci3++) messages[ci3]._seen=true;
     cachedMsgs=messages.slice();
     if(cache.topics) topics=cache.topics;
@@ -13360,7 +13754,7 @@ function loadThemeSettings(){
     } else if(_initCacheFresh){
       // localStorage 缓存新鲜但无内存缓存:从 localStorage 恢复
       var _lc=loadCache(loadTid);
-      messages=groupProcess(cleanupLiveMsgs(dedupeMsgs(_lc&&_lc.messages?_lc.messages:[])));
+      messages=groupProcess(cleanupLiveMsgs(_sortMerged(dedupeMsgs(_lc&&_lc.messages?_lc.messages:[]))));
       for(var ci5=0;ci5<messages.length;ci5++) messages[ci5]._seen=true;
       if(_lc&&_lc.msgOffset!==undefined){ msgOffset=_lc.msgOffset; allLoaded=_lc.allLoaded; } else { msgOffset=0; allLoaded=false; }
       if(_lc&&_lc.conclView!==undefined) _conclView=!!_lc.conclView;
@@ -13711,6 +14105,14 @@ async function pollTopicTail(){
       _tailMiss=(_tailMiss||0)+1;
       changed=first||(_tailMiss%5===0);
     }
+    // 断点（resume_ok）：它是 meta 里的一行，**不产生新消息** ⇒ last_id 永远不变，
+    // 上面那套 changed 判据一条都命中不了。而错误卡上的「继续 / 用备用源继续」全靠这个布尔值
+    // —— 不问就等于永远不出现（2026-10-24 实测：卡在屏上、断点在库、按钮没有）。
+    // 老后端不回这个字段（undefined）⇒ 保持原值，交给 loadConclusions / loadMessages 那条路。
+    if(typeof d.resume_ok!=='undefined' && !!d.resume_ok!==_resumeOk){
+      _resumeOk=!!d.resume_ok;
+      changed=true;
+    }
     // AI 刚收工：不管 last_id 有没有变，都把文件列表对齐一次（产出文件正是这一轮干的活）
     if(_wasWorking&&!busy&&typeof fbArAfterTurn==='function') fbArAfterTurn();
     _syncSendBtn(tid);   // _tailWorking 刚被这一路写过，按钮跟着服务端走
@@ -13828,78 +14230,114 @@ function closeSettings() {
   settingsStack = [];
 }
 
-async function openSysMemory(){
-  document.getElementById('sysMemoryModal').classList.add('show');
-  var body=document.getElementById('sysMemoryBody');
-  body.innerHTML='<div style=\"padding:20px;text-align:center\">加载中…</div>';
-  try {
-    var r=await fetch('/api/sys-memory');
-    var d=await r.json();
-    var h='';
+// §93：记忆面板不再弹模态框 —— 它成了看板的第一个 tab（「记忆」）。
+// 函数名保留：侧栏那颗按钮、技能详情里的「← 返回」都还指着它。
+function openSysMemory(){ return openMindBoard('mem'); }
 
-    // Stats（注意力指标并入同一栏）
-    var att = d.attention || {};
-    h+='<div style=\"display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px\">';
-    h+='<div class=\"sys-stat\"><b>'+esc((d.fragments||{}).total||0)+'</b><small>记忆碎片</small></div>';
-    h+='<div class=\"sys-stat\"><b>'+esc(d.topics||0)+'</b><small>话题总数</small></div>';
-    if((d.fragments||{}).avg_weight) h+='<div class=\"sys-stat\"><b>'+esc(d.fragments.avg_weight)+'</b><small>平均权重</small></div>';
-    if(att.composite){
-      h+='<div class=\"sys-stat\"><b>'+esc(att.composite.score)+'</b><small>注意力状态</small></div>';
-      h+='<div class="sys-stat"><b>'+esc((att.metrics||{}).M1 ? att.metrics.M1.pct+'%' : '-' )+'</b><small>工作记忆使用率</small></div>';
-    }
-    h+='</div>';
+function _sysMemHost(){ return document.getElementById('mindPaneMem'); }
 
-    // M1–M5 子项进度条仅开发者模式显示
-    if(att.composite && localStorage.getItem('dev_mode')==='1'){
-      var bars=[['M1 工作记忆',att.composite.sub_scores.M1],['M2 膨胀',att.composite.sub_scores.M2],['M3 记忆',att.composite.sub_scores.M3],['M4 纪律',att.composite.sub_scores.M4],['M5 工具书',att.composite.sub_scores.M5]];
-      for(var b=0;b<bars.length;b++){
-        h+='<div style=\"display:flex;align-items:center;gap:8px;margin:3px 0\"><span style=\"width:56px;font-size:11px;color:var(--tdim)\">'+bars[b][0]+'</span><div style=\"flex:1;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden\"><div style=\"height:100%;width:'+Math.min(100,bars[b][1])+'%;background:var(--accent)\"></div></div><span style=\"width:28px;text-align:right;font-size:11px\">'+bars[b][1]+'</span></div>';
-      }
-    }
-
-
-    var frags = d.fragment_list || [];
-    window._fragTotal = (d.fragments||{}).total||0;
-    window._fragOffset = frags.length;
-    window._fragLoading = false;
-    if(frags.length){
-      h+='<h4 style=\"margin:12px 0 8px;color:var(--accent)\">📝 记忆碎片 <button id=\"fragToggleBtn\" onclick=\"toggleFragView()\" style=\"margin-left:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px\">📋 列表</button></h4>';
-      h+='<div id=\"fragList\" style=\"display:none;flex-direction:column;gap:4px;max-height:400px;overflow-y:auto\" onscroll=\"lazyLoadFrags(this)\">';
-      for(var j=0;j<frags.length;j++){
-        var f=frags[j];
-        var w=f.weight ? ' ⭐'+f.weight.toFixed(1) : '';
-        var src = f.source === 'impression' ? '⚡' : (f.source === 'deep' ? '🌙' : (f.source === 'reflection' ? '🤔' : '📝'));
-        var tagsHtml = (f.tags||'') ? ' <span style=\"background:var(--accent);color:#000;padding:0 4px;border-radius:2px;font-size:10px\">#'+f.tags.replace(/,/g,' #')+'</span>' : '';
-        h+='<div style=\"background:var(--surface);border-radius:4px;padding:6px 10px;font-size:12px;line-height:1.4\"><span style=\"color:var(--tdim)\">'+src+' ['+(f.ts||'').substring(0,8)+' '+(f.ts||'').substring(8,12)+']</span>'+w+tagsHtml+' '+f.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\\"/g,'&quot;')+'</div>';
-      }
-      h+='</div>';
-      h+='<canvas id="fragGraph" width="520" height="400" style="width:100%;height:min(400px,42vh);background:var(--surface);border-radius:6px;cursor:grab"></canvas>';
-      h+='<div id="fragPopup" style="display:none;position:fixed;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:12px;max-width:280px;z-index:1000;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.4)"></div>';
-      h+='<div id="fragMore" style="text-align:center;padding:8px;color:var(--tdim);font-size:11px"></div>';
-    }
-
-    h+='<h4 style=\"margin:12px 0 8px;color:var(--accent)\">⚙ AI自创技能</h4>';
-    var skills = d.managed_skills || [];
-    if(skills.length){
-      h+='<div style=\"display:flex;flex-direction:column;gap:6px\">';
-      for(var i=0;i<skills.length;i++){
-        var sk=skills[i];
-        h+='<div style=\"background:var(--surface);border-radius:6px;padding:8px 12px;cursor:pointer\" onclick=\"viewSkill(\x27'+escAttr(sk.name)+'\x27)\"><b>📋 '+esc(sk.name)+'</b>'+ (sk.description ? '<br><small style=\"color:var(--tdim)\">'+esc(sk.description)+'</small>' : '') +'</div>';
-      }
-      h+='</div>';
-    } else {
-      h+='<div style=\"color:var(--tdim);font-size:12px;padding:8px 0\">暂无。AI 可通过 manage_skill 工具自己创建。</div>';
-    }
-
-    body.innerHTML=h;
-    // Load graph after DOM is ready (canvas is default view)
-    setTimeout(function(){ var c=document.getElementById('fragGraph'); if(c) loadFragGraph(c); }, 100);
-  } catch(e){
-    body.innerHTML='<div style=\"padding:20px;text-align:center;color:var(--tdim)\">加载失败: '+esc(e.message)+'</div>';
-  }
+function _sysStat(k, v){
+  // 🔴 esc() 的实现是 String(s||'')，0 会变成空串 —— 数字型字段必须单独接住，
+  //    否则「话题总数 0」在卡里就是一个空格子，看起来像读取失败。
+  var t = (v === 0 || v === '0') ? '0' : esc(v);
+  return '<div class="sys-stat"><b>' + t + '</b><small>' + esc(k) + '</small></div>';
 }
 
-function closeSysMemory(e){ if(e.target===document.getElementById('sysMemoryModal')) document.getElementById('sysMemoryModal').classList.remove('show'); }
+async function loadSysMemPane(){
+  var body = _sysMemHost();
+  if(!body) return;
+  // 已有内容时不清空：重读不该闪白（和 loadMindSettings 同一条规矩）
+  if(!body.innerHTML.trim()) body.innerHTML = '<div class="center-msg">加载中…</div>';
+  var d = null;
+  try{ var r = await fetch('/api/sys-memory'); d = await r.json(); }
+  catch(e){
+    body.innerHTML = '<div class="center-msg">加载失败：' + esc(e.message) + '</div>';
+    return;
+  }
+  body.innerHTML = _sysMemHtml(d);
+  // 关联图必须等 canvas 进 DOM 才能画
+  setTimeout(function(){ var c = document.getElementById('fragGraph'); if(c) loadFragGraph(c); }, 80);
+}
+
+function _sysMemHtml(d){
+  var att = d.attention || {}, fr = d.fragments || {};
+  var frags = d.fragment_list || [];
+  window._fragTotal = fr.total || 0;
+  window._fragOffset = frags.length;
+  window._fragLoading = false;
+  var h = '';
+
+  // ① 状态总览
+  // 整行铺开：五个数横排一条状态带，剩下的两块（碎片 / 技能）并排。
+  // 不整行的话，这张矮卡下面会空出一大块（flex-wrap 不做瀑布流）。
+  h += '<div class="sp-section mb-full"><h4>记忆状态</h4>';
+  h += '<div class="mb-stats">';
+  h += _sysStat('记忆碎片', fr.total || 0);
+  h += _sysStat('话题总数', d.topics || 0);
+  if(fr.avg_weight) h += _sysStat('平均权重', fr.avg_weight);
+  if(att.composite){
+    h += _sysStat('注意力状态', att.composite.score);
+    h += _sysStat('工作记忆', (att.metrics || {}).M1 ? att.metrics.M1.pct + '%' : '-');
+  }
+  h += '</div>';
+  // M1–M5 子项只在开发者模式显示（原来就是这条件）
+  if(att.composite && localStorage.getItem('dev_mode') === '1'){
+    var bars = [['M1 工作记忆', att.composite.sub_scores.M1], ['M2 膨胀', att.composite.sub_scores.M2],
+                ['M3 记忆', att.composite.sub_scores.M3], ['M4 纪律', att.composite.sub_scores.M4],
+                ['M5 工具书', att.composite.sub_scores.M5]];
+    for(var b = 0; b < bars.length; b++){
+      h += '<div class="mb-bar-row"><span>' + bars[b][0] + '</span>'
+         + '<div class="bar"><i style="width:' + Math.min(100, bars[b][1]) + '%"></i></div>'
+         + '<b>' + bars[b][1] + '</b></div>';
+    }
+  }
+  h += '</div>';
+
+  // ② 碎片：关联图是默认视图，列表按需展开（toggleFragView 负责切，别改它）
+  h += '<div class="sp-section"><h4>碎片与关联图'
+     + '<button id="fragToggleBtn" type="button" class="mb-mini" onclick="toggleFragView()">▶ 碎片列表</button></h4>';
+  if(frags.length){
+    h += '<canvas id="fragGraph" width="720" height="430" class="mb-graph"></canvas>';
+    h += '<div id="fragPopup" class="mb-pop"></div>';
+    // 🔴 display:none 必须写成**内联**：toggleFragView() 判的是 list.style.display，
+    //    只写在 CSS 里（.mb-fraglist{display:none}）它读到的是空串，
+    //    于是永远走 else 分支，点一下看起来毫无反应。
+    h += '<div id="fragList" class="mb-fraglist" style="display:none" onscroll="lazyLoadFrags(this)">';
+    for(var j = 0; j < frags.length; j++){
+      var f = frags[j];
+      var w = f.weight ? ' ⭐' + f.weight.toFixed(1) : '';
+      var src = f.source === 'impression' ? '⚡' : (f.source === 'deep' ? '🌙' : (f.source === 'reflection' ? '🤔' : '📝'));
+      var tagsHtml = (f.tags || '') ? ' <span class="mb-tag">#' + esc(f.tags).replace(/,/g, ' #') + '</span>' : '';
+      h += '<div class="mb-frag"><span class="t">' + src + ' '
+         + esc((f.ts || '').substring(0, 8)) + ' ' + esc((f.ts || '').substring(8, 12)) + '</span>'
+         + w + tagsHtml + ' ' + esc(f.text) + '</div>';
+    }
+    h += '</div>';
+    h += '<div id="fragMore" class="mb-more"></div>';
+  } else {
+    h += '<div class="cfg-hint">还没有记忆碎片。</div>';
+  }
+  h += '</div>';
+
+  // ③ AI 自创技能
+  var skills = d.managed_skills || [];
+  h += '<div class="sp-section"><h4>AI 自创技能</h4>';
+  if(skills.length){
+    for(var i = 0; i < skills.length; i++){
+      var sk = skills[i];
+      h += '<div class="mb-skill" onclick="viewSkill(\x27' + escAttr(sk.name) + '\x27)">'
+         + '<b>' + esc(sk.name) + '</b>'
+         + (sk.description ? '<small>' + esc(sk.description) + '</small>' : '') + '</div>';
+    }
+  } else {
+    h += '<div class="cfg-hint">暂无。AI 可通过 manage_skill 工具自己创建。</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+// 模态框已退役（§93，内容并入看板「记忆」tab），保留空实现 —— 旧调用点不报错
+function closeSysMemory(){ if(typeof closeMindBoard === 'function') closeMindBoard(); }
 
 // ── Task Flow Chart (DAG visualization) ──
 function _mmThemeVars(){
@@ -15384,14 +15822,14 @@ function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
 
 function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/\\/g,'\\\\').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/[\r\n]/g,' '); }
 async function viewSkill(name){
-  var body=document.getElementById('sysMemoryBody');
+  var body=_sysMemHost();
   try {
     var r=await fetch('/api/skill-content?name='+encodeURIComponent(name));
     var d=await r.json();
     if(d.error){ body.innerHTML='<div style=\"padding:10px;color:var(--danger)\">'+esc(d.error)+'</div>'; return; }
     var h='<h4 style=\"color:var(--accent)\">📋 '+esc(name)+'</h4>';
     h+='<pre style=\"background:var(--surface);border-radius:6px;padding:12px;font-size:12px;white-space:pre-wrap;max-height:400px;overflow-y:auto\">'+esc(d.content)+'</pre>';
-    h+='<button onclick=\"openSysMemory()\" style=\"margin-top:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:6px;cursor:pointer\">← 返回</button>';
+    h+='<button onclick=\"loadSysMemPane()\" style=\"margin-top:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:6px;cursor:pointer\">← 返回</button>';
     body.innerHTML=h;
   } catch(e){ body.innerHTML='<div style=\"padding:10px;color:var(--danger)\">加载失败</div>'; }
 }
@@ -15400,9 +15838,9 @@ function pushSettingsView(name) {
   var _f=document.getElementById('settingsBody');
   if(_f){ _f.classList.add('nav-fwd'); setTimeout(function(){ _f.classList.remove('nav-fwd'); },300); }
   settingsStack.push(name);
-  document.getElementById('spTitle').textContent = ({versions:'时间机器',system:'系统',tunnel:'公网访问',model:'模型配置',web:'Web设置',compress:'策略设置',recycle:'回收站',changelog:'变更日志',avatar:'头像设置',theme:'主题',interface:'界面',suggestions:'AI自动建议',websearch:'联网搜索',mobile:'移动端配对',assets:'资产库',feedback:'消息反馈'})[name]||name;
+  document.getElementById('spTitle').textContent = ({versions:'时间机器',system:'系统',tunnel:'公网访问',model:'模型配置',web:'Web设置',compress:'策略设置',recycle:'回收站',changelog:'变更日志',avatar:'头像设置',theme:'主题',interface:'界面',mind:'自我思绪整理',websearch:'联网搜索',mobile:'移动端配对',assets:'资产库',feedback:'消息反馈'})[name]||name;
   if (name === 'versions') loadVersions();
-  else if (name === 'suggestions') loadSuggestionSettings();
+  else if (name === 'mind') loadMindSettings();
   else if (name === 'feedback') loadMessageFeedback();
   else if (name === 'system') loadSystemInfo();
   else if (name === 'tunnel') loadTunnelPanel();
@@ -15432,9 +15870,9 @@ function settingsBack() {
     renderSettingsMenu();
   } else {
     var name = settingsStack[settingsStack.length-1];
-    document.getElementById('spTitle').textContent = ({versions:'时间机器',system:'系统',tunnel:'公网访问',model:'模型配置',web:'Web设置',compress:'策略设置',recycle:'回收站',changelog:'变更日志',avatar:'头像设置',theme:'主题',interface:'界面',suggestions:'AI自动建议',websearch:'联网搜索',assets:'资产库',feedback:'消息反馈'})[name]||name;
+    document.getElementById('spTitle').textContent = ({versions:'时间机器',system:'系统',tunnel:'公网访问',model:'模型配置',web:'Web设置',compress:'策略设置',recycle:'回收站',changelog:'变更日志',avatar:'头像设置',theme:'主题',interface:'界面',mind:'自我思绪整理',websearch:'联网搜索',assets:'资产库',feedback:'消息反馈'})[name]||name;
     if (name === 'versions') loadVersions();
-    else if (name === 'suggestions') loadSuggestionSettings();
+    else if (name === 'mind') loadMindSettings();
     else if (name === 'feedback') loadMessageFeedback();
     else if (name === 'system') loadSystemInfo();
   else if (name === 'tunnel') loadTunnelPanel();
@@ -15451,45 +15889,1288 @@ function settingsBack() {
   }
 }
 
-// [设置] AI自动建议分析：开关 + 更新频率 + 立即生成 + 建议池预览
-async function loadSuggestionSettings(){
-  var bodyEl=document.getElementById('settingsBody');
-  bodyEl.innerHTML='<div class="center-msg">加载中…</div>';
-  var d={enabled:true,freq:'1d',pool:[],gen_at:0};
-  try{ var r=await fetch('/api/settings/suggestions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})}); d=await r.json(); }catch(e){}
-  renderSuggestionSettings(d);
+// [设置] 自我思绪整理：选模型 + 定触发时间 + 看整理全过程
+// 取代原「AI 自动建议」：那个是给空态生成开场白，这个是整理大眼自己的反思记忆。
+// 三条约束都落在 UI 上：模型可选、时间可选、过程可见（独立线程不影响对话）。
+var _mindPoll = null, _mindState = null, _mindSheet = null, _mindTab = 'mem';
+
+function stopMindPoll(){ if(_mindPoll){ clearInterval(_mindPoll); _mindPoll=null; } }
+
+async function loadMindSettings(){
+  stopMindPoll();
+  var host = _mindHost();
+  if(!host) return;
+  // 看板里 pane 容器已经在（tab 结构常驻），重读时不清空 —— 清空会让正在看的
+  // 内容闪一下白。设置面板里（没有 pane）才显示"加载中"。
+  var pm0 = document.getElementById('mindPaneMemo');
+  if(!pm0){
+    host.innerHTML = '<div class="center-msg">加载中…</div>';
+  }else if(!pm0.innerHTML.trim()){
+    // 首次打开：真库要 ~0.6s 才回（net_stats 200ms + auto_status 280ms），
+    // 空 pane 会看起来像"坏了"。已经有内容时不清空 —— 重读不该闪白。
+    pm0.innerHTML = '<div class="center-msg">加载中…</div>';
+    var pn0 = document.getElementById('mindPaneNet');
+    if(pn0 && !pn0.innerHTML.trim()) pn0.innerHTML = '<div class="center-msg">加载中…</div>';
+  }
+  return (async function(){
+    var d = null;
+    try{ var r = await fetch('/api/mind'); d = await r.json(); }catch(e){}
+    if(!d || d.error){
+      var pe = document.getElementById('mindPaneMemo') || host;
+      pe.innerHTML = '<div class="center-msg">加载失败：' + esc((d && d.error) || '网络错误') + '</div>';
+      return;
+    }
+    _mindState = d;
+    renderMindSettings(d);
+    startMindPoll();
+    var sm0 = _sysMemHost();
+    if(sm0 && !sm0.innerHTML.trim()) loadSysMemPane();
+  })();
 }
-function renderSuggestionSettings(d){
-  d=d||{};
-  var bodyEl=document.getElementById('settingsBody');
-  var freqs=[['12h','每12小时'],['1d','每天'],['3d','每3天'],['7d','每周']];
-  var freqHtml=freqs.map(function(f){ return '<button class="sp-btn'+(d.freq===f[0]?' sug-freq-on':'')+'" style="display:inline-block;width:auto;margin:0 6px 6px 0;padding:6px 14px" onclick="saveSuggestionFreq(\''+f[0]+'\')">'+f[1]+'</button>'; }).join('');
-  var genAt=d.gen_at? new Date(d.gen_at*1000).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '从未';
-  bodyEl.innerHTML='<div class="sp-section"><h4>自动分析</h4>'
-    +'<div class="sp-toggle-row" style="margin:0 0 10px;border-radius:6px"><span style="display:flex;align-items:center;gap:12px">AI自动建议</span><label class="sp-toggle"><input type="checkbox"'+(d.enabled?' checked':'')+' onchange="saveSuggestionEnabled(this.checked)"><span class="slider"></span></label></div>'
-    +'<div style="font-size:11.5px;color:var(--tdim);line-height:1.7;margin-bottom:12px">开启后，后台按设定频率静默分析你最近的任务和记忆</div>'
-    +'<h4>更新频率</h4><div>'+freqHtml+'</div>'
-    +'<h4 style="margin-top:14px">手动</h4>'
-    +'<button class="sp-btn" id="sugGenBtn" onclick="generateSuggestionsNow()">立即生成（消耗约 2k tok）</button>'
-    +'<div style="font-size:11px;color:var(--tdim);opacity:.7;margin-bottom:12px">上次生成：'+genAt+'</div>'
-    +'</div>';
+
+function _mindHHMMSS(ts){
+  if(!ts) return '--:--:--';
+  var d = new Date(ts * 1000);
+  var p = function(n){ return (n < 10 ? '0' : '') + n; };
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
-async function saveSuggestionEnabled(on){
-  try{ var r=await fetch('/api/settings/suggestions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:on})}); renderSuggestionSettings(await r.json()); }catch(e){}
+function _mindFmtTime(ts){
+  if(!ts) return '';
+  var d = new Date(ts * 1000);
+  var p = function(n){ return (n < 10 ? '0' : '') + n; };
+  return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
-async function saveSuggestionFreq(f){
-  try{ var r=await fetch('/api/settings/suggestions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({freq:f})}); renderSuggestionSettings(await r.json()); }catch(e){}
+function _mindSrcLabel(p, m){
+  if(m && m.group) return m.group;
+  if(typeof PROVIDER_NAMES !== 'undefined' && PROVIDER_NAMES[p]) return PROVIDER_NAMES[p];
+  try{ if(typeof cpSourceLabel === 'function'){ var l = cpSourceLabel(p); if(l) return l; } }catch(e){}
+  return p || '其他';
 }
-async function generateSuggestionsNow(){
-  var btn=document.getElementById('sugGenBtn');
-  if(btn){ btn.disabled=true; btn.textContent='AI 正在分析最近动态…'; }
+
+
+/* ──────────────────────────────────────────────────────────────────────────
+   §92 思绪看板（2026-10-26 · 第 17 轮）
+
+   用户：「这两个东西还是做去这个面板里吧，然后面板打开变成一个超级看板，
+   直接在聊天页面的位置全屏展开」。入口 = 侧栏底部那颗按钮。
+
+   ① 不重写渲染：pane 内容仍由 _memoPaneHtml / _netPaneHtml 产出，
+      看板只提供容器 + CSS（.mb-pane 把 .sp-section 变成卡片）。
+      同一份内容两处各写一遍 = 本项目最高频根因（§17/21/29/40/55/59/77/81）。
+   ② 层级：mainPanel 是 position:relative，看板 absolute 铺它。z-index 必须 < 1
+      （header 是 z-index:1，带 ☰ 和窗口控件），写大了就拖不动、关不掉窗口。
+      顶部从 --hdr-clear 起，与聊天内容起点对齐，悬浮岛照常浮在上面。
+   ③ 轮询判据问 DOM（.show + rect 有面积），不问标志位（§47）。
+   ────────────────────────────────────────────────────────────────────────── */
+
+function _mindHost(){
+  return document.getElementById('mindBoardBody') || document.getElementById('settingsBody');
+}
+
+function _ensureMindBoard(){
+  var b = document.getElementById('mindBoard');
+  if(b) return b;
+  b = document.createElement('div');
+  b.id = 'mindBoard';
+  b.setAttribute('role', 'region');
+  b.setAttribute('aria-label', '思绪看板');
+  // §96：这里产出**内容区 + 底部一条分页**（#mbTabs，#mbHdrBack 仍在 header 里）——
+  // 不另画一条长着顶部标题栏的壳，那会变成「两个顶栏上下叠着」。
+  b.innerHTML =
+    '<div class="mb-body" id="mindBoardBody">'
+    + '<div class="mb-hero" id="mindHero"></div>'
+    + '<div id="mindPaneMem" class="mb-pane"></div>'
+    + '<div id="mindPaneMemo" class="mb-pane" style="display:none"></div>'
+    + '<div id="mindPaneNet" class="mb-pane" style="display:none"></div>'
+    // §100：故事链 / 权威记忆 / 知识库 —— 三样都是"已经沉下来的东西"，
+    // 它们不是"这一轮对话的记忆"，也不是"网络里的边"，各自一张卡摊开。
+    + '<div id="mindPaneKnow" class="mb-pane" style="display:none"></div>'
+    + '</div>'
+    // §96 底部分页条：三个 tab（记忆 / 自我备忘 / 记忆网络）+ 刷新。
+    // 它是容器自己最底下的一条，材质照抄对话页输入框（--mat-* 四件套）。
+    // 🔴 「整理记录」回到各自 pane 的卡片墙里 —— 那一对卡是 tab 自己的内容，
+    //    不是全页共用的底部工具；两件事的语义不同，别塞进同一条里（§95 走岔了）。
+    // §102 详情层：点标题进来读全文。它盖住 .mb-body 和底部胶囊（z-index 更高），
+    // 是一层"第二页"而不是弹窗 —— 顶栏那条 ☰+← 胶囊照常浮在最上面负责返回。
+    + '<div class="mb-detail" id="mindDetail" role="region" aria-label="内容">'
+    +   '<div class="mb-detail-in" id="mindDetailIn"></div>'
+    + '</div>'
+    + '<div class="mb-bottom">'
+    +   '<div class="mb-switch">'
+    +     '<div class="mb-tabs" id="mbTabs" role="tablist" aria-label="看板分页">'
+    +       '<button type="button" class="mb-tab on" data-tab="mem" role="tab" '
+    +               'onclick="switchMindTab(\'mem\')">记忆</button>'
+    +       '<button type="button" class="mb-tab" data-tab="memo" role="tab" '
+    +               'onclick="switchMindTab(\'memo\')">自我备忘</button>'
+    +       '<button type="button" class="mb-tab" data-tab="net" role="tab" '
+    +               'onclick="switchMindTab(\'net\')">记忆网络</button>'
+    +       '<button type="button" class="mb-tab" data-tab="know" role="tab" '
+    +               'onclick="switchMindTab(\'know\')">知识</button>'
+    +     '</div>'
+    +     '<button type="button" class="mb-icon" onclick="reloadMindBoard()" '
+    +             'title="重新读取" aria-label="重新读取">'
+    +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+    +            'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    +         '<path d="M21 12a9 9 0 1 1-2.6-6.4"/><polyline points="21 3 21 9 15 9"/>'
+    +       '</svg></button>'
+    +   '</div>'
+    + '</div>';
+  // §93：挂在 #mainPanel 里、footer 之前 —— 它是对话页容器的一块，
+  // 不是浮在上面的层。原先 absolute + z-index 那套两头堵：
+  // 高了盖住 header 与窗口控件（拖不动、关不掉），低了被输入框（z-index:20）压住。
+  // 三种条目（故事 / 权威 / 知识页）共用一条委托：点了进详情层看全文。
+  // 不给每一条拼 onclick 字符串（§69）。判据走 data-mbk，不走 class 名 ——
+  // 以后再加一类沉淀物，只要行上带这两个属性就自动能点。
+  b.addEventListener('click', function(e){
+    var st = e.target.closest && e.target.closest('[data-mbk]');
+    if(st) openMindDetail(st.getAttribute('data-mbk'), st.getAttribute('data-mbid'));
+  });
+  var mp = document.getElementById('mainPanel');
+  var ft = mp ? mp.querySelector(':scope > footer') : null;
+  if(ft && ft.parentNode) ft.parentNode.insertBefore(b, ft);
+  else (mp || document.body).appendChild(b);
+  return b;
+}
+
+// 看板有哪些页 —— 只在这里写一次（加一页只改这一行 + 上面两处 DOM）。
+var _MIND_TABS = ['mem', 'memo', 'net', 'know'];
+function _isMindTab(n){ return _MIND_TABS.indexOf(n) >= 0; }
+
+function openMindBoard(tab){
+  _ensureMindBoard();
+  if(_isMindTab(tab)) _mindTab = tab;
+  // 侧栏设置页是"另一套容器"，开着的话先收掉（它俩会各自拉同一个会话）
+  try{ if(typeof closeSettings === 'function') closeSettings(); }catch(e){}
+  // 侧栏**不收**：看板现在是对话页自己的一块，侧栏照常能切任务。
+  // 焦点还留在输入框里的话，Enter 会直接把半截话发出去 —— 看板盖住了输入框，
+  // 用户看不见自己在发什么。先 blur 掉。
+  try{ if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); }catch(e){}
+  var b = document.getElementById('mindBoard');
+  if(b) b.classList.add('show');
+  document.body.classList.add('mb-open');
+  _setMbHdrTitle('状态');   // 顶栏标题复位：上次退出时它可能停在「故事链」
+  return loadMindSettings();
+}
+
+function closeMindBoard(){
+  var b = document.getElementById('mindBoard');
+  if(b) b.classList.remove('show');
+  document.body.classList.remove('mb-open');
+  // 详情层是看板里的一层，关看板必须连它一起关：否则下次打开会直接落在
+  // 上一次那篇的正文上（.show 还在 DOM 上，谁也没清）。
+  closeMindDetail();
+  stopMindPoll();
+}
+
+function reloadMindBoard(){ return loadMindSettings(); }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   §102 点标题进去看全文（2026-10-27 · 第 27 轮）
+
+   用户：「刚才知识页的我是说我要看到内容，点标题可以进去看那种」。
+
+   🔴 为什么不能"把列表里那段再展开一次"：/api/mind 里的文本**全都是截断过的**
+      （故事 300 字 / 权威 150 字 / 知识页只有标题），展开最多显示到省略号为止。
+      上一轮做的 `.mb-story.open` 就是这个毛病 —— 看起来能点开，其实还是那 300 字。
+      全文必须单独取：/api/mind/detail?kind=…&id=…（逻辑在 tools/mind_network.detail）。
+   🔴 布局按「内容一层、按钮一层」：正文/标题/元信息直接坐在 --bg 上，不铺材质；
+      返回沿用顶栏那条 ☰+← 胶囊，层里**不再摆第二个返回键**（一条胶囊里不许有第二块底）。
+   ────────────────────────────────────────────────────────────────────────── */
+var _mbDetailSeq = 0;
+
+function _mbDetailEl(){ return document.getElementById('mindDetail'); }
+
+function _mbKindName(k){
+  return k === 'story' ? '故事链' : (k === 'auth' ? '权威记忆' : '知识库');
+}
+
+// 顶栏标题是**内容**（不是按钮），详情态把它换成"现在在看哪一类"，
+// 正文里那行大字才是条目自己的名字，两者不重复。
+function _setMbHdrTitle(t){
+  var el = document.getElementById('mbHdrTitle');
+  if(el) el.textContent = t || '状态';
+}
+
+function _mbDetailHtml(d){
+  var h = '<div class="mb-d-kicker"><span>' + esc(d.kicker || '') + '</span>'
+        + (d.date ? '<span class="mb-d-date">' + esc(d.date) + '</span>' : '')
+        + '</div>';
+  if(d.title) h += '<h3 class="mb-d-title">' + esc(d.title) + '</h3>';
+  h += '<div class="mb-d-body">' + esc(d.text || '（这条没有正文）') + '</div>';
+  if(d.tags) h += '<div class="mb-d-tags">' + esc(d.tags) + '</div>';
+  if(d.meta && d.meta.length){
+    h += '<div class="mb-d-meta">';
+    for(var i = 0; i < d.meta.length; i++){
+      h += '<span><i>' + esc(d.meta[i][0]) + '</i>' + esc(d.meta[i][1]) + '</span>';
+    }
+    h += '</div>';
+  }
+  return h;
+}
+
+function openMindDetail(kind, id){
+  var el = _mbDetailEl(), box = document.getElementById('mindDetailIn');
+  if(!el || !box) return;
+  var name = _mbKindName(kind);
+  box.innerHTML = '<div class="mb-d-kicker"><span>' + name + '</span></div>'
+                + '<div class="mb-d-wait">正在取内容…</div>';
+  el.classList.add('show');
+  el.scrollTop = 0;
+  _setMbHdrTitle(name);
+  var seq = ++_mbDetailSeq;
+  fetch('/api/mind/detail?kind=' + encodeURIComponent(kind)
+        + '&id=' + encodeURIComponent(id))
+    .then(function(r){
+      if(!r.ok){
+        // 404 = 服务端还是老进程（路由没加载）。这跟"内容为空"是两件事，
+        // 必须说清楚是哪一个，否则用户只会觉得"点开是空的"（§18/§32）。
+        throw new Error(r.status === 404
+          ? '服务端还没有这个接口，重启一次后可用'
+          : ('服务端返回 HTTP ' + r.status));
+      }
+      return r.json();
+    })
+    .then(function(d){
+      if(seq !== _mbDetailSeq) return;   // 连点两条，只认最后一条
+      if(!d || !d.ok){
+        box.innerHTML = '<div class="mb-d-kicker"><span>' + name + '</span></div>'
+                      + '<div class="mb-d-wait">' + esc((d && d.error) || '取不到内容') + '</div>';
+        return;
+      }
+      box.innerHTML = _mbDetailHtml(d);
+    })
+    .catch(function(err){
+      if(seq !== _mbDetailSeq) return;
+      box.innerHTML = '<div class="mb-d-kicker"><span>' + name + '</span></div>'
+                    + '<div class="mb-d-wait">取不到内容：'
+                    + esc(String((err && err.message) || err)) + '</div>';
+    });
+}
+
+function closeMindDetail(){
+  var el = _mbDetailEl();
+  if(el){
+    el.classList.remove('show');
+    el.scrollTop = 0;
+  }
+  _mbDetailSeq++;          // 关掉之后才到的响应不许再画
+  _setMbHdrTitle('状态');
+}
+
+// 顶栏那条 ☰+← 胶囊里的 ←：详情开着先回列表，否则关看板。
+function mbBack(){
+  var el = _mbDetailEl();
+  if(el && el.classList.contains('show')){ closeMindDetail(); return; }
+  closeMindBoard();
+}
+
+
+function _paintMindHero(d){
+  var el = document.getElementById('mindHero');
+  if(!el || !d) return;
+  el.innerHTML = _mbHeroHtml(d);
+}
+
+// 看板顶部那排数：把"现在脑子里是什么状态"一次摊开，不用切 tab 翻。
+function _mbHeroHtml(d){
+  var memo = d.memo || {};
+  var net = (d.network || {}).net || {};
+  var auto = d.auto || {};
+  var budget = d.budget || 1000, used = memo.used || 0;
+  var pct = budget ? Math.min(100, Math.round(used * 100 / budget)) : 0;
+  var kpi = function(k, v, unit, barHtml){
+    return '<div class="mb-kpi"><span class="k">' + k + '</span>'
+         + '<span class="v">' + v + (unit ? '<em>' + unit + '</em>' : '') + '</span>'
+         + (barHtml || '') + '</div>';
+  };
+  var bar = '<div class="bar"><i style="width:' + pct + '%'
+          + (pct >= 90 ? ';background:var(--warn)' : '') + '"></i></div>';
+  var h = '';
+  h += kpi('常驻纪律', (memo.rules || []).length, '条');
+  h += kpi('关于你', (memo.user_notes || []).length, '条');
+  h += kpi('预算占用', used, '/' + budget + ' 字', bar);
+  h += kpi('记忆碎片', net.total || 0, '条');
+  h += kpi('待整理', net.pending_cores || 0, '条');
+  h += kpi('关系边', net.relations || 0, '条');
+  h += kpi('故事', net.stories || 0, '个');
+  var kn = _mindSed(d).knowledge || {};
+  h += kpi('知识页', kn.pages || 0, '页');
+  // 料源断更时给一个显眼的数：这是"机制活着但空转"的唯一外部信号（§91）
+  var stale = auto.source_stale_days || 0;
+  // 料源断更是"机制活着但在空转"的唯一外部信号，给语义色，别混在正常数里
+  if(stale >= 14){
+    h += '<div class="mb-kpi"><span class="k">料源停更</span>'
+       + '<span class="v" style="color:var(--warn)">' + stale + '<em>天</em></span></div>';
+  }
+  return h;
+}
+
+/* §96：底部记录条（§95）整段删除 —— 整理记录回到 pane 的卡片墙里，
+   由 _memoPaneHtml / _netPaneHtml 直接渲染（同一份 _mindHistHtml / _netHistHtml，
+   不另写第二份）。切换态一律问 DOM，不留布尔标志（§47）。 */
+
+
+// Esc 关看板。捕获阶段 + stopPropagation —— 项目里还有别的 Esc 处理器
+// （ctxMenu / 图片查看 / 文件面板），不拦住会连它们一起触发（§71）。
+document.addEventListener('keydown', function(e){
+  if(e.key !== 'Escape') return;
+  var b = document.getElementById('mindBoard');
+  if(!b || !b.classList.contains('show')) return;
+  // 上层还有浮层（模型选择器）时让它们先处理，否则一次 Esc 关两层
+  if(document.querySelector('.task-model-sheet')) return;
+  // 详情开着时，第一次 Esc 只退回列表（和顶栏 ← 的层级一致：详情 > 看板）
+  var dEl = document.getElementById('mindDetail');
+  if(dEl && dEl.classList.contains('show')){
+    e.preventDefault();
+    e.stopPropagation();
+    closeMindDetail();
+    return;
+  }
+  e.preventDefault();
+  e.stopPropagation();
+  closeMindBoard();
+}, true);
+
+function renderMindSettings(d){
+  // 只重画 pane 内容，不重画 tab / hero 骨架 —— 那样每次刷新都会把用户的
+  // 滚动位置和展开状态一起丢掉。
+  var pm = document.getElementById('mindPaneMemo');
+  var pn = document.getElementById('mindPaneNet');
+  var pk = document.getElementById('mindPaneKnow');
+  if(!pm || !pn){
+    var host = _mindHost();
+    if(!host) return;
+    host.innerHTML = '<div id="mindPaneMemo" class="mb-pane">' + _memoPaneHtml(d) + '</div>'
+                   + '<div id="mindPaneNet" class="mb-pane" style="display:none">'
+                   + _netPaneHtml(d) + '</div>'
+                   + '<div id="mindPaneKnow" class="mb-pane" style="display:none">'
+                   + _knowPaneHtml(d) + '</div>';
+  }else{
+    pm.innerHTML = _memoPaneHtml(d);
+    pn.innerHTML = _netPaneHtml(d);
+    if(pk) pk.innerHTML = _knowPaneHtml(d);
+  }
+  switchMindTab(_mindTab, true);
+  _paintMindHero(d);
+  paintMindLive(d.live, d.running);
+  paintNetLive((d.network || {}).live, (d.network || {}).running);
+}
+
+function switchMindTab(name, keep){
+  _mindTab = _isMindTab(name) ? name : 'mem';
+  var panes = {mem: document.getElementById('mindPaneMem'),
+               memo: document.getElementById('mindPaneMemo'),
+               net: document.getElementById('mindPaneNet'),
+               know: document.getElementById('mindPaneKnow')};
+  for(var k in panes){
+    if(panes[k]) panes[k].style.display = (k === _mindTab) ? '' : 'none';
+  }
+  // 选中态由 .on 驱动（看板头部是常驻 DOM），不再逐个写内联色
+  var tabs = document.querySelectorAll('#mbTabs .mb-tab');
+  for(var i = 0; i < tabs.length; i++){
+    if(tabs[i].getAttribute('data-tab') === _mindTab) tabs[i].classList.add('on');
+    else tabs[i].classList.remove('on');
+  }
+  // 「记忆」tab 的数据走 /api/sys-memory（与 /api/mind 不是一路），
+  // 第一次切进来才拉；已经拉过就留着，切来切去不重复请求
+  if(_mindTab === 'mem'){
+    var sm = document.getElementById('mindPaneMem');
+    if(sm && !sm.innerHTML.trim()) loadSysMemPane();
+  }
+  // 切 tab 时把实时长文重绘一次：两个会话可能都在跑，谁在跑就画谁
+  if(_mindState){
+    paintMindLive(_mindState.live, _mindState.running);
+    paintNetLive((_mindState.network || {}).live, (_mindState.network || {}).running);
+  }
+}
+
+function _memoPaneHtml(d){
+  var cfg = d.cfg || {}, memo = d.memo || {};
+  var used = memo.used || 0, budget = d.budget || 1000;
+  var pct = budget ? Math.round(used * 100 / budget) : 0;
+  var follow = !(cfg.provider && cfg.model);
+  var modelTxt = follow ? '跟随主模型' : (cfg.model || '');
+  var presets = ['01:00', '03:00', '05:00', '12:00', '22:00'];
+  var presetHtml = presets.map(function(t){
+    var on = (cfg.at === t);
+    return '<button class="sp-btn" data-mt="' + t + '" onclick="saveMindTime(\'' + t + '\')" '
+      + 'style="display:inline-block;width:auto;margin:0 6px 6px 0;padding:6px 14px'
+      + (on ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : '') + '">' + t + '</button>';
+  }).join('');
+  var h = '';
+  h += '<div class="sp-section"><h4>什么时候整理</h4>';
+  h += '<div class="sp-toggle-row" style="margin:0 0 10px;border-radius:6px">'
+     + '<span style="display:flex;align-items:center;gap:12px">每天定时整理</span>'
+     + '<label class="sp-toggle"><input type="checkbox"' + (cfg.auto ? ' checked' : '')
+     + ' onchange="saveMindAuto(this.checked)"><span class="slider"></span></label></div>';
+  h += '<div style="font-size:11.5px;color:var(--tdim);line-height:1.7;margin-bottom:10px">'
+     + '关掉就只在你点「开始整理」时跑。整理在自己独立的线程里，不改对话、不占当前任务。</div>';
+  h += '<div id="mindTimeRow" style="' + (cfg.auto ? '' : 'display:none') + '">';
+  h += presetHtml;
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-top:2px">'
+     + '<span style="font-size:11.5px;color:var(--tdim);flex:0 0 auto">自定义</span>'
+     + '<input id="mindAt" type="text" value="' + escAttr(cfg.at || '03:00') + '" placeholder="03:00" maxlength="5" '
+     + 'style="width:72px;background:var(--surface2);border:1px solid var(--border);color:var(--text);'
+     + 'border-radius:8px;padding:6px 8px;font:inherit;font-size:13px;text-align:center" '
+     + 'onblur="saveMindTime(this.value)">'
+     + '<span style="font-size:11px;color:var(--tdim);opacity:.72">24 小时制</span></div>';
+  h += '</div></div>';
+
+  h += '<div class="sp-section"><h4>用哪个模型整理</h4>';
+  h += '<button class="sp-btn" id="mindModelBtn" onclick="openMindModelSheet()" '
+     + 'style="display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left">'
+     + '<span id="mindModelName" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+     + esc(modelTxt) + ' ▾</span></button>';
+  h += '<div style="font-size:11.5px;color:var(--tdim);line-height:1.7;margin-top:8px">'
+     + '只用于整理，不影响对话用的模型。整理要读一批碎片再归并成短纪律，'
+     + '建议挑愿意慢想、上下文大的；小模型很容易把纪律写成「要谨慎」这种空话。</div>';
+  // 这张卡下面的累计行：整理/收敛/反思都没有 topic，不进任何一场对话的账，
+  // 所以单独记一本（tools/mind_spend.py）。内容层 —— 不铺材质，就是几行字。
+  h += '<div id="mindSpendBox" style="margin-top:12px;padding-top:11px;'
+     + 'border-top:1px solid var(--border);line-height:1.8">'
+     + _mindSpendHtml(d.auto || {}) + '</div></div>';
+
+  h += '<div class="sp-section"><h4>整理</h4>';
+  // .sp-btn 自带 width:100%；stop 只写 flex:0 0 auto 时 basis=auto 会取到 100%，
+  // 结果它吃掉整行、「整理中…」被压成竖排。必须显式 width:auto。
+  h += '<div style="display:flex;gap:8px;align-items:stretch">'
+     + '<button class="sp-btn" id="mindRunBtn" onclick="runMindNow()" '
+     + 'style="flex:1 1 auto;min-width:0;width:auto;white-space:nowrap">开始整理</button>'
+     + '<button class="sp-btn" id="mindStopBtn" onclick="stopMindNow()" '
+     + 'style="flex:0 0 auto;width:auto;white-space:nowrap;display:none">停止</button></div>';
+  h += '<div id="mindLive" style="margin-top:12px"></div></div>';
+
+  h += '<div class="sp-section"><h4>现在常驻在系统提示里的</h4>';
+  h += '<div id="mindMemoStat" style="font-size:12px;color:var(--tdim);line-height:1.9">'
+     + _memoStatText(memo, budget) + '</div>';
+  h += '<div id="mindMemo">' + _mindMemoHtml(memo) + '</div></div>';
+
+  h += '<div class="sp-section"><h4>后台自动收敛</h4>'
+     + '<div id="mindAuto">' + _mindAutoHtml(d.auto, d.auto_history) + '</div></div>';
+
+  // 整理记录（§96 还原）：它就是「自我备忘」这个 tab 自己的一张卡 ——
+  // 跟"什么时候整理""用哪个模型"同级，留在墙里，不搬到页面底部去。
+  h += '<div class="sp-section"><h4>整理记录</h4>'
+     + '<div id="mindHist">' + _mindHistHtml(d.sessions) + '</div></div>';
+  return h;
+}
+
+// 「非任务对话」的模型开销：整理 / 后台收敛 / 反思 —— 这些调用都没有 topic，
+// 不进任何一场对话的账，所以由 tools/mind_spend.py 单独累计，走 /api/mind 的 auto.spend。
+// 拿不到这个键时不能说"花了 0 元"，要说清"还没上这本账"（两回事，§18/§32）。
+function _mindSpendHtml(auto){
+  var s = (auto || {}).spend;
+  if(!s){
+    return '<div style="font-size:11.5px;color:var(--tdim);line-height:1.75">'
+      + '服务端还没带上这本账 —— 重启（或热加载 tools/mind_spend.py）后才会出现。</div>';
+  }
+  if(!s.calls){
+    return '<div style="font-size:11.5px;color:var(--tdim);line-height:1.75">'
+      + '整理、后台收敛、反思这些<b style="color:var(--text)">不占对话</b>的模型调用，'
+      + '一共花掉多少 token、多少钱。现在还没跑过，所以是 0。</div>';
+  }
+  var money = Number(s.cny || 0);
+  var moneyTxt = money <= 0 ? '¥0' : (money < 0.01 ? '<¥0.01' : '¥' + money.toFixed(2));
+  var since = '';
+  if(s.since){
+    var d0 = new Date(s.since * 1000);
+    since = d0.getFullYear() + '-' + ('0' + (d0.getMonth() + 1)).slice(-2)
+          + '-' + ('0' + d0.getDate()).slice(-2);
+  }
+  var h = '<div style="font-size:12.5px;color:var(--tdim)">累计 '
+        + '<b style="color:var(--text)">' + fmtTokens(s.tokens) + '</b> · '
+        + '<b style="color:var(--text)">' + moneyTxt + '</b> · '
+        + '<b style="color:var(--text)">' + (s.calls || 0) + '</b> 次调用</div>';
+  var ks = s.kinds || [];
+  if(ks.length){
+    h += '<div style="display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;'
+       + 'font-size:11.5px;color:var(--tdim)">';
+    ks.forEach(function(k){
+      h += '<span>' + esc(k.kind) + ' ' + fmtTokens(k.tokens) + ' / '
+         + (k.cny > 0 ? '¥' + k.cny.toFixed(2) : '¥0')
+         + '（' + (k.calls || 0) + ' 次）</span>';
+    });
+    h += '</div>';
+  }
+  h += '<div style="margin-top:6px;font-size:11px;color:var(--tdim);opacity:.78">'
+     + (since ? '自 ' + since + ' 起算。' : '')
+     + '只统计后台干活，不进任何一场对话的账'
+     + (s.unpriced ? '；其中 ' + s.unpriced + ' 次没取到价，金额偏低' : '')
+     + '。</div>';
+  return h;
+}
+function _memoStatText(memo, budget){
+  var used = memo.used || 0;
+  var pct = budget ? Math.round(used * 100 / budget) : 0;
+  return '纪律 <b style="color:var(--text)">' + ((memo.rules || []).length) + '</b> 条 · '
+    + '关于你 <b style="color:var(--text)">' + ((memo.user_notes || []).length) + '</b> 条 · '
+    + '占用 <b style="color:var(--text)">' + used + '/' + budget + '</b> 字（' + pct + '%）';
+}
+
+// 「后台自动收敛」的现状。用户问的是"那个情况怎么样"，所以这里不写"运行正常"，
+// 而是把它真正在做什么摊开：素材从哪来、还剩多少、源头多久没进新料、还要等多久。
+function _mindAutoHtml(a, hist){
+  a = a || {};
+  if(a.error) return '<div style="font-size:12px;color:var(--warn)">读取失败：' + esc(a.error) + '</div>';
+  var h = '';
+  var last = a.last_run_ts ? _mindFmtTime(a.last_run_ts) : '从没跑过';
+  h += '<div style="font-size:12px;color:var(--tdim);line-height:1.9">'
+     + '上次运行 <b style="color:var(--text)">' + esc(last) + '</b>'
+     + (a.last_count ? ('，读了 <b style="color:var(--text)">' + a.last_count + '</b> 条') : '')
+     + (a.wait_h > 0 ? ('；还要等 ' + a.wait_h + ' 小时才到下一次') : '；下次反思后就可能触发') + '</div>';
+  h += '<div style="font-size:11.5px;color:var(--tdim);line-height:1.7;margin-top:6px">'
+     + '触发条件：新增 ≥' + (a.min_new || 8) + ' 条失误记录 <b>且</b> 距上次 ≥' + (a.interval_h || 12)
+     + ' 小时。它和上面的「整理」用同一份备忘、同一个进度指针 —— 你在上面手动跑完，它就不会再处理同一批。</div>';
+
+  // 素材源健康度。这是这个面板最该说清楚的一件事：
+  // 指针停着不动、或者源头两个月没进新料时，"上次运行时间"看起来很健康，实际早就空转。
+  var stale = a.source_stale_days || 0;
+  var warn = '';
+  if(stale >= 14){
+    warn = '这批料的最后一条写在 ' + esc(a.src_last_at || '') + '，已经 ' + stale
+         + ' 天没有新的了 —— 你最近 ' + stale + ' 天的失误它一条都没看到。'
+         + '<div style="margin-top:4px">不是收敛坏了，是上游没料了：产出这批料的「自动反思」'
+         + '在 8 月就被关掉了自动触发（每次对话后都烧一次 LLM，产出的碎片平时又不加载），'
+         + '现在只有 AI 主动调 reflect 才进新料。</div>';
+  }
+  h += '<div style="margin-top:10px;padding:8px 10px;border-radius:8px;background:var(--surface2);'
+     + 'font-size:11.5px;line-height:1.75;color:var(--tdim)">'
+     + '素材源：<b style="color:var(--text)">' + (a.src_total || 0) + '</b> 条失误记录（deep/causal）'
+     + '，其中还没嚼过的 <b style="color:var(--text)">' + (a.new_fragments || 0) + '</b> 条';
+  if(warn) h += '<div style="margin-top:5px;color:var(--warn)">' + warn + '</div>';
+  else h += '<div style="margin-top:5px">源头还在进新料，属正常。</div>';
+  h += '</div>';
+
+  // 版本留痕：自动收敛已经改过 7 版，每一版都能退回去
+  if(hist && hist.length){
+    h += '<details style="margin-top:10px"><summary style="font-size:11.5px;color:var(--tdim);cursor:pointer">'
+       + '版本留痕（' + hist.length + ' 版，可回滚）</summary>'
+       + '<div style="margin-top:6px;border-left:2px solid var(--border);padding-left:10px">';
+    for(var i = 0; i < hist.length; i++){
+      var v = hist[i] || {};
+      h += '<div style="padding:5px 0;font-size:11.5px;color:var(--tdim);line-height:1.7">'
+         + '<span style="color:var(--text)">v' + (v.version) + '</span>'
+         + ' · ' + esc(v.saved_at || '初始') + ' · '
+         + '纪律 ' + ((v.rules || []).length) + ' / 备注 ' + ((v.user_notes || []).length) + ' 条'
+         + '<button class="sp-btn" onclick="rollbackMemo(' + (v.version) + ')" '
+         + 'style="display:inline-block;width:auto;margin-left:8px;padding:1px 8px;font-size:11px">回到这版</button>'
+         + (v.note ? ('<div style="opacity:.8;margin-top:1px">' + esc(v.note) + '</div>') : '')
+         + '</div>';
+    }
+    h += '</div></details>';
+  }
+  return h;
+}
+
+async function rollbackMemo(v){
+  if(!confirm('把常驻备忘退回到 v' + v + '？当前内容会先存进版本留痕，能再退回来。')) return;
+  var d = null;
   try{
-    var r=await fetch('/api/settings/suggestions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({generate:true})});
-    var d=await r.json();
-    if(d.gen_msg) alert(d.gen_msg);
-    renderSuggestionSettings(d);
-  }catch(e){ alert('生成失败'); renderSuggestionSettings({}); }
+    var r = await fetch('/api/mind', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'memo_rollback', version: v})});
+    d = await r.json();
+  }catch(e){ alert('回滚失败：' + e.message); return; }
+  if(d && d.result && d.result.error){ alert(d.result.error); return; }
+  if(d && d.result && d.result.message) console.log('[mind] ' + d.result.message);
+  if(d){ _mindState = d; refreshMindPanels(); }
 }
+
+/* §100 知识页：故事链 / 权威记忆 / 知识库。
+   三样都是"已经沉下来的东西"，但读法不同：
+     故事链 = 一段时间线（日期最要紧，正文长，默认折 2 行）
+     权威记忆 = 一组"可以当依据"的短句（层 + 正文）
+     知识库 = 有版本的知识页（标题 + vN + 更新时间）
+   所以是三张卡、三种行，而不是把三段文本塞进同一个列表。 */
+// 🔴 sediment 挂在 network 里，不在顶层：server 的 /api/mind 是
+// `out = mind_organize.state()` 之后 `out["network"] = mind_network.state()`，
+// 所以网络那边新加的东西都在 d.network.*（net / live / sessions 同理）。
+// 走一个函数取，别在两处各写一遍路径。
+function _mindSed(d){
+  var n = (d && d.network) || {};
+  return n.sediment || (d && d.sediment) || {};
+}
+
+function _knowPaneHtml(d){
+  // 老服务端（没重启过）不带 sediment 这个键 —— 那不是"没有故事"，是"还没加载"。
+  // 两种空白要分得开，否则用户看到的是一片"什么都没有"，会以为坏了（§18/§32）。
+  if(!(d && d.network) || !('sediment' in d.network)){
+    return '<div class="sp-section mb-full"><h4>知识</h4>'
+         + '<div class="mb-empty">服务端还没带上这批数据 —— 重启一次服务后，'
+         + '故事链 / 权威记忆 / 知识库就会出现在这里。</div></div>';
+  }
+  var s = _mindSed(d);
+  var st = s.stories || {}, au = s.authority || {}, kn = s.knowledge || {};
+  var lim = function(a, n){
+    return (a || []).length >= n
+      ? '<div class="mb-more">只列最近 ' + n + ' 条，共 ' + (a || []).length + ' 条</div>' : '';
+  };
+  var h = '';
+
+  // ── 故事链 ──
+  var si = st.items || [];
+  h += '<div class="sp-section" id="sedStories"><h4>故事链'
+     + '<span class="mb-ct">' + (st.total || 0) + ' 段</span></h4>'
+     + '<div class="mb-note">一段 = 那天发生了什么、为什么。按事件时间倒序，点开看全文。</div>'
+     + '<div class="mb-sec-list">';
+  if(!si.length) h += '<div class="mb-empty">还没有故事。整理一次记忆网络就会沉淀出来。</div>';
+  si.forEach(function(it){
+    h += '<div class="mb-story" data-mbk="story" data-mbid="' + it.id + '" title="点开看全文">'
+       +   '<div class="mb-story-h"><span class="mb-date">' + esc(it.d || '—') + '</span>'
+       +     (it.tags ? '<span class="mb-tg">' + esc(it.tags) + '</span>' : '') + '</div>'
+       +   '<div class="mb-story-t">' + esc(it.t || '') + '</div>'
+       + '</div>';
+  });
+  h += '</div>'
+     + ((st.total || 0) > si.length
+        ? '<div class="mb-more">只列最近 ' + si.length + ' 段</div>' : '')
+     + '</div>';
+
+  // ── 权威记忆 ──
+  var ai = au.items || [];
+  var LN = {core: '核心', knowledge: '知识', story: '故事', archival: '档案'};
+  h += '<div class="sp-section" id="sedAuth"><h4>权威记忆'
+     + '<span class="mb-ct">' + (au.total || 0) + ' 条</span></h4>'
+     + '<div class="mb-note">标了 authority=1 的碎片：整理时被提拔成"可以当依据"的那些。</div>'
+     + '<div class="mb-sec-list">';
+  if(!ai.length) h += '<div class="mb-empty">还没有权威记忆。</div>';
+  ai.forEach(function(it){
+    h += '<div class="mb-auth" data-mbk="auth" data-mbid="' + it.id + '" title="点开看全文">'
+       +   '<span class="mb-layer">' + esc(LN[it.layer] || it.layer || '—') + '</span>'
+       +   '<span class="mb-auth-t">' + esc(it.t || '') + '</span>'
+       + '</div>';
+  });
+  h += '</div>' + lim(ai, 40) + '</div>';
+
+  // ── 知识库 ──
+  var ki = kn.items || [];
+  h += '<div class="sp-section" id="sedKnow"><h4>知识库'
+     + '<span class="mb-ct">' + (kn.pages || 0) + ' 页</span></h4>'
+     + '<div class="mb-note">带版本的知识页：' + (kn.pages || 0) + ' 页 / '
+     +   (kn.versions || 0) + ' 个版本 / ' + (kn.frags || 0) + ' 条知识碎片。</div>'
+     + '<div class="mb-sec-list">';
+  if(!ki.length) h += '<div class="mb-empty">还没有知识页。</div>';
+  ki.forEach(function(it){
+    h += '<div class="mb-kpage" data-mbk="know" data-mbid="' + it.id + '" title="点开看全文"><b>' + esc(it.t || '') + '</b>'
+       +   '<span class="v">v' + (it.v || 0) + '</span>'
+       +   '<span class="d">' + esc(it.d || '') + '</span></div>';
+  });
+  h += '</div>' + lim(ki, 40) + '</div>';
+  return h;
+}
+
+function _netPaneHtml(d){
+  var net = d.network || {}, cfg = net.cfg || {}, st = net.net || {};
+  var h = '';
+  h += '<div class="sp-section"><h4>记忆网络现状</h4>';
+  h += '<div id="mindNetStat">' + _netStatHtml(st) + '</div></div>';
+
+  var presets = ['02:00', '04:00', '06:00', '13:00', '23:00'];
+  var presetHtml = presets.map(function(t){
+    var on = (cfg.at === t);
+    return '<button class="sp-btn" data-nt="' + t + '" onclick="saveNetTime(\'' + t + '\')" '
+      + 'style="display:inline-block;width:auto;margin:0 6px 6px 0;padding:6px 14px'
+      + (on ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : '') + '">' + t + '</button>';
+  }).join('');
+  h += '<div class="sp-section"><h4>什么时候整理</h4>';
+  h += '<div class="sp-toggle-row" style="margin:0 0 10px;border-radius:6px">'
+     + '<span style="display:flex;align-items:center;gap:12px">每天定时整理</span>'
+     + '<label class="sp-toggle"><input type="checkbox"' + (cfg.auto ? ' checked' : '')
+     + ' onchange="saveNetAuto(this.checked)"><span class="slider"></span></label></div>';
+  h += '<div id="mindNetTimeRow" style="' + (cfg.auto ? '' : 'display:none') + '">';
+  h += presetHtml;
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-top:2px">'
+     + '<span style="font-size:11.5px;color:var(--tdim);flex:0 0 auto">自定义</span>'
+     + '<input id="mindNetAt" type="text" value="' + escAttr(cfg.at || '04:00') + '" placeholder="04:00" maxlength="5" '
+     + 'style="width:72px;background:var(--surface2);border:1px solid var(--border);color:var(--text);'
+     + 'border-radius:8px;padding:6px 8px;font:inherit;font-size:13px;text-align:center" '
+     + 'onblur="saveNetTime(this.value)">'
+     + '<span style="font-size:11px;color:var(--tdim);opacity:.72">24 小时制</span></div>';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-top:10px">'
+     + '<span style="font-size:11.5px;color:var(--tdim);flex:0 0 auto">单次最多跑</span>'
+     + '<input id="mindNetMax" type="number" min="3" max="180" value="' + (cfg.max_minutes || 30) + '" '
+     + 'style="width:64px;background:var(--surface2);border:1px solid var(--border);color:var(--text);'
+     + 'border-radius:8px;padding:6px 8px;font:inherit;font-size:13px;text-align:center" '
+     + 'onblur="saveNetMax(this.value)">'
+     + '<span style="font-size:11px;color:var(--tdim);opacity:.72">分钟，超了就在下一项之前停</span></div>';
+  h += '</div></div>';
+
+  h += '<div class="sp-section"><h4>整理</h4>';
+  h += '<div style="display:flex;gap:8px;align-items:stretch">'
+     + '<button class="sp-btn" id="mindNetRunBtn" onclick="runNetNow()" '
+     + 'style="flex:1 1 auto;min-width:0;width:auto;white-space:nowrap">开始整理记忆网络</button>'
+     + '<button class="sp-btn" id="mindNetStopBtn" onclick="stopNetNow()" '
+     + 'style="flex:0 0 auto;width:auto;white-space:nowrap;display:none">停止</button></div>';
+  h += '<div style="font-size:11.5px;color:var(--tdim);line-height:1.7;margin-top:8px">'
+     + '会依次跑 11 项：回填实体 → 提取文件思考 → 建弱关联 → 涌现元晶 → 反熵修剪 → '
+     + '自检盲区 → 提拔权威 → 连接知识层 → 叙事沉淀 → 故事互链 → 观察整合。<br>'
+     + '大部分是纯计算，只有叙事沉淀和观察整合会调模型（用主模型，不吃上面备忘的模型设置）。'
+     + '全程不碰对话和当前任务，可以边聊边跑。</div>';
+  h += '<div id="mindNetLive" style="margin-top:12px"></div></div>';
+
+  h += '<div class="sp-section"><h4>后台自动整理</h4>'
+     + '<div id="mindNetLight">' + _netLightHtml(net.light) + '</div></div>';
+
+  // 整理记录（§96 还原），见 _memoPaneHtml 里的同一段说明。
+  h += '<div class="sp-section"><h4>整理记录</h4>'
+     + '<div id="mindNetHist">' + _netHistHtml(net.sessions) + '</div></div>';
+  return h;
+}
+
+function _netStatHtml(st){
+  st = st || {};
+  var layers = st.layers || {};
+  var row = function(label, val, sub){
+    return '<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;line-height:1.9">'
+      + '<span style="color:var(--tdim)">' + label + '</span>'
+      + '<span style="color:var(--text)">' + val + (sub ? ('<span style="color:var(--tdim)"> ' + sub + '</span>') : '') + '</span></div>';
+  };
+  var h = '';
+  h += row('碎片总数', (st.total || 0) + ' 条', '· ' + ((st.chars || 0) / 10000).toFixed(0) + ' 万字');
+  h += row('待整理', (st.pending_cores || 0) + ' 条', (st.pending_cores > 1000 ? '· 积压不少' : ''));
+  h += row('已结晶体', (st.crystals || 0) + ' 条');
+  h += row('故事', (st.stories || 0) + ' 个');
+  h += row('关系边', (st.relations || 0) + ' 条');
+  h += row('权威记忆', (st.authority || 0) + ' 条');
+  h += row('实体', (st.entities || 0) + ' 个');
+  if(layers && (layers.core || layers.knowledge || layers.archival)){
+    h += '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);'
+       + 'font-size:11.5px;color:var(--tdim);line-height:1.8">'
+       + '分层：核心 ' + (layers.core || 0) + ' · 知识 ' + (layers.knowledge || 0)
+       + ' · 档案 ' + (layers.archival || 0) + ' · 故事 ' + (layers.story || 0) + '</div>';
+  }
+  return h;
+}
+
+function _netLightHtml(light){
+  light = light || {};
+  var runs = light.runs || [];
+  var h = '<div style="font-size:12px;color:var(--tdim);line-height:1.9">';
+  if(!light.last_ts){
+    h += '还没记到过。它的触发条件：待整理积压 ≥30 条，且距上次 ≥2 小时，'
+       + '这时每次对话结束会顺手沉淀一批故事。只在后台跑，不占你的操作。</div>';
+    return h;
+  }
+  h += '上次后台整理 <b style="color:var(--text)">' + _mindFmtTime(light.last_ts) + '</b></div>';
+  if(runs.length){
+    h += '<div style="margin-top:6px;border-left:2px solid var(--border);padding-left:10px">';
+    for(var i = runs.length - 1; i >= 0 && i >= runs.length - 8; i--){
+      var r = runs[i] || {};
+      var map = {ok:'整理出 ' + (r.n || 0) + ' 个故事', idle:'积压不够，没动',
+                 busy:'手动整理正在跑，让路', error:'失败：' + (r.err || '')};
+      h += '<div style="font-size:11.5px;color:var(--tdim);line-height:1.7">'
+         + _mindFmtTime(r.ts) + ' · ' + esc(map[r.kind] || r.kind)
+         + (r.backlog ? ('（积压 ' + r.backlog + '）') : '') + '</div>';
+    }
+    h += '</div>';
+  }
+  return h;
+}
+
+function _netHistHtml(list){
+  if(!list || !list.length) return '<div style="font-size:12px;color:var(--tdim)">还没有记录。</div>';
+  var stMap = {done:'完成', cancelled:'已停止', error:'出错', interrupted:'被中断',
+               running:'进行中', skipped:'跳过'};
+  var h = '';
+  for(var i = 0; i < list.length; i++){
+    var s = list[i] || {};
+    var br = s.before || {}, af = s.after || {};
+    var head = '碎片 ' + (br.total || 0) + '→' + (af.total || 0)
+             + ' · 故事 ' + (br.stories || 0) + '→' + (af.stories || 0)
+             + ' · 边 ' + (br.relations || 0) + '→' + (af.relations || 0);
+    h += '<div style="padding:8px 0;border-bottom:1px solid var(--border)">'
+       + '<div style="display:flex;align-items:center;gap:8px;font-size:12px">'
+       + '<span style="color:var(--text)">' + _mindFmtTime(s.started_at) + '</span>'
+       + '<span style="color:var(--tdim)">' + (s.trigger === 'schedule' ? '定时' : '手动')
+       + ' · ' + esc(stMap[s.status] || s.status)
+       + (s.done != null ? (' · ' + (s.done || 0) + '/' + (s.total || 0) + ' 项') : '') + '</span></div>'
+       + '<div style="font-size:11.5px;color:var(--tdim);margin-top:2px">' + head + '</div>';
+    var evs = s.events || [];
+    if(evs.length){
+      h += '<details style="margin-top:6px"><summary style="font-size:11.5px;color:var(--tdim);cursor:pointer">'
+         + '展开过程（' + evs.length + ' 行）</summary>'
+         + '<div style="border-left:2px solid var(--border);padding-left:10px;margin-top:6px">';
+      for(var j = 0; j < evs.length; j++){
+        h += '<div style="font-size:11.5px;line-height:1.7;color:var(--tdim);word-break:break-word">'
+           + esc(evs[j].text) + '</div>';
+      }
+      h += '</div></details>';
+    }
+    h += '</div>';
+  }
+  return h;
+}
+
+function _mindMemoHtml(memo){
+  var rules = (memo && memo.rules) || [], notes = (memo && memo.user_notes) || [];
+  var head = '<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">';
+  if(!rules.length && !notes.length){
+    return head + '<div style="font-size:12px;color:var(--tdim)">还是空的。整理一次就会长出条目。</div></div>';
+  }
+  var h = head;
+  for(var i = 0; i < rules.length; i++){
+    var r = rules[i];
+    h += '<div style="font-size:12px;line-height:1.75;color:var(--text);display:flex;gap:8px">'
+       + '<span style="color:var(--tdim);flex:0 0 auto;min-width:16px;text-align:right">' + r.n + '.</span>'
+       + '<span style="flex:1;min-width:0;word-break:break-word">' + esc(r.text)
+       + ((r.hits >= 2) ? ('<span style="color:var(--tdim)"> · 栽' + r.hits + '次</span>') : '')
+       + '</span></div>';
+  }
+  if(notes.length){
+    h += '<div style="font-size:11.5px;color:var(--tdim);margin:8px 0 4px">关于你</div>';
+  }
+  for(var j = 0; j < notes.length; j++){
+    var n = notes[j];
+    h += '<div style="font-size:12px;line-height:1.75;color:var(--tdim);display:flex;gap:8px">'
+       + '<span style="flex:0 0 auto;min-width:16px;text-align:right">' + n.n + '.</span>'
+       + '<span style="flex:1;min-width:0;word-break:break-word">' + esc(n.text)
+       + (n.state === 'disputed' ? '<span style="color:var(--warn)"> · 存疑已停用</span>' : '')
+       + '</span></div>';
+  }
+  return h + '</div>';
+}
+
+function _mindHistHtml(list){
+  if(!list || !list.length) return '<div style="font-size:12px;color:var(--tdim)">还没有记录。</div>';
+  var stMap = {done:'完成', cancelled:'已停止', error:'出错', interrupted:'被中断', running:'进行中'};
+  var h = '';
+  for(var i = 0; i < list.length; i++){
+    var s = list[i];
+    var st = stMap[s.status] || s.status;
+    var br = s.before || {}, af = s.after || {};
+    h += '<div style="padding:8px 0;border-bottom:1px solid var(--border)">'
+       + '<div style="display:flex;align-items:center;gap:8px;font-size:12px">'
+       + '<span style="color:var(--text)">' + _mindFmtTime(s.started_at) + '</span>'
+       + '<span style="color:var(--tdim)">' + (s.trigger === 'schedule' ? '定时' : '手动')
+       + ' · ' + esc(st) + '</span></div>'
+       + '<div style="font-size:11.5px;color:var(--tdim);margin-top:2px">读 '
+       + (s.total_fragments || 0) + ' 条 · ' + (br.rules || 0) + '→' + (af.rules || 0)
+       + ' 条纪律 / ' + (br.chars || 0) + '→' + (af.chars || 0) + ' 字</div>';
+    var evs = s.events || [];
+    if(evs.length){
+      h += '<details style="margin-top:6px"><summary style="font-size:11.5px;color:var(--tdim);cursor:pointer">'
+         + '展开过程（' + evs.length + ' 行）</summary>'
+         + '<div style="border-left:2px solid var(--border);padding-left:10px;margin-top:6px">';
+      for(var j = 0; j < evs.length; j++){
+        h += '<div style="font-size:11.5px;line-height:1.7;color:var(--tdim);word-break:break-word">'
+           + esc(evs[j].text) + '</div>';
+      }
+      h += '</div></details>';
+    }
+    h += '</div>';
+  }
+  return h;
+}
+
+function paintMindLive(live, running){
+  var el = document.getElementById('mindLive');
+  if(!el) return;
+  var btn = document.getElementById('mindRunBtn'), stop = document.getElementById('mindStopBtn');
+  if(btn){ btn.disabled = !!running; btn.textContent = running ? '整理中…' : '开始整理'; }
+  if(stop){ stop.style.display = running ? 'inline-block' : 'none'; }
+  if(!live){
+    el.innerHTML = '<div style="font-size:12px;color:var(--tdim);line-height:1.8">'
+      + '还没整理过。点「开始整理」会把反思里的失误记录收敛成常驻纪律 —— '
+      + '整理完你能在上面看到它把哪几条并了、淘汰了什么。</div>';
+    return;
+  }
+  var h = '';
+  var dot = running ? 'var(--accent)'
+          : (live.status === 'error' ? 'var(--warn)' : 'var(--tdim)');
+  var head = running ? '正在整理'
+           : (live.status === 'done' ? '整理完成'
+           : (live.status === 'cancelled' ? '已停止'
+           : (live.status === 'error' ? '出错了' : '结束')));
+  var tail = live.elapsed ? (' · ' + live.elapsed + 's') : '';
+  h += '<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:8px">'
+     + '<span style="width:8px;height:8px;border-radius:50%;background:' + dot + ';flex:0 0 auto"></span>'
+     + '<span style="color:var(--text)">' + head + '</span>'
+     + '<span style="color:var(--tdim)">' + esc(live.model || '') + tail + '</span></div>';
+
+  var rounds = live.rounds || [];
+  if(running && rounds.length){
+    var cur = rounds[rounds.length - 1];
+    if(cur.status === 'streaming' || cur.status === 'running' || cur.status === 'ok'){
+      // 下面这块是模型的**原始输出**（里面带 <<<纪律>>> 之类的标记）。不写清
+      // 楚用户会以为界面出乱码了 —— 这是实时看的价值所在，得说明白。
+      h += '<div style="font-size:11.5px;color:var(--tdim);margin-bottom:6px">第 ' + cur.n + ' 轮 · '
+         + '模型正在写（原始输出）· ' + (cur.text_len || 0) + ' 字'
+         + ((cur.thinking_len) ? (' · 思考 ' + cur.thinking_len + ' 字') : '') + '</div>';
+      if(cur.tail){
+        h += '<div style="font-size:11.5px;color:var(--tdim);font-family:ui-monospace,monospace;'
+           + 'background:var(--surface2);border-radius:8px;padding:8px;margin-bottom:10px;'
+           + 'max-height:92px;overflow:hidden;word-break:break-all">' + esc(cur.tail) + '</div>';
+      }
+    }
+  }
+
+  var evs = live.events || [];
+  h += '<div class="mb-ev" style="border-left:2px solid var(--border);padding-left:12px;max-height:340px;overflow-y:auto">';
+  var colMap = {start:'var(--accent)', done:'var(--accent)', error:'var(--warn)', warn:'var(--warn)',
+                rule:'var(--text)', note:'var(--text)', merge:'var(--tdim)', drop:'var(--tdim)',
+                round:'var(--text)', call:'var(--tdim)', consolidate:'var(--accent)', info:'var(--tdim)',
+                step:'var(--text)', ok:'var(--text)', detail:'var(--tdim)'};
+  for(var i = 0; i < evs.length; i++){
+    var e = evs[i];
+    var col = colMap[e.kind] || 'var(--tdim)';
+    h += '<div style="font-size:12px;line-height:1.8;color:' + col + ';word-break:break-word">'
+       + '<span style="color:var(--tdim);font-size:11px;margin-right:6px;font-variant-numeric:tabular-nums">'
+       + _mindHHMMSS(e.ts) + '</span>' + esc(e.text) + '</div>';
+  }
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+function paintNetLive(live, running){
+  var el = document.getElementById('mindNetLive');
+  if(!el) return;
+  var btn = document.getElementById('mindNetRunBtn'), stop = document.getElementById('mindNetStopBtn');
+  if(btn){ btn.disabled = !!running; btn.textContent = running ? '整理中…' : '开始整理记忆网络'; }
+  if(stop){ stop.style.display = running ? 'inline-block' : 'none'; }
+  if(!live){
+    el.innerHTML = '<div style="font-size:12px;color:var(--tdim);line-height:1.8">'
+      + '还没整理过。这一项动的是记忆本身：把散的碎片结成故事、给孤立记忆牵关系、'
+      + '修剪失效的边。跑一次能看到每一项到底产出了多少。</div>';
+    return;
+  }
+  var h = '';
+  var stMap = {done:'整理完成', cancelled:'已停止', error:'出错了', running:'正在整理', skipped:'跳过'};
+  var dot = running ? 'var(--accent)' : (live.status === 'error' ? 'var(--warn)' : 'var(--tdim)');
+  var tail = live.elapsed ? (' · ' + live.elapsed + 's') : '';
+  h += '<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:8px">'
+     + '<span style="width:8px;height:8px;border-radius:50%;background:' + dot + ';flex:0 0 auto"></span>'
+     + '<span style="color:var(--text)">' + (stMap[live.status] || '结束') + '</span>'
+     + '<span style="color:var(--tdim)">' + (live.done || 0) + '/' + (live.total || 11) + ' 项' + tail + '</span></div>';
+
+  // 进度条：11 项各自一格，跑完的填色。比数字更直观地看出"卡在第几项"。
+  var steps = live.steps || [];
+  if(steps.length){
+    h += '<div style="display:flex;gap:3px;margin-bottom:10px">';
+    for(var i = 0; i < (live.total || 11); i++){
+      var s = steps[i];
+      var bg = !s ? 'var(--border)'
+             : (s.status === 'error' ? 'var(--warn)'
+             : (s.status === 'ok' ? 'var(--accent)' : 'var(--hover)'));
+      h += '<div title="' + escAttr(s ? s.label : '') + '" style="flex:1;height:4px;border-radius:2px;background:' + bg + '"></div>';
+    }
+    h += '</div>';
+  }
+
+  var evs = live.events || [];
+  h += '<div class="mb-ev" style="border-left:2px solid var(--border);padding-left:12px;max-height:380px;overflow-y:auto">';
+  var colMap = {start:'var(--accent)', done:'var(--accent)', error:'var(--warn)', warn:'var(--warn)',
+                step:'var(--text)', ok:'var(--text)', detail:'var(--tdim)', info:'var(--tdim)'};
+  for(var j = 0; j < evs.length; j++){
+    var e = evs[j];
+    var col = colMap[e.kind] || 'var(--tdim)';
+    h += '<div style="font-size:12px;line-height:1.8;color:' + col + ';word-break:break-word">'
+       + '<span style="color:var(--tdim);font-size:11px;margin-right:6px;font-variant-numeric:tabular-nums">'
+       + _mindHHMMSS(e.ts) + '</span>' + esc(e.text) + '</div>';
+  }
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+function _mindPanelAlive(){
+  // 判据问 DOM 不问标志位（§47）。看板可以整块隐藏，此时 rect 全 0 ——
+  // 但它 display:none 时 classList 里没有 show，两个条件一起问才稳。
+  var b = document.getElementById('mindBoard');
+  if(!b || !b.classList.contains('show')) return false;
+  var r = b.getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+}
+
+function startMindPoll(){
+  stopMindPoll();
+  var wasRunning = false, wasNetRunning = false;
+  var tick = async function(){
+    // 判据问 DOM 不问标志位（标志残留＝永久空转，这个坑在本项目复现过好几次）。
+    // 🔴 但只问"元素还在不在"同样不够：closeSettings() 只摘掉 sidebarSettings 的
+    //    active 类，DOM 仍留在树里 —— 轮询会照跑不误。必须三条一起问。
+    if(!_mindPanelAlive()){ stopMindPoll(); return; }
+    var d = null;
+    try{ var r = await fetch('/api/mind?lite=1'); d = await r.json(); }catch(e){ return; }
+    if(!d) return;
+    paintMindLive(d.live, d.running);
+    paintNetLive(d.net_live, d.net_running);
+    var changed = false;
+    if(wasRunning && !d.running) changed = true;
+    if(wasNetRunning && !d.net_running) changed = true;
+    if(changed){
+      // 刚跑完：把备忘统计、网络现状、两个历史都刷一遍
+      wasRunning = false; wasNetRunning = false;
+      refreshMindPanels();
+      return;
+    }
+    wasRunning = !!d.running;
+    wasNetRunning = !!d.net_running;
+  };
+  _mindPoll = setInterval(tick, 1500);
+  tick();
+}
+
+async function refreshMindPanels(){
+  var d = null;
+  try{ var r = await fetch('/api/mind'); d = await r.json(); }catch(e){ return; }
+  if(!d || d.error) return;
+  _mindState = d;
+  _paintMindHero(d);
+  var memo = d.memo || {};
+  var memoEl = document.getElementById('mindMemo');
+  if(memoEl){
+    memoEl.innerHTML = _mindMemoHtml(memo);
+    var statEl = document.getElementById('mindMemoStat');
+    if(statEl) statEl.innerHTML = _memoStatText(memo, d.budget || 1000);
+  }
+  var histEl = document.getElementById('mindHist');
+  if(histEl) histEl.innerHTML = _mindHistHtml(d.sessions);
+  var autoEl = document.getElementById('mindAuto');
+  if(autoEl) autoEl.innerHTML = _mindAutoHtml(d.auto, d.auto_history);
+  var net = d.network || {};
+  var netStat = document.getElementById('mindNetStat');
+  if(netStat) netStat.innerHTML = _netStatHtml(net.net || {});
+  var lightEl = document.getElementById('mindNetLight');
+  if(lightEl) lightEl.innerHTML = _netLightHtml(net.light);
+  var netHistEl = document.getElementById('mindNetHist');
+  if(netHistEl) netHistEl.innerHTML = _netHistHtml(net.sessions);
+}
+
+async function runNetNow(){
+  var btn = document.getElementById('mindNetRunBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '正在启动…'; }
+  var d = null;
+  try{
+    var r = await fetch('/api/mind', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'net_start'})});
+    d = await r.json();
+  }catch(e){ alert('启动失败：' + e.message); }
+  if(d && d.result && d.result.error) alert(d.result.error);
+  if(d){ _mindState = d; paintNetLive((d.network || {}).live, (d.network || {}).running); }
+  else if(btn){ btn.disabled = false; btn.textContent = '开始整理记忆网络'; }
+}
+
+async function stopNetNow(){
+  try{
+    await fetch('/api/mind', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'net_cancel'})});
+  }catch(e){}
+}
+
+async function saveNetAuto(on){
+  var row = document.getElementById('mindNetTimeRow');
+  if(row) row.style.display = on ? '' : 'none';
+  try{
+    var r = await fetch('/api/mind', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'net_save_cfg', net_auto: on})});
+    var d = await r.json();
+    if(d && d.network && _mindState) _mindState.network = d.network;
+  }catch(e){}
+}
+
+async function saveNetTime(t){
+  t = String(t || '').trim();
+  if(!/^\d{1,2}:\d{2}$/.test(t)){
+    alert('时间要写成 HH:MM，比如 04:00');
+    return;
+  }
+  var d = null;
+  try{
+    var r = await fetch('/api/mind', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'net_save_cfg', net_at: t})});
+    d = await r.json();
+  }catch(e){ alert('保存失败'); return; }
+  if(!d || !d.network || !d.network.cfg) return;
+  var at = d.network.cfg.at || t;
+  var inp = document.getElementById('mindNetAt');
+  if(inp) inp.value = at;
+  var btns = document.querySelectorAll('#mindNetTimeRow [data-nt]');
+  for(var i = 0; i < btns.length; i++){
+    var b = btns[i], on = (b.getAttribute('data-nt') === at);
+    b.style.background = on ? 'var(--accent)' : '';
+    b.style.color = on ? '#fff' : '';
+    b.style.borderColor = on ? 'var(--accent)' : '';
+  }
+  if(_mindState) _mindState.network = d.network;
+}
+
+async function saveNetMax(v){
+  var n = parseInt(v, 10);
+  if(!n || n < 3 || n > 180){ alert('单次上限请填 3~180 分钟'); return; }
+  try{
+    await fetch('/api/mind', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'net_save_cfg', net_max_minutes: n})});
+  }catch(e){}
+}
+
+async function runMindNow(){
+  var btn = document.getElementById('mindRunBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '正在启动…'; }
+  var d = null;
+  try{
+    var r = await fetch('/api/mind', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'start'})});
+    d = await r.json();
+  }catch(e){ alert('启动失败：' + e.message); }
+  if(d && d.result && d.result.error) alert(d.result.error);
+  if(d) paintMindLive(d.live, d.running);
+  else if(btn){ btn.disabled = false; btn.textContent = '开始整理'; }
+}
+
+async function stopMindNow(){
+  try{
+    await fetch('/api/mind', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'cancel'})});
+  }catch(e){}
+}
+
+async function saveMindAuto(on){
+  var row = document.getElementById('mindTimeRow');
+  if(row) row.style.display = on ? '' : 'none';
+  try{
+    var r = await fetch('/api/mind', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'save_cfg', auto: on})});
+    var d = await r.json();
+    if(d && d.cfg && _mindState) _mindState.cfg = d.cfg;
+  }catch(e){}
+}
+
+async function saveMindTime(t){
+  t = String(t || '').trim();
+  if(!/^\d{1,2}:\d{2}$/.test(t)){
+    alert('时间要写成 HH:MM，比如 03:00');
+    return;
+  }
+  var d = null;
+  try{
+    var r = await fetch('/api/mind', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'save_cfg', at: t})});
+    d = await r.json();
+  }catch(e){ alert('保存失败'); return; }
+  if(!d || !d.cfg) return;
+  var at = d.cfg.at || t;
+  var inp = document.getElementById('mindAt');
+  if(inp) inp.value = at;
+  var btns = document.querySelectorAll('#mindTimeRow [data-mt]');
+  for(var i = 0; i < btns.length; i++){
+    var b = btns[i], on = (b.getAttribute('data-mt') === at);
+    b.style.background = on ? 'var(--accent)' : '';
+    b.style.color = on ? '#fff' : '';
+    b.style.borderColor = on ? 'var(--accent)' : '';
+  }
+  if(_mindState) _mindState.cfg = d.cfg;
+}
+
+function closeMindSheet(){
+  if(_mindSheet){ try{ _mindSheet.remove(); }catch(e){} _mindSheet = null; }
+}
+
+function _mindBuildList(d, q){
+  var models = (d && d.models) || [];
+  var ql = String(q || '').trim().toLowerCase();
+  var h = '';
+  if(!ql || '跟随主模型默认'.indexOf(ql) >= 0){
+    h += '<div class="tm-group"><div class="tm-gh"><span class="tm-gl">默认</span></div>'
+       + '<button type="button" class="tm-item' + (d.follow_main ? ' on' : '') + '" data-follow="1">'
+       + '<span class="tm-nm">跟随主模型</span>'
+       + (d.follow_main ? '<span class="tm-tag">当前</span>' : '') + '</button></div>';
+  }
+  var order = [], byKey = {};
+  for(var i = 0; i < models.length; i++){
+    var m = models[i], k = m.provider || 'unknown';
+    if(!byKey[k]){ byKey[k] = {label: _mindSrcLabel(k, m), items: []}; order.push(k); }
+    byKey[k].items.push(m);
+  }
+  for(var g = 0; g < order.length; g++){
+    var grp = byKey[order[g]], hit = [];
+    for(var j = 0; j < grp.items.length; j++){
+      var it = grp.items[j];
+      var hay = (String(it.name || '') + ' ' + String(it.id || '') + ' ' + grp.label + ' '
+                 + String(it.desc || '')).toLowerCase();
+      if(!ql || hay.indexOf(ql) >= 0) hit.push(it);
+    }
+    if(!hit.length) continue;
+    h += '<div class="tm-group"><div class="tm-gh"><span class="tm-gl">' + esc(grp.label) + '</span>'
+       + '<span class="tm-gc">' + hit.length + '</span></div>';
+    for(var k2 = 0; k2 < hit.length; k2++){
+      var mm = hit[k2];
+      h += '<button type="button" class="tm-item' + (mm.current ? ' on' : '') + '"'
+         + (mm.available === false ? ' disabled' : '')
+         + ' data-p="' + escAttr(mm.provider) + '" data-m="' + escAttr(mm.id || mm.model) + '">'
+         + '<span class="tm-nm">' + esc(mm.name || mm.id) + '</span>'
+         + (mm.current ? '<span class="tm-tag">当前</span>' : '') + '</button>';
+    }
+    h += '</div>';
+  }
+  if(!h) return '<div class="tm-empty">没有匹配「' + esc(q) + '」的模型</div>';
+  return h;
+}
+
+async function openMindModelSheet(){
+  if(_mindSheet) return;
+  // 复用输入框那套 .task-model-sheet / .tm-* 样式（CSS 由 task-composer.js 注入到 head，
+  // 全局可用）—— 用户要的就是「跟输入框一样的模型选择交互」，不另造一套观感。
+  var cover = document.createElement('div'); cover.className = 'task-model-sheet';
+  var panel = document.createElement('div'); panel.className = 'tm-panel';
+  panel.innerHTML =
+    '<button type="button" class="task-sheet-grip"></button>'
+    + '<div class="tm-head"><div class="tm-title">用什么模型整理</div>'
+    + '<div class="tm-sub">加载中…</div></div>'
+    + '<div class="tm-search">'
+    + '<input class="tm-input" type="text" placeholder="搜索模型或来源…" autocomplete="off" spellcheck="false">'
+    + '</div><div class="tm-scroll"><div class="tm-empty">加载中…</div></div>';
+  cover.appendChild(panel);
+  cover.addEventListener('click', function(ev){ if(ev.target === cover) closeMindSheet(); });
+  document.body.appendChild(cover);
+  _mindSheet = cover;
+
+  var scroll = panel.querySelector('.tm-scroll');
+  var sub = panel.querySelector('.tm-sub');
+  var input = panel.querySelector('.tm-input');
+  var data = null;
+  try{
+    var r = await fetch('/api/mind/models');
+    data = await r.json();
+  }catch(e){}
+  if(!_mindSheet) return;                      // 加载期间用户已经关掉了
+  if(!data || !data.models){
+    scroll.innerHTML = '<div class="tm-empty">模型列表加载失败</div>';
+    sub.textContent = '';
+    return;
+  }
+  sub.textContent = data.follow_main
+    ? ('跟随主模型 · ' + (data.main_model || ''))
+    : ((data.model || '') + (data.provider ? (' · ' + _mindSrcLabel(data.provider, null)) : ''));
+  scroll.innerHTML = _mindBuildList(data, '');
+  input.addEventListener('input', function(){ scroll.innerHTML = _mindBuildList(data, input.value); });
+  input.addEventListener('keydown', function(e){
+    if(e.key !== 'Escape') return;
+    e.stopPropagation();
+    closeMindSheet();
+  });
+  scroll.addEventListener('click', function(ev){
+    var b = (ev.target && ev.target.closest) ? ev.target.closest('.tm-item') : null;
+    if(!b || b.disabled || b.__busy) return;
+    b.__busy = true;
+    var follow = b.getAttribute('data-follow') === '1';
+    var body = follow
+      ? {action:'save_cfg', follow_main:true}
+      : {action:'save_cfg', provider:b.getAttribute('data-p'), model:b.getAttribute('data-m')};
+    fetch('/api/mind', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        closeMindSheet();
+        if(d && d.cfg){
+          var nm = document.getElementById('mindModelName');
+          if(nm) nm.textContent = ((d.cfg.provider && d.cfg.model) ? d.cfg.model : '跟随主模型') + ' ▾';
+        }
+      })
+      .catch(function(e){
+        b.__busy = false;
+        alert('切换失败：' + e.message);
+      });
+  });
+}
+
 function loadInterfaceSettings() {
   var bodyEl = document.getElementById('settingsBody');
   // 三段控件：隐藏 / 精简 / 完整。行标题只写对象名 ——「显示」二字已由控件自己表达
@@ -15547,9 +17228,11 @@ function updateWmDisplay(){
       var C=87.96;
       var v=pct!=null? Math.min(100,pct):0;
       ring.setAttribute('stroke-dasharray',(v/100*C).toFixed(1)+' '+C.toFixed(1));
-      var col = v>=90?'var(--danger)':(v>=70?'var(--warn)':'var(--accent)');
-      ring.setAttribute('stroke',col);
-      if(pctEl) pctEl.style.color=col;
+      // 颜色交给 CSS（#wmDisplay.wm-warn / .wm-crit，环吃 currentColor）。
+      // 🔴 这里原来是内联 stroke + style.color，内联优先级压过样式表 —— 与 updateBalance()
+      //    里 balanceDisplay.style.color 是同一个坑（§72 已记过一次，这是第二次）。
+      el.classList.toggle('wm-warn', v>=70 && v<90);
+      el.classList.toggle('wm-crit', v>=90);
     }
   }).catch(function(){});
 }
@@ -15957,7 +17640,7 @@ function renderSettingsMenu() {
     '<div class="sp-menu-item" onclick="pushSettingsView(\'theme\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg></span><span class="sp-menu-label">主题</span><span class="arrow">›</span></div>',
     '<div class="sp-menu-item" onclick="pushSettingsView(\'avatar\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span><span class="sp-menu-label">头像设置</span><span class="arrow">›</span></div>',
     '<div class="sp-menu-item" onclick="pushSettingsView(\'interface\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></span><span class="sp-menu-label">界面</span><span class="arrow">›</span></div>',
-    '<div class="sp-menu-item" onclick="pushSettingsView(\'suggestions\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3z"/></svg></span><span class="sp-menu-label">AI自动建议</span><span class="arrow">›</span></div>',
+    '<div class="sp-menu-item" onclick="closeSettings();openMindBoard()"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3z"/></svg></span><span class="sp-menu-label">状态</span><span class="arrow">›</span></div>',
     /* 消息反馈：气泡上的 👍👎★ 落到 message_feedback 表之后，这里是唯一的回顾入口
        （2026-10-23 用户问"那个按钮有实际用途不"，答：光存本地是装饰，落库+能回顾才算功能） */
     '<div class="sp-menu-item" onclick="pushSettingsView(\'feedback\')"><span class="sp-menu-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg></span><span class="sp-menu-label">消息反馈</span><span class="arrow">›</span></div>',
@@ -17531,6 +19214,12 @@ function renderWebSearchConfig(){
      + esc(String(d.cost_per_1k || 0.75)) + '/千次）；失败或没配 key 时自动落回 Bing / DuckDuckGo 免费引擎。</div>';
   h += '</div>';
 
+  h += '<div class="sp-section"><h4>账户余额</h4>';
+  h += '<div id="wsBalance" style="font-size:20px;font-weight:600;margin:2px 0 4px 0">查询中…</div>';
+  h += '<div class="sp-switch-meta" id="wsBalanceMeta">正在读取 DeepSeek 账户余额</div>';
+  h += '<div style="margin-top:10px"><button class="sp-btn" onclick="refreshWebSearchBalance(true)">刷新余额</button></div>';
+  h += '</div>';
+
   h += '<div class="sp-section"><h4>接口配置</h4>';
   h += '<label class="cfg-label">API Key</label>';
   h += '<input id="wsKey" type="password" class="cfg-input mono" autocomplete="off" placeholder="'
@@ -17550,12 +19239,50 @@ function renderWebSearchConfig(){
   h += '<div id="wsStatus" class="sp-switch-meta" style="margin-top:10px"></div>';
   h += '</div>';
   bodyEl.innerHTML = h;
+  refreshWebSearchBalance(false);
 }
 function wsStatus(msg, ok){
   var el = document.getElementById('wsStatus');
   if(!el) return;
   el.style.color = ok === true ? 'var(--accent)' : (ok === false ? 'var(--danger)' : 'var(--tdim)');
   el.innerHTML = msg;
+}
+function wsBalanceShow(text, detail, ok){
+  var el = document.getElementById('wsBalance');
+  var meta = document.getElementById('wsBalanceMeta');
+  if(el){
+    el.textContent = text;
+    el.style.color = ok === true ? 'var(--accent)' : (ok === false ? 'var(--danger)' : 'var(--tdim)');
+  }
+  if(meta) meta.innerHTML = detail || '';
+}
+// 查余额：默认用已保存的 key；输入框里有未保存的新 key 时先提醒保存（key 不走 URL）
+async function refreshWebSearchBalance(force){
+  var kEl = document.getElementById('wsKey');
+  var typed = kEl && kEl.value.trim();
+  if(typed){
+    wsBalanceShow('—', '输入框里有未保存的 Key，先点「保存设置」再刷新余额', null);
+    return;
+  }
+  if(!(wsCfg && wsCfg.has_key)){
+    wsBalanceShow('—', '还没配 API Key，余额无法查询', null);
+    return;
+  }
+  wsBalanceShow('查询中…', '正在读取 DeepSeek 账户余额', null);
+  try{
+    var r = await fetch('/api/settings/web_search/balance' + (force ? '?force=1' : ''));
+    var d = await r.json();
+    if(!d || !d.ok){
+      wsBalanceShow('查询失败', esc((d && d.error) || '未知错误'), false);
+      return;
+    }
+    var sym = d.currency === 'CNY' ? '¥' : (d.currency === 'USD' ? '$' : (d.currency || '') + ' ');
+    wsBalanceShow(sym + esc(String(d.total)), '充值余额 ' + esc(String(d.topped_up || '0.00'))
+      + ' · 赠送余额 ' + esc(String(d.granted || '0.00'))
+      + (d.is_available ? '' : ' · ⚠ 账户不可用'), d.is_available ? true : false);
+  }catch(e){
+    wsBalanceShow('查询失败', esc(e.message || '网络错误'), false);
+  }
 }
 function wsCollect(){
   var kEl = document.getElementById('wsKey');
@@ -17591,6 +19318,8 @@ async function saveWebSearchConfig(){
     if(!d || !d.ok) throw new Error((d && d.error) || '保存失败');
     wsCfg.enabled = d.enabled; wsCfg.has_key = d.has_key; wsCfg.base = d.base;
     wsCfg.key_masked = d.key_masked || '';
+    var _kEl = document.getElementById('wsKey');
+    if(_kEl) _kEl.value = '';   // 已落库，清空输入框（否则余额刷新会以为还有未保存 key）
     renderWebSearchConfig();
     wsStatus(d.note ? esc(d.note) : (d.ready ? '已保存，付费引擎就绪' : '已保存'), d.ready ? true : (d.note ? false : null));
   }catch(e){
@@ -17608,6 +19337,7 @@ async function testWebSearchConfig(){
       var s = '连接成功，命中 ' + d.count + ' 条' + (d.hint ? '（' + esc(d.hint) + '）' : '');
       var sample = (d.sample || []).slice(0,3).map(function(x){ return '· ' + esc(x.title||''); }).join('<br>');
       wsStatus(s + (sample ? '<br>' + sample : ''), true);
+      refreshWebSearchBalance(true);   // 探活成功顺便刷一次余额，能看出扣没扣钱
     }else{
       wsStatus('连接失败：' + esc((d && d.error) || '未知错误'), false);
     }
@@ -18923,7 +20653,7 @@ ctx.strokeStyle=sp.e.link_type==='cause'?'rgba(255,120,80,0.5)':(getTheme()==='w
 		  if(!list)return;
 		  list.innerHTML='<div style="padding:20px;text-align:center;color:var(--tdim)">加载中…</div>';
 		  try{
-		    var r=await fetch('/api/important-matters');
+		    var r=await fetch('/api/important-matters?tid='+encodeURIComponent(currentTopic?currentTopic.id:''));
 		    var d=await r.json();
 		    var matters=d.matters||[];
 		    var h='<div style="padding:12px">';
@@ -18934,7 +20664,7 @@ ctx.strokeStyle=sp.e.link_type==='cause'?'rgba(255,120,80,0.5)':(getTheme()==='w
 		      }
 		    }catch(e){}
 		    if(matters.length){
-		      h+='<b style="color:var(--accent)">📋 重要信息（'+matters.length+'条）</b>';
+		      h+='<b style="color:var(--accent)">📋 该任务重要的信息（'+matters.length+'条 · 只跟随本任务）</b>';
 		      for(var i=0;i<matters.length;i++){
 		        var it=matters[i];
 		        var txt=(typeof it==='string')?it:(it.content||'');
@@ -18945,7 +20675,7 @@ ctx.strokeStyle=sp.e.link_type==='cause'?'rgba(255,120,80,0.5)':(getTheme()==='w
 		        h+='</div>';
 		      }
 		    }else{
-		      h+='<div style="color:var(--tdim);font-size:12px">暂无重要信息。</div>';
+		      h+='<div style="color:var(--tdim);font-size:12px">本任务还没有记录重要信息（这份清单只跟随当前任务，不含别的任务）。</div>';
 		    }
 		    h+='</div>';
 		    list.innerHTML=h;
@@ -19003,6 +20733,8 @@ ctx.strokeStyle=sp.e.link_type==='cause'?'rgba(255,120,80,0.5)':(getTheme()==='w
 /* ══════════ 白色主题覆盖（data-theme="white" 时生效） ══════════ */
 html[data-theme="white"]{
   color-scheme: light;
+  /* 统一材质：白主题只换填充，模糊 / 描边 / 投影与深色完全一致 */
+  --mat-fill:rgba(255,255,255,.66);
 }
 /* —— 白底容器上的白色文字转深色 —— */
 html[data-theme="white"] #btnDebug{color:var(--text)}
@@ -19034,7 +20766,8 @@ html[data-theme="white"] .row.proc-live .proc-box{border-color:rgba(0,0,0,.16)}
 html[data-theme="white"] circle[stroke="rgba(255,255,255,.12)"]{stroke:rgba(0,0,0,.10)}
 
 html[data-theme="white"] .win-ctrls button:hover{background:rgba(0,0,0,.07)}
-html[data-theme="white"] #btnMenu:hover{background:rgba(0,0,0,.06)}
+/* 白主题的 hover 走 --hover（白底是 rgba(0,0,0,.05)），不单独写：
+   写 `background` 简写会把 --mat-fill 一起清掉（级联按属性算）。 */
 html[data-theme="white"] .msg-btn:hover{background:rgba(0,0,0,.06)}
 html[data-theme="white"] .tool-group-header:hover{background:rgba(0,0,0,.03)}
 html[data-theme="white"] .tool-group-body .tool-item code{background:rgba(0,0,0,.05)}
@@ -19079,7 +20812,7 @@ html[data-theme="white"] body.fb-over #fileBrowser{box-shadow:-12px 0 30px rgba(
 html[data-theme="white"] #fbXferPanel{box-shadow:0 10px 28px rgba(16,24,40,.12)}
 html[data-theme="white"] .av{box-shadow:0 1px 3px rgba(16,24,40,.10)}
 html[data-theme="white"] .topic-actions button{box-shadow:0 1px 2px rgba(16,24,40,.06)}
-html[data-theme="white"] #btnJump{box-shadow:0 3px 10px rgba(16,24,40,.12)}
+/* html[data-theme="white"] #btnJump 的阴影已并入 --mat-lift（白主题在 :root 里覆盖），本行作废（§106 回到底部浮键） */
 /* ══════ 主按钮：亮一档的青绿 + 白色图标，避开"深绿膏药"感 ══════ */
 html[data-theme="white"] button.send,
 html[data-theme="white"] .key-form .key-submit,
@@ -19133,8 +20866,884 @@ html[data-theme="white"] .ui-dlg-btn.primary{color:#fff}
 #abBrowse{position:relative}
 html[data-theme="white"] #fileBrowser #fbUploadBar>button,html[data-theme="white"] #abBrowse .ab-browse-foot>button{background:rgba(255,255,255,.58)!important}
 #mainPanel>footer #attachPreview{background:transparent!important;border:0!important;box-shadow:none!important}
-#mainPanel>footer .input-row{background:rgba(22,22,22,.62)!important;backdrop-filter:blur(12px) saturate(125%)!important;-webkit-backdrop-filter:blur(12px) saturate(125%)!important}
-html[data-theme="white"] #mainPanel>footer .input-row{background:rgba(255,255,255,.66)!important}
+#mainPanel>footer .input-row{background:var(--mat-fill)!important;backdrop-filter:var(--mat-blur)!important;-webkit-backdrop-filter:var(--mat-blur)!important}
+
+/* ══════════ 顶栏精修（2026-10-24）════════════════════════════════════════
+   手机端实测（390px）暴露的四个问题，改法一一对应：
+   ① 菜单键是字符 ☰ —— 笔画粗细、基线都由字体决定，和右侧 1.9 描边的图标不是一套语言，白主题下尤其糙。
+      → 换成等长三线 SVG（19px 显示），与 #btnFlowChart/#btnFiles/#btnDebug 统一进 34/32px 圆角块。
+   ② 状态点孤零零飘在标题左边、离标题 20px，像一颗多余的装饰，看不出它是"状态"。
+      → 缩到 6px、加一圈柔光晕、负 margin 压到标题前 5px，变成"标题的状态前缀"。
+   ③ 标题 / token / 记忆环 / 余额 / 图标按钮同一字号同一色排成一行，没有"内容 / 仪表 / 操作"的分层。
+      → 余额做成低调药丸（边 + 淡底 + tabular-nums），与记忆环成组；图标按钮统一尺寸与 hover 反馈。
+   ④ 余额是裸文本、紧贴记忆环，读起来像一串散数字；数字宽度还会随金额位数抖动。
+      → tabular-nums 定宽 + 药丸边界。
+
+   ⚠ 不许给 header 加 background 渐变 / 半透明：syncFrameColor() 用
+     getComputedStyle(header).backgroundColor 把顶栏底色同步给桌面壳的非客户区，
+     渐变会让它读到 rgba(0,0,0,0)，窗口顶边立刻变成黑条。
+   ⚠ 本块位置在 @media(max-width:768px) 之后，靠"同特异性 + 靠后"压过第 494 行的
+     #btnMenu{display:block;font-size:23px}；改顺序会让菜单键变回字符时代的排版。 */
+
+/* ══════════════════════════════════════════════════════════════════════
+   顶栏 · 第九版：浮动岛（Floating Island）— 2026-10-24
+   ══════════════════════════════════════════════════════════════════════
+   五~八版一直在同一条路上打补丁：默认"顶栏"必须是**一条满宽横带**，于是只能靠
+   「把图标推到内容边缘」「加 1px 底边线」「加同色渐隐护底」去遮掩那条横带在
+   桌面端两侧各空出 258px 的事实。用户看图之后的判断很简单：按钮本来就该是悬浮在
+   内容上的。既然按钮悬浮，那条带子本身就是多余的。
+
+   所以这一版把带子删掉，只留两个胶囊：
+
+       ( ☰  ● 标题 )                        ( ⑂   📁   🐞 )   ▭ ▣ ✕
+       └─── 左岛 ───┘     （空白＝内容 + 拖动区）     └── 右岛 ──┘
+
+   仪表（token / 记忆环 / 余额）不再属于顶栏 —— 它回答的是"这次还能发多少、还剩多少"，
+   跟输入框是同一件事，下沉到输入框上方那一条线（.ft-meta）。
+
+   🔴 header 必须 pointer-events:none。它整条盖在内容上方，若能吃点击，滚到它下面的
+      消息就点不动了。只有胶囊 / 拖动区 / 窗控件重新打开命中。
+   🔴 背景写 rgba(var(--surface-rgb),0)，不能写 transparent：syncFrameColor() 用正则取
+      前三通道同步给桌面壳的非客户区，transparent 会退成 rgba(0,0,0,0) ⇒ 顶边一条黑。
+   🔴 z-index 只能 1：#fileBrowser(5) / #dropChatHint(50) / .modal-overlay(100) 必须能盖住它。
+   🔴 胶囊底色走 var(--surface2) / var(--border2) / var(--shadow-sm)，**不写死 rgba**。
+      第八版的病根就是三个按钮写死 rgba(255,255,255,.085)：暗色靠"比背景白"显形、
+      白主题必须反过来"比背景黑"，同一行代码两个观感 —— 这才是"主题不统一"。
+      走变量之后，三套主题给的都是"比 surface 高一级的面 + 一条边界"，语义一致。
+   ⚠ 暗色下 --surface2(#161616) 与 --bg(#0a0a0a) 只差 12 级灰度，岛的边界主要靠
+      --border2(14% 白) 交代，不靠填充。别再指望"把填充调深一度"能更清楚。
+   ⚠ **第 17 轮已推翻**：上面"不给岛加 backdrop-filter"的结论作废。用户拿着 iOS 26
+      的截图说"要这种玻璃的样式"，岛现在就是真玻璃（半透明 + backdrop-filter + 顶光）。
+      当时的顾虑（每帧一次离屏合成）依然成立，但岛的总面积只有 ~13k px²，
+      而全宽 scrim 那版是 83k px² —— 那才是该担心的量级，而它已经被用户否掉了。
+      材质定义见覆盖块末尾的「玻璃壳」那一条。
+   ⚠ 五~八版的历史结论仍然有效，不要回退：
+      · 控件只在两端，中间留给标题（绝不往回塞仪表数据）；
+      · 图标是单一线宽的几何线稿，纹样占按钮 65–70%；
+      · 字形只按 1x 真像素判（sidebar.left 在 4x 漂亮、18px 读成电池格，已否）；
+      · 仪表行只允许一种次要色，语义色只在真告警时出现。 */
+
+header{position:absolute;top:0;left:0;right:0;z-index:1;
+  height:var(--panel-head-h);
+  /* §98：两端贴窗口边（--hdr-edge），不再跟正文的 760 列走。
+     旧值 max(12px, calc((100% - 760px) / 2)) 是 §76 的判据（☰ 左缘对齐内容列左缘），
+     它让正文和顶栏共用一条竖线，代价是宽窗口下两端图标被一起推进中间 ——
+     用户第 23 轮截图就是这个：☰ 悬在离左边 434px 处，右岛离右边 434px。
+     ⇒ 顶栏与正文列**解耦**：正文列宽只归 main（main 那条 padding 一个字不动）。 */
+  padding-inline:var(--hdr-edge);
+  /* §85：顶栏贴到窗口最顶。原来 align-items:center 把 40 高的岛居中在 58 高的盒子里
+     （上下各 9px），标题因此凭空低了一截。改成 flex-start + pad-top(4) ⇒ 两岛顶端都在 y=4。
+     header 自身高度仍留 --panel-head-h：桌面窗控件靠 top:50% 居中，不该跟着跳。 */
+  padding-top:var(--hdr-pad-top);
+  display:flex;align-items:flex-start;gap:8px;
+  border-bottom:0;box-shadow:none;
+  background-color:rgba(var(--surface-rgb),0);
+  pointer-events:none}
+header .hdr-pill,header .hdr-dragzone,header #winCtrls{pointer-events:auto}
+
+/* —— 1. 胶囊：高 = --hdr-glass-h（桌面 40 / 手机 38），贴顶 —— */
+.hdr-pill{display:flex;align-items:center;gap:1px;height:var(--hdr-glass-h);padding:0 5px;
+  min-width:0;border-radius:999px}
+/* 底色 / 边界 / 投影不在这里 —— 与右岛 / 仪表胶囊共用下面那条「玻璃壳」，
+   材质只能有一个定义处，否则两条会慢慢长成两种东西。
+   ⚠ 那条选择器**不再包含 .hdr-pill-l**（§8d）：信息层没有玻璃。 */
+/* —— 1b. 左岛 = 非交互信息层（§8d）：只有文字，**没有玻璃** ——
+   状态点 / 标题 / 记忆环 / 余额 全在它下面排；玻璃只给 #btnMenu 与 .hdr-pill-r。
+   padding 归零：☰ 是独立的一枚圆钮，它的左缘必须和内容列左缘对齐（§76 的对齐判据）。 */
+.hdr-pill-l{flex:0 1 auto;max-width:62%;padding:0;height:auto;
+  min-height:var(--hdr-glass-h);align-items:center;gap:10px}
+/* §96：看板的分页已搬到容器底部（.mb-switch），左岛里不再多这一段。 */
+/* —— 1c. 信息块 = 两行（§85）——
+     上：标题（17px，全栏最大的字）
+     下：状态点 · 记忆环 · 余额
+   🔴 高度 = --hdr-glass-h，与 ☰、右岛同高 —— 三者对齐靠同一个数，不靠 margin 微调。
+   🔴 这里是 flex **column**：`#topicTitle{flex:1 1 auto}` 换到列方向会变成"纵向拉伸"，
+      标题被撑满整块、文字贴着顶走。列里一律 flex:0 0 auto。
+   🔴 仪表不再靠 `#topicTitle{flex:1}` 被推到右端 —— 它们在标题**下面**，
+      要的是左对齐成一行状态，不是贴右。 */
+.hdr-info{flex:0 1 auto;min-width:0;display:flex;flex-direction:column;
+  justify-content:center;gap:3px}
+.hdr-sub{display:flex;align-items:center;gap:8px;min-width:0;min-height:13px}
+.hdr-pill-r{flex:0 0 auto}
+/* 桌面：两岛之间是"可拖动窗口"的空白带（同时也是内容的可视区）。
+   手机没有可拖的窗口 —— 但它必须**留在流里**撑开两岛之间的距离：
+   一旦 display:none，右岛就会紧贴着左岛（flex 默认 flex-start），
+   等于把"两岛分居两端"这个结构关系丢掉。所以只把它的点击关掉。 */
+.hdr-dragzone{flex:1 1 auto;align-self:stretch;min-width:12px}
+@media(max-width:900px){.hdr-dragzone{pointer-events:none}}
+
+/* —— 2. 菜单键：它自己就是那枚圆钮 ——
+   第八版的教训（按钮各带一块淡底 + 栏本身又一块底 = 底上叠底）在 §8d 之后反过来成立：
+   旁边那行文字已经没有底了，所以 ☰ **必须**自带底，否则它在留白带上就是几根飘着的线。
+   右岛里的按钮仍走"整块胶囊是那一块面"的老做法。 */
+/* ☰ 是**一枚圆钮**（§8d L3）：玻璃归它，不归那行文字。
+   40 高 = 右岛胶囊的高度（手机 38）—— 两端的"玻璃高度"必须是同一个数。 */
+#btnMenu{width:var(--hdr-glass-h);height:var(--hdr-glass-h);padding:0;flex:0 0 auto;
+  display:inline-flex;align-items:center;justify-content:center;
+  border:0;border-radius:999px;
+  color:var(--text);opacity:1;font-size:0;line-height:1;
+  transition:background .15s ease,transform .1s ease}
+#btnMenu svg{width:20px;height:20px;display:block}
+/* 它现在有实底了，hover 不能再用 `background:var(--hover)` —— 那会把 .62 的填充
+   整个换掉，鼠标一上去反而变透明。叠一层背景图在填充色之上，和右岛胶囊里的按钮同观感。 */
+#btnMenu:hover{background-color:var(--mat-fill);
+  background-image:linear-gradient(var(--hover),var(--hover))}
+#btnMenu:active{transform:scale(.94)}
+
+/* —— 3. 状态点 + 标题 —— */
+/* #workingDot 恒空（"去掉黄点显示"之后只剩 classList.add('pulse')，而 .pulse 没有规则），
+   但它是 flex 子元素，会白占一个 gap。直接不参与布局。 */
+#workingDot{display:none}
+#sDot{width:6px;height:6px;margin:0;flex:0 0 auto;
+  box-shadow:0 0 0 2px rgba(var(--success-rgb),.10)}
+/* 8px 外发光去掉了：那是"活的状态"的语汇（.run-dot 靠它），但搬进 40px 的岛里，
+   6px 的点被光晕撑成 11px 荧光绿，比标题还抢眼。只留 2px 淡环 —— 点还是亮的，
+   但退回标点体量。thinking / warn / error 仍保留强发光：那是真在动 / 真出事。 */
+html[data-theme="white"] #sDot.thinking,html[data-theme="white"] #sDot.warn{box-shadow:0 0 0 2.5px rgba(var(--warn-rgb),.15)}
+html[data-theme="white"] #sDot.error{box-shadow:0 0 0 2.5px rgba(var(--danger-rgb),.14)}
+
+/* min-width 不能写死 0：.hp-skel 的骨架条靠 min-width:var(--hp-w) 撑出 96px，
+   而 #topicTitle 是 ID 选择器、特异性更高，写 0 会把骨架压成一条 11px 的细缝。
+   用 var(--hp-w,0)：骨架态取 96，真实标题时变量没有定义，退回 0（可以正常省略）。 */
+#topicTitle{flex:0 0 auto;min-width:var(--hp-w,0);max-width:100%;margin:0}
+/* 17px（§85）：用户原话"标题字体放大，做在上面"。它现在是信息块的**第一行**，
+   不再和仪表挤同一行 —— 一块里只有两行，标题就该是最大的那个字。
+   行高 1.15 ⇒ 19.6；19.6 + 3 + 13 = 35.6，40 的块里还余 2px，不会顶到边。 */
+header h1{font-size:17px;font-weight:600;line-height:1.15;letter-spacing:-.018em;
+  color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#topicTitle.hp-skel{--hp-w:96px}
+
+/* —— 4. 右岛：流程图 / 文件 / 调试，同一套圆钮，只靠字形色分主次 ——
+   23px 纹样落在 32px 圆里 ≈ 72%，与 iOS 的 ••• / 返回键同比例。
+   #btnFlowChart 独占 --accent（唯一的"跳转"入口），另外两个是就地操作，用正文色 / 次要色。 */
+#btnFlowChart,#btnFiles,#btnDebug{width:32px;height:32px;padding:0;border:0;
+  border-radius:999px;background:transparent;box-shadow:none;flex:0 0 auto;margin:0}
+#btnFlowChart{color:var(--accent);opacity:1;
+  transition:background .15s ease,transform .1s ease}
+#btnFlowChart svg{width:23px;height:23px;display:block}
+#btnFlowChart:hover,#btnFlowChart:focus-visible{background:var(--hover)}
+#btnFlowChart:active{transform:scale(.94)}
+#btnFlowChart.show{display:inline-flex}
+
+#btnFiles{color:var(--tdim);opacity:1;
+  transition:background .15s ease,color .15s ease,transform .1s ease}
+#btnFiles svg,#btnDebug svg{width:18px;height:18px;stroke-width:1.9}
+#btnFiles:hover{background:var(--hover);color:var(--text)}
+#btnFiles:active,#btnDebug:active{transform:scale(.94)}
+#btnFiles.on{background:rgba(var(--accent-rgb),.18);color:var(--accent);opacity:1}
+/* 白主题：--accent(#2fe0c6) 压在白面上对比不足，跟 #btnDebug 的既有惯例改用 accent2 */
+html[data-theme="white"] #btnFlowChart{color:var(--accent2)}
+#btnDebug{color:var(--tdim);
+  transition:background .15s ease,color .15s ease,transform .1s ease}
+#btnDebug:hover,#btnDebug.active{background:var(--hover);color:var(--text)}
+html[data-theme="white"] #btnDebug{color:var(--tdim)}
+
+/* —— 5. 仪表行：从顶栏下沉到输入框上方 ——
+   它回答的是"这次还能发多少"，和输入框是同一件事；留在标题下面只会把标题挤窄。
+   一行只允许一种次要色（--tdim），语义色只在 warn / crit 时出现。 */
+/* 宽度必须跟 .input-row 用同一套（531 行：max-width:760 + margin:0 auto）。
+   footer 本身是满宽的（桌面 1124px），只写 width:100% 会让仪表行从侧栏边上就开始，
+   而输入框缩在中间 760 —— 一眼就能看出这两行不属于同一个块。
+
+   🔴 这一行**必须自带不透明的浮底**。footer 是 position:absolute + 背景全透明
+      （内容从它后面穿过去，这是 composer-floating 的既有设计）。只写文字不写底，
+      滚上来的气泡会直接从字缝里透出来 —— 手机上实测"34% 余额 ¥235.19"和
+      "补充第 3 条…"叠成了一行。
+   🔴 试过的两条路都不成立，别再回去：
+      · 取 input-row 同款材质（62% 底 + blur 12）上下拼接：62% 只压暗不遮挡，
+        底下文字照样读得出来；而且这一层的 backdrop-filter 不生效，糊都糊不掉。
+      · 加大到 88%：接缝处和输入框（62%）出现明显色差，变成两块材质。
+      最后选**独立小胶囊**：和顶栏那两个岛同一套语言（第 17 轮起两个都是玻璃壳），
+      不必和输入框拼接，也就不必迁就它的透明度。 */
+#mainPanel > footer .ft-meta{display:flex;align-items:center;gap:9px;
+  /* 宽度跟随内容，左边缘对齐输入框：footer 内容宽 1124、输入框居中 760，
+     所以让出的左边距就是 (100% - 760) / 2；手机上这个值是负的，max() 退成 0。 */
+  width:fit-content;max-width:min(760px,100%);
+  margin:0 0 6px max(0px, calc((100% - 760px) / 2));
+  height:24px;padding:0 11px;
+  font-size:11px;line-height:1;color:var(--tdim);
+  white-space:nowrap;font-variant-numeric:tabular-nums;
+  border-radius:999px}
+#mainPanel > footer .ft-meta > :empty{display:none}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   统一材质 —— 顶栏按钮 / 仪表胶囊 / 输入框的**唯一**材质定义（第 6 轮 · 2026-10-25）
+   ──────────────────────────────────────────────────────────────────────────
+   用户原话："把顶栏的透明算法还有颜色，做的跟输入框算法一模一样"。
+   实测输入框（`_zz_material_probe.py`，手机 390 / 桌面 1440，深白两套）：
+     填充 rgba(22,22,22,.62)  白主题 rgba(255,255,255,.66)
+     模糊 blur(12px) saturate(125%)
+     描边 1px var(--border2)  = 深 rgba(255,255,255,.14) / 白 rgba(0,0,0,.16)
+     投影 inset 0 1px 0 rgba(255,255,255,.09) + 0 6px 22px rgba(0,0,0,.16)
+   顶栏原来是中性灰膜 .30 + blur 24 + saturate 45% + brightness .50 + 六层 inset。
+   现在整段换成输入框那四个值 —— 两边**同源**，不会各走各的。
+
+   🔴 border 从 0 改成 1px var(--border2)：输入框的轮廓就靠这一条，去掉只剩一块糊。
+      加边不改岛的外部尺寸 —— 第 81 行 `*{box-sizing:border-box}`。
+   🔴 几何仍然分开：岛 38/40 + 圆角 999（并泡态要和右岛拼），输入框 22。
+      材质相同、形状不同 = 一套语言；材质不同 = 两张贴纸。
+   🔴 并泡态（§81）右岛必须补 border:0，否则合并后的泡里会出现一道 1px 竖线。
+   ⚠ backdrop-filter 代价实测（Edge=WebView2，1440×900@2x，40 条消息连滚 150 帧）：
+      有玻璃 16.67ms / 无玻璃 16.67ms，差值为 0。真机掉帧就 `.hdr-pill{backdrop-filter:none}`
+      一行回退，不必删整段。
+   ══════════════════════════════════════════════════════════════════════════ */
+.hdr-pill-r,
+#btnMenu,
+#mainPanel > footer .ft-meta{
+  background:var(--mat-fill);
+  -webkit-backdrop-filter:var(--mat-blur);
+  backdrop-filter:var(--mat-blur);
+  border:1px solid var(--border2);
+  box-shadow:inset 0 1px 0 var(--mat-top), var(--mat-lift)}
+
+#tokenDisplay{font-size:11px;min-width:0;text-align:left;flex:0 0 auto}
+#tokenDisplay.hp-skel{--hp-w:46px}
+#tokenDisplay.hp-skel::after{left:0;transform:translateY(-50%)}
+#wmDisplay{display:inline-flex;align-items:center;gap:4px;font-size:11px;line-height:1;
+  flex:0 0 auto;color:inherit}
+#wmDisplay svg{width:13px;height:13px}
+/* 环从 stroke 6 收到 4.6（13px 显示 ≈1.7px），细一档才不跟正文抢；
+   轨道 18%（白主题反色 12%）—— 12% 在深色面上几乎看不见，环只剩一段孤零零的弧。 */
+#wmDisplay svg circle{stroke-width:4.6}
+#wmDisplay svg circle:first-child{stroke:rgba(255,255,255,.18)}
+html[data-theme="white"] #wmDisplay svg circle:first-child{stroke:rgba(0,0,0,.12)}
+/* 环吃 currentColor：以前 JS 内联 stroke / color 把环和百分比单独染成青色，
+   一行里跑出四种颜色。现在只有 .wm-warn / .wm-crit 才换色。 */
+#wmDisplay #wmRing{stroke:currentColor}
+#wmDisplay #wmPct{color:inherit}
+#wmDisplay.wm-warn{color:var(--warn)}
+#wmDisplay.wm-crit{color:var(--danger)}
+
+#balanceDisplay{display:inline-flex;align-items:center;font-size:11px;line-height:1;
+  flex:0 0 auto;padding:0;background:none;box-shadow:none;border-radius:0}
+#balLbl{font-size:11px;opacity:1}
+/* 金额原来是 var(--text)（=标题亮度）：token 灰、余额白，两个都是数字却两个层级。
+   改 inherit —— 整行一律 --tdim，只有低额 / 见底才换色（变色的理由必须是有语义的）。 */
+#balText{color:inherit}
+#balanceDisplay.bal-dim,#balanceDisplay.bal-dim #balText{color:var(--tdim)}
+#balanceDisplay.bal-warn,#balanceDisplay.bal-warn #balText{color:var(--warn)}
+#balanceDisplay.bal-crit,#balanceDisplay.bal-crit #balText{color:var(--danger)}
+#balanceDisplay.hp-skel{padding:0;background:none;box-shadow:none;border-radius:0;--hp-w:62px}
+#sText{font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap}
+
+/* —— 6. 内容让位 ——
+   padding-top 在滚动容器里是**内容的一部分**：滚起来后被内容覆盖，于是穿过顶栏。
+   scrollTop=0 时首条必须落在**淡入区末端之上**，否则首条自己会被 mask 淡掉：
+     全显点 --hdr-clear = (band - soft) + fade = 44 + 30 = 74（手机 42 + 30 = 72）。
+   🔴 这里**不再加那 8px 余量**（§9b）：多出来的 8px 会把 §85 刚压上去的距离又还回去，
+      而且 padding-top 一旦大于全显点，就等于"淡入区下面还有一条空带"，白占位移。
+   一条规则压过 181 / 493 / 519 行的 padding 简写（同特异性 + 靠后）；
+   手机那档原来单独写 56，现在统一走这条（同一个数写两处，迟早漂）。 */
+main{padding-top:var(--hdr-clear)}
+
+/* —— 7. 窗控件：透明栏上自己带 hover 面 ——
+   桌面端让它**脱离 flex 流**（position:absolute;right:6px;top:50%）：
+   ① header 的高度只有一个来源（--panel-head-h），窗控件按 50% 自己居中，
+      不受第一行 flex 对齐（align-items:flex-start，§85）影响；
+   ② 它不参与 dragzone 的宽度分配，拖动带能一直伸到它左边。
+   §98 之前"留在流里会把右岛顶回中间"是不对的观感 —— 右岛本来就该停在窗控件左边。 */
+#winCtrls{margin-left:4px}
+body.is-desktop #winCtrls{position:absolute;right:6px;top:50%;transform:translateY(-50%);margin-left:0}
+/* 窗控件脱离流之后，必须把它的宽度从右侧内边距里让回来，否则右岛会钻到 — □ × 底下。
+   §98：**恒为 112px**（100 宽 + 6 右边距 + 6 间隙），不再用 max(…, 内容列) 兜 ——
+   那条 max 在宽窗口下取内容列（434），正是"右岛缩回中间"的原因。
+   现在右岛的"边"就是窗控件左缘；没有窗控件的平板/手机端（body 无 is-desktop）
+   右侧退回 --hdr-edge，右岛直接贴窗口右边。 */
+body.is-desktop header{padding-right:112px}
+.win-ctrls button:hover{background:var(--hover)}
+html[data-theme="white"] .win-ctrls button:hover{background:rgba(0,0,0,.07)}
+
+/* —— 8. 手机端：胶囊压到 38、圆钮 30（iOS 最小触控圆就是 30-34）—— */
+@media(max-width:768px){
+  /* §85：玻璃高只改这一个数 —— .hdr-pill / #btnMenu / 留白带全部跟着走 */
+  :root{--hdr-glass-h:38px}
+  header{gap:6px}
+  #btnFlowChart,#btnFiles,#btnDebug{width:30px;height:30px}
+  /* 圆钮就是按钮本身了 ⇒ 字形要跟着涨一档（18/40 会显得空，见 A/B 图） */
+  #btnMenu svg{width:18px;height:18px}
+  #btnFlowChart svg{width:21px;height:21px}
+  #btnMenu svg,#btnFiles svg,#btnDebug svg{width:17px;height:17px}
+  header h1{font-size:16px}
+  /* padding-top 统一走 --hdr-band（§8d），不再按断点各写一个数 */
+  /* 手机的右岛里只有 流程图 / 调试 两个键，而两者默认都不显示（.show / .active 才出来）。
+     不兜底的话，"没有流程图的任务"右上角会留一个 12px 的空圆壳 —— 比没有更脏。
+     桌面端不用管：#btnFiles 在 ≥769px 常显，右岛永远有内容。 */
+  .hdr-pill-r{display:none}
+  .hdr-pill-r:has(> #btnFlowChart.show),
+  .hdr-pill-r:has(> #btnDebug.active){display:flex}
+}
+
+/* —— 8b. 【已作废 · 第 7 轮】手机：右岛并进左岛 ——
+   曾经把右岛压进左泡、关掉它自己的玻璃，让顶栏只留一个泡。
+   §8d 的层次规矩取代了它：信息层不再有玻璃，按钮各自成对象 ——
+   右岛**必须**保留自己的玻璃，再"压进来"就是把它抹掉（取像素会看到按钮消失）。
+   留这段只为别有人看到这里空了，又把 --r-w 那套捡回来。 */
+#wmDisplay.wm-crit{color:var(--danger)}
+
+/* —— 8c. 余额 / 工作记忆使用率：顶栏信息块的**第二行** —— */
+/* 它们回答的是"账户里还剩多少、记忆用了多少"，是常驻状态，不是"这次能发多少"。
+   §85 之后它们和状态点一起排在标题下面（`.hdr-sub`），不再是"被 flex 推到右端"。
+   间距由 `.hdr-sub` 的 gap 给，这里不再各写一个 margin-left。
+
+   🔴 颜色必须用 `:not(.wm-warn):not(.wm-crit)` 兜住。`#wmDisplay.wm-warn` 是 (1,1,0)，
+      而任意一条 `.hdr-sub > #wmDisplay` 同样是 (1,1,0) 且写在后面 —— 直接写
+      `color:var(--tdim)` 会把 70%/90% 的告警色一起压成灰，而且只在这一处能看出来。
+      余额同理（bal-warn / bal-crit）。
+   🔴 选择器从 `.hdr-pill-l >` 改成 `.hdr-sub >`：仪表外面多包了一层，不再直接挂在信息层下。 */
+.hdr-sub > #wmDisplay:not(.wm-warn):not(.wm-crit){color:var(--tdim)}
+.hdr-sub > #balanceDisplay:not(.bal-warn):not(.bal-crit){color:var(--tdim)}
+
+@media(max-width:768px){
+  /* 加了两个仪表，62% 装不下：☰30 + 点14 + 环39 + ¥58 + padding10 ≈ 155 是固定的，
+     再给标题留几十像素就顶到 62%（390*0.62=242）。放宽到整行减 8。 */
+  .hdr-pill-l{max-width:calc(100% - 8px)}
+  /* 手机不显示"余额"两个字：¥ 已经说清楚，标签纯占宽度（桌面宽，留着） */
+  .hdr-pill-l #balLbl{display:none}
+}
+
+/* —— 8d. 层次规矩：非交互元素不上玻璃（第 7 轮） —— */
+/* §85（第 8 轮）：这一层的**排布**改成两行 —— 标题独占上行（17px），状态点 / 记忆环 /
+   余额一起落在下行；整块贴到窗口最顶（--hdr-pad-top:4），留白带跟着从 58 收到 54。 */
+/* 用户原话："立个层次的规矩，把这些非交互元素拎出来，然后顶部的渐影下拉一点，
+   留点空白空间用来放标题、状态、金额等这些非按钮元素，而后按钮还是悬浮在这些元素上面"。
+
+   四层，自下而上：
+     L0 内容       main 滚动，顶端被 mask 淡掉（§9，--hdr-band）
+     L1 留白带     0..--hdr-band 全透明 ⇒ 一条真正干净的底，不是半透玻璃
+     L2 非交互信息  .hdr-pill-l：**两行** —— 上标题 / 下状态点·记忆环·余额（§85）
+                    无玻璃 / 无描边 / 无投影
+     L3 可点控件    #btnMenu（40 圆）、.hdr-pill-r（按钮胶囊）—— 只有它们吃 --mat-*
+
+   🔴 判据一句话：**看得见但点不到的不上玻璃，能点的才给玻璃。**
+      这条取代 §81「手机顶栏并成一个泡」：那个方案让信息和按钮共用一块玻璃，
+      而玻璃必须半透 —— 滚上来的正文会从标题字缝里透出来（用户截图就是这个）。
+      靠调 alpha 永远解决不了，只能把两者分层。
+   🔴 分隔靠 header 的 gap（桌面 8 / 手机 6），不靠玻璃的 padding：
+      玻璃只包按钮本身；信息层 padding 归零，☰ 左缘才对得齐内容列左缘。
+   🔴 别在信息层上补 text-shadow / scrim：留白带已经是 alpha=0 的真空，
+      加阴影只会把 17px 的字糊成一团。
+   🔴 按钮的"玻璃高度"两端必须相同：桌面 40/40、手机 38/38（#btnMenu 跟 .hdr-pill 同步）。 */
+
+/* 🔴 两个仪表搬走之后，这一行只剩 sText / tokenDisplay —— 而这两者都是**默认隐藏**的
+   （`#sText` 是状态文案，`#tokenDisplay` 只在调试模式里由 applyDevMode() 放出来）。
+   不兜这一条，输入框上方会常驻一枚 22×24 的空玻璃泡（实拍里就是个灰点）。
+   两者都由 JS 用**内联** display 控制，所以判据是"有没有一个既不是 display:none 的子元素"。
+   `:has()` 一旦不被支持，这条会被整条丢弃 ⇒ 退化成那枚空泡，不会白屏，可以接受。 */
+#mainPanel > footer .ft-meta:not(:has(> *:not([style*="display:none"]):not([style*="display: none"]))){
+  display:none}
+
+/* —— 9. 对话区上下渐隐 ——
+   内容从顶栏浮岛 / 悬浮输入框底下穿过时，交界本来是一条硬切线（header 与 footer
+   都是 absolute，不占布局）。这里给 main 一条 mask，让内容在两端**淡到全透明**。
+
+   为什么是 mask 而不是"纯色渐变遮罩"：
+     · mask 是真透明 —— 换主题不必跟着改颜色，将来背景不是纯色也不会露馅；
+     · overlay 得写死 var(--surface)，三套主题各一份，"同一语义写多遍"就是这么来的。
+
+   🔴 **顶部是"留白带 + 淡入"两段**（第 7 轮 · §8d / 第 12 轮 · §9b）：
+      0..(--hdr-band - --hdr-soft) 整段 alpha=0 —— 这一条上放着**非交互信息**
+      （标题 / 状态点 / 记忆环 / 余额），底下必须是干净的底，否则滚上来的正文会从字缝里透出来。
+      之后再用 --hdr-fade(30px) 从 alpha 0 淡到 1。
+      🔴 10px 是"切"（陡度 .098/px，像被压了一道暗带），30px 才是"淡"（.035/px）。
+      🔴 别在这么短的跨度上加缓动曲线：α=t² 的导数是 2t，30px 内最大陡度反而 .063 > .035。
+      旧口径"顶部 = 栏高 × k"作废 —— k 现在只管底部。
+   🔴 底部仍是：100% - --composer-h * k → 100%，
+      k = 1 是「整栏内淡完」（120）；当前 .5 = 60 —— 用户反馈 1 倍时"渐隐的还是有点多"。
+      底部不要按"输入框上沿"去调整 —— 输入框上沿是 footer 内部结构（padding 6 + 仪表胶囊 30），
+      拿它当几何依据，等于让渐隐长度跟着输入框排版跑；而且那样衰减会全部挤在
+      可见区的最后一小段里，看着像"临到边上才突然消失"，不是穿过式的融合。
+   🔴 端点不能误伤（最容易踩，两端各有一条既有 padding 在兜）：
+        滚到顶：首条从 padding-top 58/56 起，渐变末端只到 58*k ⇒ 首条全程 alpha=1；
+        滚到底：末条 bottom 距底 --composer-h + 16（composer-floating.js 的 padding-bottom）
+                ⇒ 比渐变起点(--composer-h * k)高 16 + 0.5*--composer-h ⇒ alpha=1。
+      改动 composer-floating.js 里那个 +16px 或 main 的 padding-top，必须回来验这两条。 */
+main{
+  /* 底部渐隐系数：1 = 整栏高（--composer-h 120），.5 = 一半（60）。
+     顶部不再用它 —— 顶部是"留白带"（--hdr-band + --hdr-soft），见 §9 / §8d。 */
+  --fade-k:.5;
+  /* 留白带高度 = 栏高。信息层（§8d）整条都在这一段里 ⇒ 两者必须同源，
+     改栏高就自动跟着走。柔化段只负责收边，不承担"让文字看清"的职责。 */
+  /* ★ §85：留白带不再等于 --panel-head-h(58)，而是「贴顶留白 + 玻璃高 + 收边」
+     算出来的（桌面 4+40+10=54 / 手机 4+38+10=52），三件都在 :root。
+     🔴 这样"信息块多高"就等于"留白带多高"：以后调字号、加一行状态，
+        正文不会悄悄钻进字缝里 —— 这正是 §8d 要的"字下面必须是干净的底"。
+     🔴 淡入起点（band - soft = 44）必须落在信息块**底边之下**（块底 43）。
+        两行块比原来一行高，--hdr-soft 从 18 收到 10 才留得出这 1px 余量。
+     🔴 --hdr-clear = 淡入终点 = 内容起点，唯一真源（§9b）：
+        桌面 54 - 10 + 30 = 74 / 手机 52 - 10 + 30 = 72。
+        main 的 padding-top 直接吃它（第 19629 行），两处不再各算一遍 ——
+        否则改 --hdr-fade 只改到 mask，首条又被淡掉一半。 */
+  /* --hdr-band / --hdr-clear 已上移到 :root（§92）—— 这里不许再定义一份，
+     否则看板 / 遮罩 / padding-top 各自吃到不同的值。 */
+  -webkit-mask-image:linear-gradient(to bottom,
+    transparent 0,
+    transparent calc(var(--hdr-band) - var(--hdr-soft)),
+    #000 var(--hdr-clear),
+    #000 calc(100% - var(--composer-h, 140px) * var(--fade-k)),
+    transparent 100%);
+  mask-image:linear-gradient(to bottom,
+    transparent 0,
+    transparent calc(var(--hdr-band) - var(--hdr-soft)),
+    #000 var(--hdr-clear),
+    #000 calc(100% - var(--composer-h, 140px) * var(--fade-k)),
+    transparent 100%);
+  /* 渐变按元素盒子铺满、不重复（mask 默认 repeat，长度不符会平铺出第二条带） */
+  -webkit-mask-size:100% 100%;
+  mask-size:100% 100%;
+  -webkit-mask-repeat:no-repeat;
+  mask-repeat:no-repeat;
+  -webkit-mask-position:0 0;
+  mask-position:0 0;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §92 思绪看板（2026-10-26 · 第 17 轮）
+   把「自我备忘 / 记忆网络」从侧栏设置里搬出来，铺满聊天区做成看板。
+
+   🔴 层级：mainPanel 是 position:relative，看板 absolute 铺它。
+      z-index 必须 < 1 —— header 是 z-index:1 且带 ☰ 与窗口控件，
+      写 2/3/4 都会盖住它们（拖不动窗口、关不掉窗口）。看板于是从
+      --hdr-clear 起（= main 的 padding-top），与聊天内容起点同一条线。
+   🔴 卡片化不改渲染函数：pane 的 HTML 仍由 _memoPaneHtml / _netPaneHtml 产出，
+      这里只是把它们的直接子元素 .sp-section 变成卡片。
+      同一份内容两处各写一遍 = 本项目最高频根因（§17/21/29/40/55/59/77/81）。
+   ══════════════════════════════════════════════════════════════════════════ */
+#mindBoard{
+  /* §93：改成 #mainPanel 的**普通 flex 子元素**，与 main / footer 同级。
+     打开时 main 与 footer 让位（display:none），看板自己占满剩下的高度 ——
+     「点开就把对话页变成看板」，而不是在对话上盖一层。 */
+  position:relative;              /* §97：底部悬浮分页条以它为定位基准 */
+  flex:1 1 auto; min-height:0; display:none; flex-direction:column;
+  /* §107（第 32 轮）：看板**不自己留顶边**，让位交给滚动区自己的 padding-top。
+     §97 当年写 padding-top:--hdr-band 的理由是"看板没有 mask，多吃 20px 就是一条纯黑空白"；
+     现在 .mb-body / .mb-detail 都有了 --fade-top 这条顶部淡出带，那 20px 正好被淡出带用掉。
+     归零之后滚动视口一直伸到窗口最顶 —— 内容能贴着顶边淡出去（用户：「顶部也要拉到底」）。
+     🔴 别把 padding 加回来：一加，视口就从 54 起，滚起来又是一条硬切线。 */
+  padding-top:0;
+  /* 🔴 §102：必须建层叠上下文，否则详情层的 z-index(4) 会直接跟 header 的
+     z-index(1) 比 —— 4 > 1，整块正文压到顶栏上面，☰ 和 ← 全被拦掉
+     （probe 原话：mindDetail intercepts pointer events）。这跟 §92 是同一个坑，
+     区别只是这次犯事的是**看板内部**的绝对定位层。
+     有了 isolation，内部的 3(.mb-bottom)/4(.mb-detail) 只在看板内部排序，
+     看板对外仍是 auto(=0) < 1，顶栏永远在最上面。 */
+  isolation:isolate;
+  background:var(--bg);
+  /* 卡片面单独一个变量：--surface 在 black 主题下就等于 --bg(#0a0a0a)，
+     直接拿它当卡片底 = 卡片和底同色，只剩一圈边框，看不出"这是一张卡"（§15 教训）。
+     深色取 --surface2(#161616) / 灰取 #202020；白主题取纯白压在 #f5f6f8 上。 */
+  --mb-card:var(--surface2);
+  --mb-card-bd:var(--border);
+}
+html[data-theme="white"] #mindBoard{--mb-card:#ffffff; --mb-card-bd:rgba(0,0,0,.09)}
+#mindBoard.show{display:flex}
+
+/* ── §96：分页搬到底部（.mb-switch），header 里不再有看板控件 ──────────
+   这里曾经是 #mbHdrTools（三个 tab + 刷新挤在「状态」右边），连同
+   body.mb-open .hdr-pill-l{max-width:none} 那条特例一起删掉 ——
+   header 只剩 ☰ / ← / 标题，62% 的上限本来就够。 */
+
+
+/* ── §101 按钮条：☰ + ← 两枚按钮合成一条胶囊 ──────────────────────
+   用户：「我要的是两个按钮组合一起，标题是在外面独立的，你要知道内容是一层，
+          按钮是悬浮层，以后都是这个 ui 标注」。
+
+   ⇒ 本项目从此按这个分层：
+       内容层  标题 / 正文 / 数值   —— 不铺材质，直接坐在页面底上
+       悬浮层  按钮 / 开关 / 分页   —— 各自成面，吃 --mat-* 四件套
+
+   .hdr-btnbar 包住 ☰ 与 ←：
+     · 对话态：纯布局容器（gap:2px、无底无边）。☰ 仍是**它自己**那枚玻璃圆钮（§8d：
+       信息层没有玻璃，所以 ☰ 必须自带底，否则就是几根飘着的线）。
+     · 看板态：收成一条胶囊，高 = --hdr-glass-h（与右岛同一个数），
+       同时**撤掉 ☰ 自己的底** —— 一条胶囊里不能出现第二块底（"底上叠底"）。
+   🔴 别用"两段各带半块底再拼"：相邻两个 backdrop-filter 元素在接缝处各自模糊、
+     各自描边，会留一条 1px 的亮线；换淡主题后更明显。一个壳 = 一个面。 */
+.hdr-btnbar{display:flex; align-items:center; gap:2px; flex:0 0 auto}
+body.mb-open .hdr-btnbar{
+  height:var(--hdr-glass-h);
+  padding:0 4px;
+  border-radius:999px;
+  background:var(--mat-fill);
+  backdrop-filter:var(--mat-blur);
+  -webkit-backdrop-filter:var(--mat-blur);
+  border:1px solid var(--border2);
+  box-shadow:inset 0 1px 0 var(--mat-top), var(--mat-lift);
+}
+/* 胶囊里的两枚按钮：一样大小、都不带自己的底 */
+body.mb-open #btnMenu,
+body.mb-open #mbHdrBack{width:34px; height:34px}
+/* 🔴 只改背景不够：☰ 的底色/边界/投影是「玻璃壳」那条选择器给的
+   （`.hdr-pill-r, #btnMenu, ...` 共用一份材质）—— 把边框留在那儿，
+   胶囊里就会多出一圈圆环，看着像"泡里还有个泡"。
+   所以底、边、影三样一起撤，☰ 在胶囊里退回成一枚纯图标。 */
+body.mb-open #btnMenu{background-color:transparent; background-image:none;
+  border:0; box-shadow:none}
+/* hover 只叠一层 --hover（底已经在胶囊上，别再盖一层 --mat-fill） */
+body.mb-open #btnMenu:hover{background-color:transparent;
+  background-image:linear-gradient(var(--hover),var(--hover))}
+
+/* ── 返回键：mb-open 才出现，紧挨 ☰ 右侧 ── */
+#mbHdrBack{
+  display:none; width:32px; height:32px; padding:0; flex:0 0 auto;
+  align-items:center; justify-content:center;
+  border:0; border-radius:999px; background:transparent; color:var(--text);
+  cursor:pointer; -webkit-tap-highlight-color:transparent;
+  transition:background .15s, transform .1s;
+}
+body.mb-open #mbHdrBack{display:inline-flex}
+#mbHdrBack svg{width:19px; height:19px; display:block}
+#mbHdrBack:hover{background:var(--hover)}
+#mbHdrBack:active{transform:scale(.94)}
+
+/* ── 看板态把「只属于对话页」的控件全部收掉 ─────────────────────────
+   看板是管记忆/状态的管理页面，不是某一轮对话。下面这三样都建立在
+   "当前这场对话"之上，留着只会误导：
+     #balanceDisplay  余额（这一轮花掉多少钱，跟记忆管理无关）
+     #wmDisplay       工作记忆环 / 百分比（上下文窗口用量，同上）
+     .hdr-pill-r      右岛：流程图 / 工作区文件 / 调试面板（都是对话页工具）
+   留下 ☰、返回键、标题「状态」、分页、刷新 —— 这些才是这个页面自己的东西。
+   🔴 别再写进手机媒体查询里：原来那就是"同一语义两处各写一遍"，
+      桌面端于是漏掉了（用户正是在桌面上看到的）。 */
+/* 🔴 别在**元素级**隐藏这一行的东西（§97）：#balanceDisplay 与 #wmDisplay 的显示
+   与否是 JS 用**内联 style** 控制的（updateBalanceDisplay / updateWmDisplay），
+   内联样式永远压过样式表里的 `body.mb-open #balanceDisplay{display:none}` ——
+   所以上一轮写了两条等于没写，用户看到的就是：
+      任务的绿色状态点(#workingDot) · 圆圆的记忆环(#wmDisplay) · 余额(#balanceDisplay)
+   还整整齐齐挂在「状态」下面。
+   改从容器下手：.hdr-sub 就是这整行，它自己没有内联 display，一条规则全收
+   （§85 定了"第二行 = 状态点 · 记忆环 · 余额"，三样同生共死，今后也不会多出第四样）。 */
+body.mb-open .hdr-sub{display:none}
+body.mb-open .hdr-pill-r{display:none}
+/* 右岛撤走后，拖动带吃掉剩余宽度（窗口仍要能拖） */
+body.mb-open .hdr-dragzone{flex:1 1 auto}
+
+/* ── 标题：mb-open 时换成「状态」（任务名藏起来，关掉看板自动回来）── */
+#mbHdrTitle{display:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+body.mb-open #topicTitleText{display:none}
+body.mb-open #mbHdrTitle{display:block}
+/* 🔴 「状态」是静态两个字，没有"正在加载"这回事。
+   #topicTitle 带 .hp-skel 时伪元素会盖在整行上（任务名没回来之前一直是骨架条），
+   看板里就变成一团模糊的灰杠 —— 把骨架在看板态关掉。 */
+/* 🔴 光关掉那条灰杠不够：.hp-skel 自己带 color:transparent!important，
+   再加 `.hp-skel > *{visibility:hidden}` —— 任务名没回来之前，连「状态」两个字
+   一起透明。上一轮只写了 --hp-w:0 + ::after{display:none}，结果字是消失的
+   （加载慢的时候用户就会看到"标题凭空没了"）。
+   看板里这行是静态两个字，跟"任务名正在加载"没关系 ⇒ 让骨架整个让位。 */
+body.mb-open #topicTitle.hp-skel{--hp-w:0; color:var(--text) !important}
+body.mb-open #topicTitle.hp-skel > #mbHdrTitle{visibility:visible}
+body.mb-open #topicTitle.hp-skel::after{display:none}
+
+#mindBoard .mb-body{
+  flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain;
+  /* §97：底部 92 = 悬浮胶囊(44) + 上下留白 + 余量。
+     浮层**不占位**，占位只能由 padding 自己造 —— 不然最后一张卡永远压在胶囊底下。 */
+  /* §107：顶部吃 --hdr-clear —— 它是**淡入终点 = 内容起点**（与 main 的 padding-top 同源）。
+     写 --hdr-band(54) 的话第一排卡片正好落在淡出带里，首卡会被淡掉一截（§9b 的老教训）。 */
+  padding:var(--hdr-clear) 16px 92px;
+  /* §107：顶部渐影。跟 main 共用 --fade-top（唯一真源）—— 内容往上滚进顶栏那一带时
+     淡成透明，而不是在滚动视口上沿被硬切一刀（用户截图里那条切线）。
+     🔴 底部**不铺** mask：底部已经有 .mb-bottom 自己的 --bg 渐隐在兜（§97），
+        两边都铺就是淡两次，最后一张卡看起来像"没画完"。 */
+  -webkit-mask-image:var(--fade-top); mask-image:var(--fade-top);
+  -webkit-mask-size:100% 100%; mask-size:100% 100%;
+  -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat;
+  -webkit-mask-position:0 0; mask-position:0 0;
+}
+
+/* ── §97 悬浮分页条（记忆 / 自我备忘 / 记忆网络）──────────────────────
+   用户：「我让你参考输入框是想你搞得像我之前要求那样悬浮在内容上面，
+          一样的材质，而且它是按钮，你可以参考上面那个圆的样式」。
+
+   §96 把它做成了"容器最底下的一行 bar"（flex 子元素，从左贯到右，三个 tab 各占 1/3），
+   所以看起来是一条贴边的长条，而不是一枚浮起来的按钮。这一版按三点重做：
+
+   ① 浮起来      position:absolute 贴在容器底部，内容从它**下面**滚过去
+                 —— 和输入框浮在对话上面的关系一样，不再占内容的一行。
+   ② 一样的材质  --mat-fill / --mat-blur / --mat-top / --mat-lift
+                 这四个本来就是"从输入框取值统一出来的"那组；在这里另写十六进制
+                 = 第二真源，换个主题就跟输入框分家。
+   ③ 是按钮      border-radius:999px 的胶囊，右边配一枚 34 的圆钮（.mb-icon），
+                 与顶栏 ☰ / ← 同一路圆钮；里面每个 tab 也是 flex:0 0 auto 的圆钮，
+                 不再被 flex:1 拉成等分长条。
+
+   🔴 全宽那条 pointer-events:none，只有胶囊自己 auto —— 否则底部一整条会把
+      .mb-body 的滚动/触摸手势吃掉（浮层比内容高一层，事件先到它）。
+   🔴 底下那层 linear-gradient 不是装饰：内容是半透玻璃的下层，不先淡成底色就会
+      "字叠字"（§84）。对话页输入框底下那圈渐隐是同一个道理，只是它做在 main 的
+      mask 上，这里做在胶囊自己身上。
+   🔴 渐变**别做陡**：缓 40px 以上才读得出"淡"，10px 内 0→1 会印出一条沟（§87）。 */
+#mindBoard .mb-bottom{
+  position:absolute; left:0; right:0; bottom:0; z-index:3;
+  display:flex; justify-content:center;
+  padding:16px 16px calc(16px + env(safe-area-inset-bottom));
+  pointer-events:none;
+  background:linear-gradient(to top, var(--bg) 52%, transparent);
+}
+#mindBoard .mb-switch{
+  pointer-events:auto;
+  display:inline-flex; align-items:center; gap:2px;
+  max-width:100%; padding:4px;
+  background:var(--mat-fill);
+  backdrop-filter:var(--mat-blur);
+  -webkit-backdrop-filter:var(--mat-blur);
+  border:1px solid var(--border2);
+  border-radius:999px;
+  box-shadow:inset 0 1px 0 var(--mat-top), var(--mat-lift);
+}
+/* 三个 tab 不再 flex:1 均分 —— 那是"一条 bar"的做法。胶囊里是一排按钮，
+   宽度跟着文字走，整组居中；只有屏幕窄到放不下时才允许横滚（兜底，不是常态）。 */
+#mindBoard .mb-tabs{
+  display:flex; align-items:center; gap:2px; min-width:0;
+  overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none;
+}
+#mindBoard .mb-tabs::-webkit-scrollbar{display:none}
+#mindBoard .mb-tab{
+  flex:0 0 auto; height:34px; padding:0 14px;
+  border:0; border-radius:999px; background:transparent;
+  color:var(--tdim); font:inherit; font-size:12.5px; cursor:pointer;
+  white-space:nowrap;
+  transition:background .15s, color .15s;
+  -webkit-tap-highlight-color:transparent;
+}
+#mindBoard .mb-tab:hover{color:var(--text); background:var(--hover)}
+#mindBoard .mb-tab.on{background:var(--accent); color:#fff}
+#mindBoard .mb-icon{
+  width:34px; height:34px; padding:0; flex:0 0 auto;
+  display:inline-flex; align-items:center; justify-content:center;
+  border:0; border-radius:999px; background:transparent; color:var(--tdim);
+  cursor:pointer; transition:color .15s, background .15s, transform .1s;
+  -webkit-tap-highlight-color:transparent;
+}
+#mindBoard .mb-icon svg{width:16px; height:16px; display:block}
+#mindBoard .mb-icon:hover{color:var(--text); background:var(--hover)}
+#mindBoard .mb-icon:active{transform:scale(.94)}
+/* 网格而不是 flex-wrap：flex 那一版第 8 个 KPI 换行后会被 flex-grow
+   拉到满行宽（一个卡片横贯整条），看着像排版塌了。 */
+#mindBoard .mb-hero{
+  display:grid; grid-template-columns:repeat(auto-fit, minmax(118px, 1fr));
+  gap:10px; margin-bottom:13px;
+}
+#mindBoard .mb-kpi{
+  min-width:0; display:flex; flex-direction:column; gap:2px;
+  padding:9px 13px 10px; border-radius:12px;
+  background:var(--mb-card); border:1px solid var(--mb-card-bd);
+}
+#mindBoard .mb-kpi .k{font-size:11px; color:var(--tdim); letter-spacing:.03em; white-space:nowrap}
+#mindBoard .mb-kpi .v{
+  font-size:18px; font-weight:600; line-height:1.3; color:var(--text);
+  font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+#mindBoard .mb-kpi .v em{font-style:normal; font-weight:400; font-size:11px; color:var(--tdim); margin-left:3px}
+#mindBoard .mb-kpi .bar{height:3px; margin-top:5px; border-radius:2px; background:var(--border); overflow:hidden}
+#mindBoard .mb-kpi .bar i{display:block; height:100%; border-radius:2px; background:var(--accent); transition:width .3s}
+
+/* 卡片墙：flex-wrap + flex-basis，宽屏自动三/四列，窄屏一列。
+   不用 grid —— grid 会把同一行卡片拉成等高，短内容凭空多出大片空白。 */
+#mindBoard .mb-pane{display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start}
+#mindBoard .mb-pane > .sp-section{
+  flex:1 1 322px; min-width:0; margin:0; padding:14px 16px 16px;
+  background:var(--mb-card); border:1px solid var(--mb-card-bd); border-radius:14px;
+}
+/* 知识页是唯一"三张卡并排"的 pane：内容多少不同，三张卡的下沿就参差不齐。
+   这里让它们等高，列表把剩下的高度吃掉 —— 只对这一页生效，别的 pane 是单列，
+   等高没有意义（还会把表单卡片拉长）。 */
+#mindBoard #mindPaneKnow{align-items:stretch}
+#mindPaneKnow > .sp-section{display:flex; flex-direction:column}
+#mindPaneKnow .mb-sec-list{flex:1 1 auto; min-height:0}
+#mindBoard .mb-pane > .sp-section > h4{
+  display:flex; align-items:center; gap:6px; margin-bottom:11px;
+  font-size:12.5px; letter-spacing:.02em; color:var(--text); opacity:.92;
+}
+#mindBoard .mb-pane > .sp-section > h4::before{
+  content:""; width:3px; height:11px; border-radius:2px; flex:0 0 auto;
+  background:var(--accent); opacity:.75;
+}
+/* 过程流水是"主戏"，给它更宽的位置；记录列表则限高内滚，免得把墙撑很长 */
+#mindBoard .mb-pane > .sp-section:has(#mindLive),
+#mindBoard .mb-pane > .sp-section:has(#mindNetLive){flex:1.4 1 430px}
+/* 关联图要横向空间才读得出关系，笔记类卡片让位给它 */
+#mindBoard .mb-pane > .sp-section:has(#fragGraph){flex:1.6 1 520px}
+/* 整行卡（状态带）：独占一行，不参与并排 */
+#mindBoard .mb-pane > .sp-section.mb-full{flex:1 1 100%}
+/* 常驻清单是"长条内容"，给宽一点，免得同一行被一张高卡劈成两截
+   （整理记录原本也在这条规则里，§95 起它移到底部记录条，不再占卡片位） */
+#mindBoard .mb-pane > .sp-section:has(#mindMemo){flex:1.3 1 400px}
+/* ── §100 知识页（故事链 / 权威记忆 / 知识库）────────────────────
+   三张卡各给一个偏好的宽度：故事要横向空间读长句，权威是一行行短句，
+   知识页是"标题 + 版本"的清单 —— 按内容定宽，不是平均分三份。 */
+#mindBoard .mb-pane > .sp-section:has(#sedStories){flex:1.6 1 520px}
+#mindBoard .mb-pane > .sp-section:has(#sedAuth){flex:1.4 1 430px}
+#mindBoard .mb-pane > .sp-section:has(#sedKnow){flex:1 1 340px}
+#mindBoard .mb-ct{
+  margin-left:auto; font-size:11px; color:var(--tdim);
+  font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+#mindBoard .mb-note{font-size:11px; line-height:1.65; color:var(--tdim); margin:-4px 0 10px}
+#mindBoard .mb-empty{font-size:12px; color:var(--tdim); padding:10px 2px}
+#mindBoard .mb-sec-list{
+  display:flex; flex-direction:column; gap:6px;
+  /* 高度跟着窗口走，但留出顶栏(147) + 卡片标题(90) + 底部悬浮胶囊(90)。
+     写死 430 在 820 高的窗口里会在卡下面空出一大截；写 vh 又会在矮窗口里顶到胶囊。 */
+  max-height:clamp(220px, calc(100vh - 390px), 620px);
+  overflow-y:auto; overscroll-behavior:contain;
+  padding-right:2px;
+}
+#mindBoard .mb-more{font-size:11px; color:var(--tdim); text-align:center; padding-top:8px}
+
+/* 故事：默认折两行，点开整段 */
+#mindBoard .mb-story{
+  padding:8px 10px; border-radius:9px; background:var(--surface);
+  cursor:pointer; transition:background .15s;
+}
+#mindBoard .mb-story:hover{background:var(--hover)}
+#mindBoard .mb-story-h{display:flex; align-items:center; gap:6px; min-width:0; margin-bottom:4px}
+#mindBoard .mb-date{font-size:11px; color:var(--accent); font-variant-numeric:tabular-nums; flex:0 0 auto}
+#mindBoard .mb-tg{
+  font-size:10.5px; color:var(--tdim); min-width:0;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+#mindBoard .mb-story-t{
+  font-size:12.5px; line-height:1.62; color:var(--text); word-break:break-word;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+#mindBoard .mb-story.open .mb-story-t{-webkit-line-clamp:unset; display:block}
+
+/* 权威记忆：层标签 + 短句 */
+#mindBoard .mb-auth{display:flex; align-items:flex-start; gap:8px; padding:7px 10px;
+  border-radius:9px; background:var(--surface)}
+#mindBoard .mb-layer{
+  flex:0 0 auto; font-size:10.5px; line-height:16px; padding:0 5px;
+  color:var(--accent); border:1px solid var(--border2); border-radius:5px;
+}
+#mindBoard .mb-auth-t{font-size:12.5px; line-height:1.55; color:var(--text); min-width:0; word-break:break-word}
+
+/* 知识页：标题 + 版本 + 更新时间 */
+#mindBoard .mb-kpage{display:flex; align-items:baseline; gap:8px; padding:7px 10px;
+  border-radius:9px; background:var(--surface)}
+#mindBoard .mb-kpage b{
+  font-size:12.5px; font-weight:500; color:var(--text); min-width:0;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+#mindBoard .mb-kpage .v{font-size:10.5px; color:var(--accent); flex:0 0 auto}
+#mindBoard .mb-kpage .d{font-size:10.5px; color:var(--tdim); flex:0 0 auto; margin-left:auto;
+  font-variant-numeric:tabular-nums}
+
+/* 外滚已经有一层了，流水不再自己滚（双层滚动条很难用） */
+#mindBoard .mb-ev{max-height:none !important; overflow:visible !important}
+
+/* ── §102 详情层（点标题进来读全文）─────────────────────────────────────
+   它是看板里的"第二页"，不是弹窗：铺满看板、实色底（不透明，否则下面
+   列表会从字缝里透出来）、滚动自己管。
+   内容层规矩：标题 / 正文 / 元信息一律不铺材质，直接坐在 --bg 上；
+   按钮只有顶栏那条胶囊，层里不再放第二个返回键。 */
+#mindBoard .mb-detail{
+  position:absolute; inset:0; z-index:4;
+  display:none; overflow-y:auto; overscroll-behavior:contain;
+  background:var(--bg);
+  /* 顶栏是绝对定位盖在看板上方的：让开它，别让第一行字钻进玻璃底下。
+     §107：和 .mb-body 吃同一个值 —— --hdr-clear（淡入终点 = 内容起点）。 */
+  padding:var(--hdr-clear) 0 64px;
+  /* §107：同一页也是"滚到底顶"的一层，顶部渐影必须跟列表页一样，
+     否则从列表点进详情，那条硬切线又回来了。 */
+  -webkit-mask-image:var(--fade-top); mask-image:var(--fade-top);
+  -webkit-mask-size:100% 100%; mask-size:100% 100%;
+  -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat;
+  -webkit-mask-position:0 0; mask-position:0 0;
+}
+#mindBoard .mb-detail.show{display:block}
+#mindBoard .mb-detail-in{max-width:760px; margin:0 auto; padding:0 20px}
+#mindBoard .mb-d-kicker{
+  display:flex; align-items:center; gap:10px; margin:0 0 12px;
+  font-size:11px; letter-spacing:.08em; color:var(--tdim);
+}
+#mindBoard .mb-d-kicker > span:first-child{
+  padding:2px 7px; border-radius:5px; border:1px solid var(--border2);
+  color:var(--accent); letter-spacing:0;
+}
+#mindBoard .mb-d-date{font-variant-numeric:tabular-nums}
+#mindBoard .mb-d-title{margin:0 0 14px; font-size:19px; line-height:1.45; font-weight:600; color:var(--text)}
+#mindBoard .mb-d-body{
+  font-size:14px; line-height:1.85; color:var(--text);
+  white-space:pre-wrap; word-break:break-word;
+}
+#mindBoard .mb-d-wait{font-size:12.5px; line-height:1.8; color:var(--tdim); padding:4px 0}
+#mindBoard .mb-d-tags{margin-top:16px; font-size:11px; line-height:1.7; color:var(--tdim); word-break:break-all}
+#mindBoard .mb-d-meta{
+  display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:20px; padding-top:12px;
+  border-top:1px solid var(--border);
+  font-size:11px; color:var(--tdim); font-variant-numeric:tabular-nums;
+}
+#mindBoard .mb-d-meta i{font-style:normal; opacity:.62; margin-right:5px}
+
+/* 权威记忆 / 知识页这两类行现在也能点，跟故事行一个手感 */
+#mindBoard .mb-auth, #mindBoard .mb-kpage{cursor:pointer; transition:background .15s}
+#mindBoard .mb-auth:hover, #mindBoard .mb-kpage:hover{background:var(--hover)}
+
+
+/* 🔴 输入框是被 composer-floating.js 改成 position:absolute + z-index:20 浮在底部的，
+   看板 z-index 低于它（必须低，否则连 header 一起盖住）⇒ 不收起就会压在看板最后一张卡上。
+   看板是全屏管理界面，这里本来也不该发消息。 */
+body.mb-open #mainPanel > main,
+body.mb-open #mainPanel > footer,
+/* 浮键居中之后，看板态下它会正好压在看板中轴上 —— 以前在右下角只是不太明显。 */
+body.mb-open #btnJump{display:none}
+#mainPanel > #mindBoard{border-left:1px solid var(--border)}
+#sidebar.closed ~ #mainPanel > #mindBoard{border-left-color:transparent}
+
+/* ── 「记忆」tab（原模态框内容，§93）────────────────────────────────
+   数据走 /api/sys-memory，与 /api/mind 不是一路。
+   仍然只产出 .sp-section，卡片化交给上面的 .mb-pane 规则 —— 渲染函数不碰版式。 */
+#mindBoard .mb-stats{display:flex; flex-wrap:wrap; gap:8px}
+#mindBoard .mb-stats .sys-stat{flex:1 1 84px; min-width:78px; padding:8px 6px}
+#mindBoard .mb-stats .sys-stat b{font-size:17px}
+#mindBoard .mb-bar-row{display:flex; align-items:center; gap:8px; margin-top:6px; font-size:11px; color:var(--tdim)}
+#mindBoard .mb-bar-row > span{flex:0 0 62px}
+#mindBoard .mb-bar-row > .bar{flex:1 1 auto; height:5px; border-radius:3px; background:var(--border); overflow:hidden}
+#mindBoard .mb-bar-row > .bar i{display:block; height:100%; background:var(--accent)}
+#mindBoard .mb-bar-row > b{flex:0 0 26px; text-align:right; font-weight:500; color:var(--text)}
+#mindBoard .mb-mini{
+  margin-left:auto; flex:0 0 auto; padding:3px 9px; border-radius:7px;
+  background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  font:inherit; font-size:11px; cursor:pointer; white-space:nowrap;
+}
+#mindBoard .mb-mini:hover{border-color:var(--border2)}
+#mindBoard .mb-graph{display:block; width:100%; height:min(360px,40vh); background:var(--surface); border-radius:10px}
+#mindBoard .mb-fraglist{display:none; flex-direction:column; gap:5px; max-height:min(430px,46vh); overflow-y:auto}
+#mindBoard .mb-frag{background:var(--surface); border-radius:8px; padding:7px 10px; font-size:12.5px; line-height:1.5; color:var(--text); word-break:break-word}
+#mindBoard .mb-frag .t{color:var(--tdim); font-size:11px; font-variant-numeric:tabular-nums; margin-right:4px}
+#mindBoard .mb-tag{background:var(--accent); color:#000; padding:0 4px; border-radius:3px; font-size:10px}
+#mindBoard .mb-more{text-align:center; padding:7px; color:var(--tdim); font-size:11px}
+#mindBoard .mb-skill{background:var(--surface); border:1px solid transparent; border-radius:9px; padding:8px 12px; margin-bottom:6px; cursor:pointer}
+#mindBoard .mb-skill b{font-size:12.5px; display:block}
+#mindBoard .mb-skill small{color:var(--tdim); font-size:11px}
+#mindBoard .mb-skill:hover{border-color:var(--border2)}
+
+@media (max-width:860px){
+  /* 手机上顶栏只剩 ☰ / ← / 「状态」—— 右岛已撤，拖动带吃掉剩余宽度。
+     分页不在顶栏了（§96），窄屏不用再挤。 */
+  body.mb-open .hdr-dragzone{min-width:0; flex:1 1 auto}
+  #mbHdrBack{width:28px; height:28px}
+  #mbHdrBack svg{width:17px; height:17px}
+  #mindBoard .mb-body{padding:var(--hdr-clear) 10px 88px}
+  /* 悬浮胶囊在手机上收窄：左右不再跟卡片对齐（它不占那一行，对齐反而显得偏心） */
+  #mindBoard .mb-bottom{padding:12px 10px calc(12px + env(safe-area-inset-bottom))}
+  #mindBoard .mb-tab{height:30px; padding:0 11px; font-size:12px}
+  #mindBoard .mb-icon{width:30px; height:30px}
+  #mindBoard .mb-hero{grid-template-columns:repeat(auto-fit, minmax(96px, 1fr)); gap:8px}
+  #mindBoard .mb-kpi{padding:8px 10px 9px}
+  #mindBoard .mb-kpi .v{font-size:16px}
+  #mindBoard .mb-pane > .sp-section{flex:1 1 100%; padding:12px 13px 14px}
+  /* 手机上三张卡竖着排，每张都短一点 —— 不然第一张就占满整屏，看不到后两张。
+     但 overscroll-behavior 必须放开：桌面上三列并排，写 contain 是别让一列带着别的滚；
+     手机上只有一个滚动轴，列表滑到底还得能接着滚页面，否则手感就是"卡死在那"。 */
+  #mindBoard .mb-pane .mb-sec-list{max-height:min(46vh, 380px); overscroll-behavior:auto}
+  /* 详情层：手机上左右边距收窄，正文 15px/1.9 比桌面更好读 */
+  #mindBoard .mb-detail{padding:var(--hdr-clear) 0 calc(40px + env(safe-area-inset-bottom))}
+  #mindBoard .mb-detail-in{padding:0 16px}
+  #mindBoard .mb-d-body{font-size:15px; line-height:1.9}
+  #mindBoard .mb-d-title{font-size:17px}
+}
 </style>
 <script>
 /* ── 配对面板逻辑 ── */
@@ -19489,7 +22098,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
    <img id="wpChipFav" alt="" onerror="this.style.visibility='hidden'" onload="this.style.visibility='visible'"><span class="wp-chip-t" id="wpChipT"></span><span class="wp-chip-x" onclick="event.stopPropagation();wpChipClose()">✕</span>
  </div>
 <script src="/task-composer.js?v=20261023-newdir"></script>
-<script src="/composer-floating.js?v=20261023-quoteembed"></script>
+<script src="/composer-floating.js?v=20261027-jumpd"></script>
 <script>
 /* [2026-10-18] 安卓 WebView 返回键钩子：没有可退的网页历史时，先关最上层浮层，而不是直接退出 App */
 window.__dayanHandleBack = function () {

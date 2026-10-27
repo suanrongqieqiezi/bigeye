@@ -33,15 +33,27 @@ footer .input-row .send{height:30px!important;width:30px!important;min-height:30
 footer .task-model-btn,footer .task-outside-btn{padding:4px 8px!important;font-size:12px!important}
 footer .input-row textarea:focus{box-shadow:none!important}
 
-/* ===== 回到底部按钮：抬到悬浮输入框之上，不再被压住 ===== */
-html body #btnJump{z-index:40!important;bottom:calc(var(--composer-h,68px) + 26px)!important}
-/* Touch devices must not retain hover emphasis after a tap. */
-html body #btnJump,html body #btnJump:hover{background:var(--surface3)!important;color:var(--tdim)!important;border-color:var(--border2)!important;box-shadow:0 4px 14px rgba(0,0,0,.3)!important}
-@media(hover:hover) and (pointer:fine){html body #btnJump:hover{color:var(--accent)!important;border-color:var(--accent)!important}}
-html body #btnJump:active{color:var(--accent)!important;border-color:var(--accent)!important}
+/* ===== 回到底部按钮：中间正下方 · 与 ☰/右岛/输入框同一套 --mat-* 材质（§88 回到底部浮键）=====
+   这一层带 !important，是真正压过 index.html 基础规则的那份 —— 改材质/位置必须改这里。
+   🔴 transform 必须带 translateX(-50%)：基础态在 index.html 里是 translate(-50%,8px)，
+      这里 .show 少写一半，按钮就在显示瞬间横移半个身位。 */
+html body #btnJump{left:50%!important;right:auto!important;z-index:40!important;
+  bottom:calc(var(--composer-h,68px) + 14px)!important;
+  background:var(--mat-fill)!important;
+  -webkit-backdrop-filter:var(--mat-blur)!important;backdrop-filter:var(--mat-blur)!important;
+  border:1px solid var(--border2)!important;
+  box-shadow:inset 0 1px 0 var(--mat-top),var(--mat-lift)!important;
+  color:var(--text)!important}
+/* Touch devices must not retain hover emphasis after a tap —— 所以 hover 只给真有指针的设备，
+   且只叠一层提亮（写 background 简写会把 --mat-fill 一起换掉，§84 坑 2）。 */
+@media(hover:hover) and (pointer:fine){html body #btnJump:hover{
+  color:var(--text)!important;
+  background-color:var(--mat-fill)!important;
+  background-image:linear-gradient(var(--hover),var(--hover))!important}}
+html body #btnJump:active{color:var(--text)!important;transform:translate(-50%,0) scale(.94)!important}
 /* Only attachment cards get an opaque reading surface; the floating composer stays unchanged. */
 html body #attachPreview .att-card{flex:0 0 auto;max-width:220px;background:var(--surface2)!important;color:var(--text)!important;opacity:1!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;box-shadow:0 3px 12px rgba(0,0,0,.24)}
-html body #btnJump.show{opacity:1;pointer-events:auto;transform:translateY(0)}
+html body #btnJump.show{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
 
 /* ===== 模型面板：下滑把手 + 跟手位移 ===== */
 .task-model-sheet{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;transition:background .2s ease;touch-action:none}
