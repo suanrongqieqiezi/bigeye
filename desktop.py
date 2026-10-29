@@ -25,6 +25,12 @@ _form = None   # 主窗口的 WinForms Form 实例（MaximizedBounds 必须走�
 # 最大化校正的状态：hooked=事件已挂 / busy=正在处理(防重入) / dead=熔断 /
 # fixes+last=滑动窗口计数（8 秒内纠超过 4 次说明在打架，直接收手，别把窗口晃晕）
 _fit_state = {"hooked": False, "busy": False, "dead": False, "fixes": 0, "last": 0.0}
+# 2026-10-28 用户要求把原生标题栏弄回来：False = 标准 Windows 窗口（标题栏 +
+# 系统最小化/最大化/关闭按钮），最大化完全交给系统原生逻辑。
+# True = 旧的无边框壳（2026-09-24~10-27 的样式）：此时 _set_maximized_bounds /
+# _verify_max_fit 的外扩校正才会生效。那套外扩是给"有 THICKFRAME 没 CAPTION"
+# 的窗口算的，原生标题栏模式下打开反而会四边悬出工作区、标题栏悬到屏幕外。
+_BORDERLESS = False
 _window = None  # pywebview 窗口对象
 _pip_window = None  # 画中画独立小窗（原生置顶窗口）
 _splash = {"status": "正在启动", "done": False}  # 启动提示窗共享状态
@@ -208,7 +214,7 @@ def start_splash():
 
 
 def _set_window_icon():
-    """窗口加载后按进程 ID 找到 Win32 窗口：设置图标 + 去掉标题栏（保留缩放边框）。"""
+    """窗口加载后按进程 ID 找到 Win32 窗口：设置图标；无边框模式(_BORDERLESS)下去掉标题栏。"""
     global _hwnd
     if os.name != "nt":
         return
@@ -250,12 +256,14 @@ def _set_window_icon():
                 user32.SendMessageW(hwnd, 0x80, 0, small)  # WM_SETICON ICON_SMALL
             if big:
                 user32.SendMessageW(hwnd, 0x80, 1, big)   # WM_SETICON ICON_BIG
-            # 去标题栏、保留缩放边框
-            style = user32.GetWindowLongPtrW(hwnd, GWL_STYLE)
-            style = (style & ~WS_CAPTION) | WS_THICKFRAME
-            user32.SetWindowLongPtrW(hwnd, GWL_STYLE, style)
-            SWP = 0x0001 | 0x0002 | 0x0004 | 0x0020  # NOSIZE|NOMOVE|NOZORDER|FRAMECHANGED
-            user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, SWP)
+            if _BORDERLESS:
+                # 无边框模式才去标题栏；原生标题栏模式下 pywebview/WinForms 默认
+                # 样式本来就是 WS_CAPTION|WS_THICKFRAME，一个字节都不用改
+                style = user32.GetWindowLongPtrW(hwnd, GWL_STYLE)
+                style = (style & ~WS_CAPTION) | WS_THICKFRAME
+                user32.SetWindowLongPtrW(hwnd, GWL_STYLE, style)
+                SWP = 0x0001 | 0x0002 | 0x0004 | 0x0020  # NOSIZE|NOMOVE|NOZORDER|FRAMECHANGED
+                user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, SWP)
     except Exception:
         pass
 
@@ -386,6 +394,9 @@ def _set_maximized_bounds():
     ⇒ Location 必须写成相对值 (-fl, -ft)，让 Windows 自己去加显示器原点；
     尺寸仍取当前所在显示器的工作区（两块屏分辨率不同，尺寸不能共用）。
     """
+    if not _BORDERLESS:
+        return  # 原生标题栏模式：最大化交给系统。这套"工作区+外扩"是给无边框
+                # 样式算的，原生窗口用了会四边悬出工作区、标题栏悬到屏幕外。
     try:
         from System.Drawing import Rectangle
         from System.Windows.Forms import Application
@@ -475,6 +486,8 @@ def _verify_max_fit():
     而不是 SetWindowPos 硬改矩形：后者会把原生的 zoomed 状态和吸附/还原动画弄丢。
     只在检测到不一致时才动作，最多两次，正常路径零额外开销。
     """
+    if not _BORDERLESS:
+        return  # 原生标题栏模式：系统自己管最大化，无需核对
     try:
         import ctypes
         from ctypes import wintypes
@@ -552,11 +565,13 @@ def _log_viewport(delay=1.5):
     threading.Thread(target=run, daemon=True).start()
 
 
-# DWM 窗口属性。去掉 WS_CAPTION 后，窗口顶部那条非客户区会被 DWM 当成"标题栏"
-# 整块刷上系统标题栏颜色——强调色一开（ColorPrevalence=1）就是一抹亮色，
-# 于是顶边成了一条特别宽的彩色边框，而左右下只有 1px。这两个属性正是它的开关：
+# DWM 窗口属性。无边框年代（去 WS_CAPTION）顶部那条非客户区会被 DWM 刷成系统
+# 标题栏颜色——强调色一开（ColorPrevalence=1）就是一抹亮色。2026-10-28 原生
+# 标题栏恢复后这两个属性继续用：把整条标题栏底色/四周 1px 细线刷成 App 顶栏色，
+# 由前端 set_frame_color 按主题同步（黑 #0a0a0a / 灰 #161616 / 白 #ffffff）。
 DWMWA_BORDER_COLOR = 34     # 四周那 1px 细线
-DWMWA_CAPTION_COLOR = 35    # 顶部 6px 条（高 = 非客户区上边）
+DWMWA_CAPTION_COLOR = 35    # 标题栏底色
+DWMWA_USE_IMMERSIVE_DARK_MODE = 20  # 标题栏文字/系统按钮明暗：深底浅字形、浅底深字形
 _frame_color = None         # 前端同步过来的顶栏底色；None = 尚未同步
 
 
@@ -585,6 +600,15 @@ def _set_dwm_frame(hexcolor=None):
         r, g, b = int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
         val = ctypes.c_uint((b << 16) | (g << 8) | r)  # COLORREF = 0x00BBGGRR
         dwm = ctypes.windll.dwmapi
+        # 只刷底色不切明暗标志的话，白主题下标题栏会是白底白字（标题文字隐形）。
+        # 按刷入颜色的亮度决定字形深浅，跟前端主题自然同步。
+        try:
+            dark = (r * 299 + g * 587 + b * 114) // 1000 < 128
+            vd = ctypes.c_int(1 if dark else 0)
+            dwm.DwmSetWindowAttribute(_hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                                      ctypes.byref(vd), ctypes.sizeof(vd))
+        except Exception:
+            pass
         ok = True
         for attr in (DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR):
             if dwm.DwmSetWindowAttribute(_hwnd, attr, ctypes.byref(val), ctypes.sizeof(val)) != 0:
@@ -595,9 +619,9 @@ def _set_dwm_frame(hexcolor=None):
 
 
 def _on_loaded():
-    """页面加载完：先改样式再显示，标题栏不闪现。卡片早已在 webview.start() 前销毁。"""
+    """页面加载完：先改样式再显示。窗口 hidden 创建，加载完才见光，什么都不闪。"""
     _set_window_icon()
-    _set_maximized_bounds()
+    _set_maximized_bounds()   # 原生标题栏模式下是 no-op（见 _BORDERLESS）
     _set_dwm_frame()  # 顶部那条"特别宽"的边框：刷成顶栏底色（前端随后会按主题校正）
     _verify_max_fit()  # 若启动时就是最大化态，顺手核对客户区是否铺满工作区
     if _window:

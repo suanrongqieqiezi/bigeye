@@ -1032,6 +1032,7 @@ class Database:
         rows = self._fetchall(
             "SELECT id, ts, CASE WHEN role='tool' "
             "THEN json_extract(args,'$.name') ELSE NULL END AS tn, "
+            "CASE WHEN role='ai' AND trim(coalesce(text,''))<>'' THEN 1 ELSE 0 END AS ht, "
             + self._CONCL_CASE + " AS c FROM messages "
             "WHERE topic_id=? ORDER BY ts, id", (topic_id,))
         out = []
@@ -1039,7 +1040,8 @@ class Database:
             ts = r["ts"]
             if ts and ts < 1e14:
                 ts = ts * 1000
-            out.append({"id": r["id"], "c": int(r["c"] or 0), "ts": ts, "tn": r["tn"]})
+            out.append({"id": r["id"], "c": int(r["c"] or 0), "ts": ts, "tn": r["tn"],
+                        "ht": int(r["ht"] or 0)})
         return out
 
     def get_topic_tail(self, topic_id):

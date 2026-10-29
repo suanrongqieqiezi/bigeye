@@ -1018,32 +1018,67 @@ def append_thought_step(action_type: str, summary: str, motivation: str, result:
 
 @register_tool(
     name="get_thought_chain",
-    description="获取当前任务的思维链。返回热层（最近N步）和完整链概览。切任务时自动装载对应链。",
+    description=(
+        "翻开我自己的思维链。默认返回最近几步（热层：每步的判断 + 它打算接着做什么 + 失败）。"
+        "热层只滚动保留最近几步，更早的要用 before_step_id 往回翻（比如 before_step_id=20 "
+        "看第 20 步之前的 20 步）。想弄清「我为什么会走到这一步」「这个坑之前踩过没有」时用它。"
+    ),
     parameters={
         "type": "object",
         "properties": {
             "n": {
                 "type": "integer",
-                "description": "热层显示步数，默认5",
+                "description": "热层显示步数，默认 6",
+            },
+            "before_step_id": {
+                "type": "integer",
+                "description": "往回翻：只看这一步**之前**的步。不填=从最新的往回翻",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "往回翻时取多少步，默认 20（配合 before_step_id 用）",
             },
         },
         "required": [],
     },
 )
-def get_thought_chain(n: int = 5):
-    """获取当前任务思维链的热层视图。"""
+def get_thought_chain(n: int = 6, before_step_id: int = 0, limit: int = 0):
+    """思维链视图：热层（最近几步）/ 温层（往回翻更早的步）。"""
     try:
         topic_id = _get_active_topic_id()
         if not topic_id:
             return {"error": "没有活跃任务"}
-        
+
         tc = ThoughtChain(topic_id)
+        total = tc.step_count
+        # 往回翻：只要给了 before_step_id 或 limit 就走温层。
+        # 以前只有热层（只能把窗口放大），这段历史因此一直取不回来 ——
+        # get_history/format_warm_layer 写了却零调用点。
+        if before_step_id or limit:
+            steps = tc.get_history(before_step_id, limit or 20)
+            return {
+                "ok": True,
+                "mode": "history",
+                "topic_id": topic_id,
+                "step_count": total,
+                "range": [steps[0].step_id, steps[-1].step_id] if steps else [],
+                "text": tc.format_warm_layer(before_step_id, limit or 20),
+                "steps": [{
+                    "step_id": s.step_id,
+                    "action_type": s.action_type,
+                    "summary": s.summary,
+                    "next_suggestion": s.next_suggestion,
+                    "result": s.result,
+                    "detail": s.detail,
+                } for s in steps],
+            }
         hot_layer = tc.format_hot_layer(n=n)
         last = tc.last_step
         return {
             "ok": True,
+            "mode": "hot",
             "topic_id": topic_id,
-            "step_count": tc.step_count,
+            "step_count": total,
             "hot_layer": hot_layer,
             "last_step": {
                 "step_id": last.step_id,

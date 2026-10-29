@@ -79,11 +79,25 @@ ARCHIVED_ALIVE_PARENT_SQL = (
 
 
 def _reachable_pred(alias="f"):
-    """召回域谓词：默认含"被活 story 吸收的归档碎片"。"""
-    if INCLUDE_ARCHIVED:
-        return "({a}.dirty=1 OR ({ap}))".format(
-            a=alias, ap=ARCHIVED_ALIVE_PARENT_SQL.format(a=alias))
-    return "{a}.dirty=1".format(a=alias)
+    """召回域谓词：默认含"被活 story 吸收的归档碎片"，但**永不含已作废的**。
+
+    🔴 2026-10-28 加 refuted 过滤（蓝牙控制器任务的脑雾根因）：
+    用户 10-26 明确「没有物理串口」后，模型把那条记忆的正文改写成
+    「【已作废…】这条是错的：…」。改正文 = 连 embedding 一起改，
+    于是 add() 的近重复保护（sim>0.85 → 不新增）失去了比对面 ——
+    10-28 压缩管线把同一段原始对话又沉淀了一次，存成 id=13260 的
+    555 字「串口 PA00 / 1000000 波特率 / CH340 接线」原稿。
+    作废声明（118 字）和原始内容（555 字）并存，后者与"怎么观察设备"
+    这类问题更相似，赢下召回 → 模型又一次去问串口。
+
+    所以作废必须是**状态**（epistemic='refuted'，正文与向量都不动），
+    由这个谓词统一从三条召回路径（候选池 / vec 索引重建 / 因果邻居）摘掉。
+    """
+    base = ("({a}.dirty=1 OR ({ap}))".format(
+                a=alias, ap=ARCHIVED_ALIVE_PARENT_SQL.format(a=alias))
+            if INCLUDE_ARCHIVED else "{a}.dirty=1".format(a=alias))
+    return "({base} AND COALESCE({a}.epistemic,'') <> 'refuted')".format(
+        base=base, a=alias)
 
 
 # 候选池：KNN 预筛条数 = max(top_k × MULT, MIN)。
@@ -603,23 +617,51 @@ class FragmentStore:
         finally:
             conn.close()
 
-    def recall_guaranteed(self, exclude_ids=None, cap=2):
+    def recall_guaranteed(self, exclude_ids=None, cap=2, topic_id=None):
         """权威知识保底召回：layer=knowledge 且 authority_level>=1 的行为准则类记忆。
         这类"永远该在场"的教训（如回复风格、验证纪律）不能赌语义召回——
         用户间接表达时（如'你明白了吗'暗示啰嗦）向量相似度过不了硬门槛。
         按 weight*importance 排序，候选间用 embedding 余弦去重（同一教训的
-        多个变体只取分最高的一条），避免保底名额被同主题重复占用。"""
+        多个变体只取分最高的一条），避免保底名额被同主题重复占用。
+
+        2026-10-28：加 topic_id。**本话题的权威知识不限名额**（通常 0~2 条，
+        是模型的"这次必须遵守的约束"，不能和全局行为准则抢 2 个坑），
+        全局的仍按 cap 取。蓝牙任务里"没有物理串口"就是这类：它一旦被挤掉，
+        模型下一轮就会再去问串口。
+        """
         if exclude_ids is None:
             exclude_ids = set()
         conn = self._conn()
         try:
+            # 本话题的权威知识单独查。不能靠一个全局 ORDER BY … LIMIT 40 再筛：
+            # 全库 authority>=1 有 230 条，本话题那条（weight=1×importance=9=9.0）
+            # 排到 40 名开外，被 LIMIT 直接切掉 —— 蓝牙任务的串口约束就这么"写了却不在场"。
+            same = []
+            if topic_id:
+                same = conn.execute(
+                    "SELECT * FROM memory_fragments "
+                    "WHERE layer='knowledge' AND authority_level>=1 AND topic_id=? "
+                    "ORDER BY (weight * importance) DESC LIMIT 8",
+                    (topic_id,)).fetchall()
+            # 约束（source='constraint'）不分话题，永远全量在场。
+            # 🔴 2026-10-28 实证：按话题存约束，用户同一件事**另开一个话题**继续时
+            # 就再也想不起来（实验话题里 payload 完全没有「没有物理串口」）。
+            # 约束是"这个产品/这件事的铁律"，不是"这个聊天窗口的记忆"。
+            cons = conn.execute(
+                "SELECT * FROM memory_fragments "
+                "WHERE source='constraint' AND dirty=1 "
+                "  AND COALESCE(epistemic,'')<>'refuted' "
+                "ORDER BY (weight * importance) DESC, id DESC LIMIT 6"
+            ).fetchall()
             rows = conn.execute(
                 "SELECT * FROM memory_fragments "
                 "WHERE layer='knowledge' AND authority_level>=1 "
-                "ORDER BY (weight * importance) DESC LIMIT 20"
-            ).fetchall()
+                "  AND (? IS NULL OR topic_id IS NULL OR topic_id<>?) "
+                "ORDER BY (weight * importance) DESC LIMIT 40",
+                (topic_id, topic_id)).fetchall()
             out, out_embs = [], []
-            for row in rows:
+            n_global = 0
+            for row in list(cons) + list(same) + list(rows):
                 d = dict(row)
                 emb = None
                 try:
@@ -629,18 +671,23 @@ class FragmentStore:
                 d.pop("embedding", None)
                 if d.get("id") in exclude_ids:
                     continue
+                is_cons = d.get("source") == "constraint"
+                same_topic = bool(topic_id) and d.get("topic_id") == topic_id
                 # 与已选条目近似去重（cos>0.70 视为同一教训家族：
                 # 实测验证家族内部 0.72-0.87，跨主题 0.60-0.65）
                 if emb and any(cosine_sim(emb, e) > 0.70 for e in out_embs):
                     continue
+                if not is_cons and not same_topic and n_global >= cap:
+                    continue
                 out.append(d)
                 if emb:
                     out_embs.append(emb)
-                if len(out) >= cap:
-                    break
+                if not is_cons and not same_topic:
+                    n_global += 1
             return out
         finally:
             conn.close()
+
 
     def _fetch_candidates(self, conn, ctx_emb, top_k, layer, topic_id):
         """用 vec_index KNN 预筛候选碎片；不可用时回退全表扫描。
@@ -1703,6 +1750,80 @@ class FragmentStore:
                 (content_hash,)
             ).fetchall()
             return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def retract(self, keyword=None, ids=None, reason="", topic_id=None,
+                dry_run=False):
+        """作废一类记忆：标状态，**不改正文、不改向量、不删除**。
+
+        与三个已有动作的区别（都试过，都不行）：
+
+        | 做法 | 后果 |
+        |---|---|
+        | `edit(text=…)` 改成「已作废…」 | embedding 跟着变 → 近重复保护失效 → 同一段原文**又被沉淀一份** |
+        | `delete()`（dirty=0） | 痕迹没了，下次压缩照样重新抽出来，且查不到"我曾经错过" |
+        | 什么都不做 | 错事实继续赢召回 |
+
+        正确做法：`epistemic='refuted'`。正文与向量原样保留——去重比对面还在，
+        同一内容再来一次只会 reinforce 这一条（仍是 refuted），不会再长出新副本；
+        而 `_reachable_pred` 会让它永远进不了召回。
+
+        Args:
+            keyword: 关键词（单个或列表，命中任一即作废）。模型脑子里想的是
+                     "串口这条线全错"，不是一个 id。
+            ids: 精确 id 列表（与 keyword 二选一或并用，取并集）。
+            reason: 为什么作废，写进 user_tag 供以后查。
+            topic_id: 只在该话题内作废；None = 全局。
+            dry_run: 只列清单，不改库。
+        Returns:
+            {"count": n, "ids": [...], "samples": [(id, 摘要), ...]}
+        """
+        kws = []
+        if isinstance(keyword, str):
+            kws = [keyword] if keyword.strip() else []
+        elif keyword:
+            kws = [k for k in keyword if k and k.strip()]
+        ids = [int(i) for i in (ids or [])]
+
+        if not kws and not ids:
+            return {"count": 0, "ids": [], "samples": []}
+
+        conn = self._conn()
+        try:
+            wheres = ["dirty=1", "COALESCE(epistemic,'') <> 'refuted'"]
+            params = []
+            if kws or ids:
+                ors = []
+                for k in kws:
+                    # 🔴 关键词不碰「约束」本身：约束正文里往往就带着要作废的那个词
+                    #    （「任何接 PA00/飞线/CH340 的方案都不可用」用 CH340 去作废，
+                    #     第一次就命中了自己），要改约束请显式给 ids。
+                    ors.append("(text LIKE ? AND COALESCE(source,'') <> 'constraint')")
+                    params.append("%" + k.strip() + "%")
+                if ids:
+                    ors.append("id IN (%s)" % ",".join("?" for _ in ids))
+                    params.extend(ids)
+                wheres.append("(" + " OR ".join(ors) + ")")
+            if topic_id:
+                wheres.append("(topic_id=? OR topic_id IS NULL)")
+                params.append(topic_id)
+
+            rows = conn.execute(
+                "SELECT id, text FROM memory_fragments WHERE " + " AND ".join(wheres),
+                params).fetchall()
+            hit_ids = [r["id"] for r in rows]
+            samples = [(r["id"], (r["text"] or "").replace("\n", " ")[:70])
+                       for r in rows[:6]]
+            if dry_run or not hit_ids:
+                return {"count": len(hit_ids), "ids": hit_ids, "samples": samples}
+
+            conn.execute(
+                "UPDATE memory_fragments SET epistemic='refuted', weight=0,"
+                " user_tag=? WHERE id IN (%s)" % ",".join("?" for _ in hit_ids),
+                [reason or "已作废"] + hit_ids)
+            conn.commit()
+            return {"count": len(hit_ids), "ids": hit_ids, "samples": samples}
         finally:
             conn.close()
 

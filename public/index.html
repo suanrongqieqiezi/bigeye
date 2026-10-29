@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-CN" data-page-node-id="hzPbVr5UDp2Fq46nd0z5aU"><head data-page-node-id="gRvZ5pwKU6TwclDsKAS4xI"><meta charset="UTF-8" data-page-node-id="02lQzWNOVvlEjWEoT6HFgg"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" data-page-node-id="6n6issgLPHhJ2YQqmH7cur"><title id="pageTitle">AI</title>
+<!DOCTYPE html><html lang="zh-CN" data-boot="1" data-page-node-id="hzPbVr5UDp2Fq46nd0z5aU"><head data-page-node-id="gRvZ5pwKU6TwclDsKAS4xI"><meta charset="UTF-8" data-page-node-id="02lQzWNOVvlEjWEoT6HFgg"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" data-page-node-id="6n6issgLPHhJ2YQqmH7cur"><title id="pageTitle">AI</title>
 <style>:root{
   --bg:#0a0a0a;
   --surface:#0a0a0a;
@@ -189,9 +189,10 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 #mainPanel > main,#mainPanel > footer,#mainPanel > #mindBoard{border-left:1px solid var(--border)}
 #sidebar.closed ~ #mainPanel > main,#sidebar.closed ~ #mainPanel > footer,#sidebar.closed ~ #mainPanel > #mindBoard{border-left-color:transparent}
 
-/* 桌面壳窗口控制按钮：仅 body.is-desktop 时显示 */
+/* 桌面壳窗口控制按钮：原生标题栏回归（2026-10-28）后 web 版退役，恒隐藏。
+   DOM 与 JS 绑定保留（btnWinMin/btnWinMax/btnWinClose 还挂着）；
+   要复活把这条 display:none 改回 body.is-desktop .win-ctrls{display:flex} 即可。 */
 .win-ctrls{display:none;align-items:center;gap:2px;margin-left:6px;flex-shrink:0}
-body.is-desktop .win-ctrls{display:flex}
 .win-ctrls button{width:32px;height:26px;display:flex;align-items:center;justify-content:center;background:none;border:none;border-radius:6px;color:var(--tdim);cursor:pointer;transition:background .12s,color .12s;padding:0}
 .win-ctrls button svg{width:12px;height:12px;display:block}
 .win-ctrls button:hover{background:rgba(255,255,255,.09);color:var(--text)}
@@ -200,17 +201,16 @@ body.is-desktop .win-ctrls{display:flex}
 /* hover 的底色统一由 §8d 覆盖块给：这里再写一次只会改到「颜色」那一半，
    级联是按属性算的 —— 实测 hover 后 background-color 变成 .07 白，实底被抽掉。 */
 header h1{margin:0;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;letter-spacing:.01em}
-#sDot{width:7px;height:7px;border-radius:50%;background:var(--success);flex-shrink:0;box-shadow:0 0 8px rgba(var(--success-rgb),.55)}
-#sDot.thinking{background:var(--warn);box-shadow:0 0 8px rgba(var(--warn-rgb),.55);animation:dotBreath 1.2s ease-in-out infinite}
+#sDot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.22);flex-shrink:0;box-shadow:none}
+#sDot.thinking{background:var(--accent);box-shadow:0 0 8px rgba(var(--accent-rgb),.55);animation:runPulse 1.4s ease-in-out infinite}
 #sDot.warn{background:var(--warn);box-shadow:0 0 8px rgba(var(--warn-rgb),.55)}
-@keyframes dotBreath{0%,100%{opacity:1;box-shadow:0 0 3px rgba(var(--warn-rgb),.35)}50%{opacity:.5;box-shadow:0 0 10px rgba(var(--warn-rgb),.85)}}
 #sDot.error{background:var(--danger);box-shadow:0 0 8px rgba(var(--danger-rgb),.55)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 #sText{font-size:11px;color:var(--tdim);flex-shrink:0;white-space:nowrap}
 #uInfo{display:none}
 /* Working dot — 已去掉黄点显示 */
 /* Task run states (per-topic, synced via /api/topics) */
-.topic-item .run-dot{position:absolute;top:9px;right:9px;width:7px;height:7px;border-radius:50%;background:var(--accent,#22e6ff);box-shadow:0 0 8px rgba(34,230,255,.55);animation:runPulse 1.4s ease-in-out infinite}
+.topic-item .run-dot{position:absolute;top:9px;right:9px;width:7px;height:7px;border-radius:50%;background:var(--accent,#2fe0c6);box-shadow:0 0 8px rgba(var(--accent-rgb),.55);animation:runPulse 1.4s ease-in-out infinite}
 .topic-item .run-dot.done{animation:none;background:var(--success,#2ecc71);box-shadow:none;opacity:.8}
 .topic-item .run-dot.failed{animation:none;background:var(--danger,#ff6a5f);box-shadow:none;opacity:.9}
 /* 「需要你动作」状态标签（ask_user 阻塞提问等）：黄底黑字，替换呼吸点在右上角。
@@ -243,6 +243,17 @@ main{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 12px;display:flex;fle
 .av{width:27px;height:27px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;box-shadow:0 1px 4px rgba(0,0,0,.3)}
 .row.you .av{background:var(--ub)}.row.ai .av{background:linear-gradient(135deg,#333a4d,#252b3a);border:1px solid var(--border)}
 .av img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+/* 头像加载占位（2026-10-29，用户报手机端圆圈漏出 "undefined" 文字）：
+   img 加载期间什么像素都不画 → 垫在底下的 .av-spin 菊花露出来；
+   画出来后自然盖住菊花（onload 再把菊花节点摘掉）。不用 opacity 藏 img ——
+   消息流重渲染很勤，opacity 方案每次重画都会闪一下。
+   破图走 onerror 换兜底图形，alt 文字（undefined/You/AI）任何情况下都不可见。 */
+.av{position:relative;color:rgba(255,255,255,.85)}
+.av .av-spin{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.av .av-spin::after{content:'';width:13px;height:13px;border-radius:50%;border:2px solid rgba(255,255,255,.25);border-top-color:rgba(255,255,255,.9);animation:avSpin .8s linear infinite}
+@keyframes avSpin{to{transform:rotate(360deg)}}
+html[data-theme="white"] .av .av-spin::after{border-color:rgba(16,24,40,.16);border-top-color:rgba(16,24,40,.55)}
+html[data-theme="white"] .row.ai .av{color:rgba(16,24,40,.5)}
 .bubble{padding:10px 14px;border-radius:var(--radius-md);font-size:13.5px;line-height:1.6;word-break:break-word;overflow-wrap:anywhere;overflow:hidden;min-width:0}
 /* 2026-10-27 手机端气泡被撑出视口（用户报「显示图片气泡变宽，都挤出去」）：
    .row 的直接 flex 子项不是 .bubble，而是它外面那层**无类 div**（render 里写的是
@@ -1161,8 +1172,8 @@ body.fb-narrow .fb-path-row .fb-q{flex:0 1 84px;width:84px;padding:3px 6px;font-
    中轴 866；输入框 486..1246，中轴也是 866（main 的 padding 左右对称）。手机 195/195。
    纵向 = bottom:calc(--composer-h + 14px)，与输入框留 20px。第 33 轮从 +26 收到 +14
    （用户「再靠下一点」）；再往下就要撞输入框的圆角高光了，14 是这条线的下限。 */
-#btnJump{position:absolute;left:50%;right:auto;bottom:calc(var(--composer-h,68px) + 14px);z-index:40;width:38px;height:38px;border-radius:999px;background:var(--mat-fill);-webkit-backdrop-filter:var(--mat-blur);backdrop-filter:var(--mat-blur);border:1px solid var(--border2);color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;pointer-events:none;transform:translate(-50%,8px);transition:opacity .18s ease,transform .18s ease,color .15s ease,background-color .15s ease;box-shadow:inset 0 1px 0 var(--mat-top),var(--mat-lift)}
-#btnJump svg{display:block;width:18px;height:18px}
+#btnJump{position:absolute;left:50%;right:auto;bottom:calc(var(--composer-h,68px) + 14px);z-index:40;width:38px;height:38px;border-radius:999px;background:var(--mat-fill);-webkit-backdrop-filter:var(--mat-blur);backdrop-filter:var(--mat-blur);border:1px solid var(--border2);color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;pointer-events:none;transform:translate(-50%,8px);transition:opacity .18s ease,transform .18s ease,color .15s ease,background-color .15s ease,bottom .24s cubic-bezier(.37,0,.63,1);box-shadow:inset 0 1px 0 var(--mat-top),var(--mat-lift)}
+#btnJump>svg{display:block;width:18px;height:18px;transform-origin:center}
 #btnJump.show{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
 /* 有实底之后 hover 只能叠一层提亮，不能写 background 简写（会把 --mat-fill 一起换掉，§84 坑 2）。
    这里与 #btnMenu:hover 同构，两个按钮鼠标上去是同一种反馈。 */
@@ -1389,6 +1400,21 @@ body.fb-lassoing{user-select:none;-webkit-user-select:none}
   .row.working .bubble{animation:none;box-shadow:0 5px 22px -4px rgba(34,230,255,.45),0 10px 44px 4px rgba(139,92,246,.26)}
 }
 
+/* ── 氛围灯总开关：设置 → 界面 →「思考气泡光晕」（默认开，与历史观感一致）──
+   只在这里覆盖，不动 neonGlow 本体 —— 光晕的定义仍只有一处，摘掉 body 上的类就完全恢复。
+   🔴 neonGlow 有**两个宿主**，必须一起关，漏一个就只关了一半：
+      · .row.proc-live .proc-box  —— 任务进行中的思考泡（截图里带光晕的就是它）
+      · .row.working .bubble      —— AI 正在输出答案的普通气泡
+   关掉时 border-color 要一起退回：那圈亮边是配霓虹的，单独留着仍有"在发光"的观感。
+   box-shadow 写 none（不是叠一层浅影）：静态 .proc-box 本来就没有影子，
+   关掉后要和"已经跑完的旧过程泡"长得一模一样。 */
+body.think-glow-off .row.proc-live .proc-box,
+body.think-glow-off .row.working .bubble{
+  animation:none;
+  border-color:var(--border);
+  box-shadow:none;
+}
+
 /* ── 新气泡自屏幕下方冒出（仅真正新增的最新一条；重渲染的旧气泡带 .no-rise 不重演） ── */
 @keyframes riseIn{from{opacity:0;transform:translateY(46px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
 main>*:last-child:not(.no-rise){animation:riseIn .42s cubic-bezier(.22,1,.36,1) both}
@@ -1496,7 +1522,7 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
    手感与数值完整复刻原 log 泡(30px↔500px,.3s cubic-bezier(.22,1,.36,1))与原 working 泡(霓虹氛围灯,展开 240px);
    正文常驻 DOM,收起同样是平滑裁切而非瞬间消失。 */
 .proc-wrap{min-width:0;max-width:100%}
-.proc-box{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:var(--radius-md);padding:6px 11px;font-size:11px;color:var(--text);opacity:.7;cursor:pointer;max-height:88px;overflow:hidden;min-width:0;max-width:100%;user-select:text;-webkit-user-select:text;-webkit-tap-highlight-color:transparent;transition:max-height .35s cubic-bezier(.22,1,.36,1),opacity .15s,border-color .15s;display:flex;flex-direction:column}
+.proc-box{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:var(--radius-md);padding:6px 11px;font-size:11px;color:var(--text);opacity:.7;cursor:pointer;max-height:88px;overflow:hidden;min-width:0;max-width:100%;user-select:text;-webkit-user-select:text;-webkit-tap-highlight-color:transparent;transition:max-height .42s cubic-bezier(.3,.3,.5,1),opacity .15s,border-color .15s;display:flex;flex-direction:column}
 .proc-box:not(.proc-live){filter:grayscale(1) brightness(.85)}
 .proc-box:hover{opacity:.85;border-color:var(--border2)}
 .proc-box.open{max-height:352px;opacity:.85}
@@ -1508,28 +1534,201 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
    标题行(.proc-head-line)与按钮仍是"把手"，保持不可选，否则拖把手时会把摘要文字一起带上。 */
 .proc-body,.proc-body *,.proc-ask,.proc-ask *,.tool-group-body .tool-item,.tool-group-body .tool-item *{user-select:text;-webkit-user-select:text}
 .proc-body,.proc-ask,.tool-group-body .tool-item{cursor:text}
-.proc-head-line,.proc-caret,.proc-mode-btn,.proc-live-dot,.proc-ask .ask-label,.proc-ask .ask-btn,.proc-ask .ask-btn *,.tool-group-header,.tool-group-header *{user-select:none;-webkit-user-select:none}
+.proc-head-line,.proc-mark,.proc-live-dot,.proc-ask .ask-label,.proc-ask .ask-btn,.proc-ask .ask-btn *,.tool-group-header,.tool-group-header *{user-select:none;-webkit-user-select:none}
 .proc-body::-webkit-scrollbar{width:4px}
 .proc-body::-webkit-scrollbar-track{background:transparent}
 .proc-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:2px}
 .proc-head-line{display:flex;align-items:center;gap:7px;white-space:nowrap;overflow:hidden;min-width:0;flex-shrink:0;padding-bottom:4px;border-bottom:1px solid var(--border)}
-.proc-caret{display:inline-block;transition:transform .18s ease;font-size:9px;opacity:.7;flex-shrink:0}
-.proc-box.open .proc-caret{transform:rotate(90deg)}
-.proc-sum{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
-.proc-body{margin-top:4px;flex:1;min-height:0;overflow-y:auto;scroll-behavior:smooth;transition:max-height .35s cubic-bezier(.22,1,.36,1),opacity .25s ease,margin-top .25s ease}
+/* 摘要行最左的「状态标记槽」（2026-10-28 用户：去掉 ▶ 折叠三角，把转动的三点挪到这个位置）。
+   🔴 必须是标题行的**直接 flex 子项**：塞在 .proc-sum 里只能跟 inline 基线走，
+      实测图形中心比标题行中线低 2px —— 用户说的"有点偏"就是它。
+      这里给 12×12 固定框 + 父级 align-items:center，几何中心就落在中线上。
+   🔴 :empty 必须塌掉 —— 静态泡、以及「等待你确认」这类文字状态不该留 12+7px 的空白。 */
+.proc-mark{display:flex;align-items:center;justify-content:center;width:12px;height:12px;flex:0 0 auto}
+.proc-mark:empty{display:none}
+/* 摘要行两段式（2026-10-27）：左「状态」固定，右「思维链摘要」吃余量。
+   为什么是两段：状态（处理中…）必须一直可见，摘要单独吃余量。
+   （2026-10-28 更正：右侧源已是**每步写好的成品摘要**，开头就是主句，
+   从头显示 + 末尾 ellipsis；「只显末尾那截」是 reasoning 流时代的旧规则。） */
+.proc-sum{display:flex;align-items:center;gap:8px;overflow:hidden;min-width:0;flex:1}
+.proc-sum>.s{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
+/* 「处理中」三字的首次渐显（procSummary 默认态、orb 入场完成后）：
+   动画只负责淡入，结束停在终态（both）；进度对齐靠 JS 生成的负 animation-delay，
+   元素被重建时按 data 时间戳重算 delay ⇒ 任何路径的重建都从当前进度接着播。 */
+@keyframes procTxtIn{from{opacity:0}to{opacity:1}}
+.proc-sum>.s.proc-fadein{animation:procTxtIn .45s ease-out both}
+.proc-sum>.s-tail{flex:1 1 auto;min-width:0;display:flex;align-items:center}
+/* 摘要文本从**开头**显示，装不下由原生 ellipsis 在**末尾**出 "…"（2026-10-28 用户：
+   「前面截一段，后面截一段很奇怪，你就截后面一段就好了」—— 旧版 .over 右对齐裁头，
+   叠上服务端落链时截的尾部 "…"，两头各缺一截，摘要成了没头没脑的残句）。
+   🔴 原生 ellipsis：短内容不出 "…"、超宽自动在行尾出 —— 不再需要 JS 测量挂 .over。 */
+.proc-sum>.s-tail>.clip{flex:1 1 auto;min-width:0;overflow:hidden;display:block;white-space:nowrap;text-overflow:ellipsis}
+.proc-sum>.s-tail>.clip>i{font-style:normal;color:var(--text);opacity:.85}
+/* 摘要行的「处理中…」＝ 三个跳动的点（2026-10-28 用户：改成三点转动好看一点）。
+   只替换默认状态；等待你确认 / 整理回复中 / 服务重启中 仍走文字，
+   因为「点一直跳」表达的是"正在跑"，用在"等你回答"上会误导。 */
+/* 点用正文色而不是状态词的次要色（--tdim）：12px 行高下 4px 的点配 --tdim 几乎看不见
+   （第一版实测就是"三个灰点糊在一起"）。 */
+/* 「处理中」指示器 = 三个点连成三角形，边长缓慢呼吸（2026-10-28 第 4 版）。
+   点/连线的坐标由 JS 每帧缓动写入（见 _orbStep），CSS 只管尺寸与配色。
+   🔴 为什么不是纯 CSS 动画：边长要"随机"且随 token 数换序列，CSS 关键帧做不到。
+   🔴 为什么必须缓动：每帧直接换随机位置 = 噪点闪烁，比"卡"更难看。
+   overflow:visible —— 点半径会顶到 12px 边界外一点点，别裁掉。 */
+.proc-orb{display:block;width:12px;height:12px;flex:0 0 auto}
+.proc-orb svg{display:block;width:12px;height:12px;overflow:visible}
+.proc-orb path{fill:none;stroke:var(--text);stroke-width:.9;stroke-linejoin:round;opacity:.32}
+.proc-orb circle{fill:var(--text);opacity:.92}
+@media(prefers-reduced-motion:reduce){.proc-orb{animation:none}}
+.proc-body{margin-top:4px;flex:1;min-height:0;overflow-y:auto;scroll-behavior:smooth;transition:max-height .42s cubic-bezier(.3,.3,.5,1),opacity .25s ease,margin-top .25s ease}
 /* 静态(非live)折叠态：完全收起，只显摘要行；展开才显示完整 body */
 .proc-box:not(.open):not(.proc-live){max-height:34px}
 .proc-box:not(.open):not(.proc-live) .proc-body{max-height:0;opacity:0;overflow:hidden;margin-top:0}
 .proc-box.open:not(.proc-live) .proc-body{max-height:330px}
+/* 边缘渐隐（2026-10-28 用户：「再加多一个选项，是渐隐的，就是这个边模糊直到没有」）。
+   现状是硬切：正文滚到边缘就在**半截字形**上被剪断（截图里顶部那行就是这么没的）。
+   这里把 mask 打在滚动容器 .proc-body 自己身上 —— mask 按 border box 生效，
+   所以内容往里滚时那一截是「淡到没有」，而不是被裁掉。
+   🔴 只在**真的溢出**的那一侧挂类（.proc-fade-up / .proc-fade-dn），由 JS 的 _procFade 维护：
+      正文还没超过 48px 时给首行盖一层渐隐 = 无端把字擦淡。
+   🔴 渐隐带高只有一个定义处：--proc-fade（挂在 .proc-body 上，别处只用不定义）。
+   🔴 stop 曲线必须平滑，不能 0→1 两点线性：两点线性在 10px 内是 0.10/px，看着像
+      "被压了一道"（§87 实测）。下面这条两端导数为 0，16px 内约 0.06/px。 */
+.proc-body{--proc-fade:16px;--pf-stops:rgba(0,0,0,0) 0,rgba(0,0,0,.30) calc(var(--proc-fade)*.30),rgba(0,0,0,.72) calc(var(--proc-fade)*.60),rgba(0,0,0,1) var(--proc-fade)}
+body:not(.proc-fade-off) .proc-body.proc-fade-up,
+body:not(.proc-fade-off) .proc-body.proc-fade-dn,
+body:not(.proc-fade-off) .proc-body.proc-fade-up.proc-fade-dn{-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-size:100% 100%;mask-size:100% 100%;-webkit-mask-position:0 0;mask-position:0 0}
+body:not(.proc-fade-off) .proc-body.proc-fade-up{-webkit-mask-image:linear-gradient(to bottom,var(--pf-stops));mask-image:linear-gradient(to bottom,var(--pf-stops))}
+body:not(.proc-fade-off) .proc-body.proc-fade-dn{-webkit-mask-image:linear-gradient(to top,var(--pf-stops));mask-image:linear-gradient(to top,var(--pf-stops))}
+/* 两头都溢出 = 两层 mask 取交集（两层都放行的地方才显示）。
+   ⚠️ 只有这里用 mask-composite：缺了它默认按 source-over 叠，上层会把下沿的渐隐整个盖掉。 */
+body:not(.proc-fade-off) .proc-body.proc-fade-up.proc-fade-dn{-webkit-mask-image:linear-gradient(to bottom,var(--pf-stops)),linear-gradient(to top,var(--pf-stops));-webkit-mask-composite:source-in;mask-image:linear-gradient(to bottom,var(--pf-stops)),linear-gradient(to top,var(--pf-stops));mask-composite:intersect}
+/* 思考框「边缘渐隐」（2026-10-28）。用户第46轮的更正：「我不是要你加蒙版，我是要你改背景参数，
+   就是开关打开时候把背景参数改一下，注意性能问题，不要加那么多元素」——
+   所以这里只有 background 两个属性，**没有伪元素、没有 mask、没有新的合成层**：
+     · background-color = --surface2 原样（**不提亮**，第52轮用户要求去掉 5% 混白）
+     · background-image = 四边各一层「页面底色 → 同色透明」的线性渐变，8/9px 接到页面底
+     · 4 条 1px 描边改成**虚线**：实线是最硬的"边"，虚线还留着轮廓但不连续
+     · 光晕换 neonGlowSoft：只去掉最内层 0 0 0 1px 的硬环，20/42/70px 三层大模糊照旧
+   🔴 为什么渐变用「不透明的页面底色」而不是 alpha：.proc-box 背后就是 #mainPanel 的
+      var(--surface) 纯色，视觉上与羽化 alpha 完全等价；而且 box-shadow 光晕画在 border-box
+      之外，不受 background 影响 —— 换成 mask 反而会把光晕一起裁掉（上一版踩的就是这个）。
+   🔴 渐变末端写 rgba(var(--surface-rgb),0) 而不是 transparent：transparent 是 rgba(0,0,0,0)，
+      现代浏览器按 premultiplied 插值虽然不会变暗，但把 rgb 写死成同一个值就根本不存在插值偏差。
+   🔴 background-color 只写一行 var(--surface2)：曾用 color-mix 混白 5% 让面在深色底上
+      浮起来一点，用户两次嫌亮（15%→10%→5% 后仍要求取消）⇒ 现在完全回到原色，
+      面与背景的区分只靠四边羽化 + 光晕，不再靠提亮。
+   🔴 只能改 paint、不动盒子：不加 padding、不改 display —— live 折叠档盒高恒 88px，动了就跳。
+   🔴 border-color 需 !important：白主题里 html[data-theme="white"] .row.proc-live .proc-box
+      特异性同为 (0,4,1) 且写在更后。
+   🔴 羽化带用固定 px（上下 8 / 左右 9）：盒子是 700×88 这种扁长形，换成 closest-side 的
+      径向椭圆会让左右淡 100px、上下淡 13px（差一个量级）。 */
+/* ── 描边形态：无 / 实线 / 虚线（独立三选一，不再跟「思考框边缘渐隐」绑在一起）──
+   body[data-proc-border] 由设置里的分段控件写（setProcBorder），默认 dashed。
+   🔴 三条都只改 border-style / border-color，**width 恒 1px** ⇒ live 折叠档盒高恒 88px。
+   🔴 全选 .proc-live：已跑完的旧泡保持它们本来的样子（这个设置从来只管进行中的框）。
+   🔴 solid 不写 color：让它走原有级联（深色 --border / 白主题那条），
+      那才是"实线原样"；写死一个变量反而会改变白主题下的观感。
+   🔴 dashed 不用浏览器原生 dashed：Chromium 的 dash/gap 是 3px/2px 写死的（实测周期 5px，
+      随 border-width 定，CSS 没有参数可调）。用户要「线与间隙都稀疏 2 倍」⇒ 只能自己画：
+      把 border 变透明，用 ::after + SVG stroke-dasharray='6 4' 描边（周期 10px）。
+      这不是"多叠一层装饰"，是把原生 dashed 整个换掉；除此之外没有别的办法改虚线密度
+      （border-image 会吃掉 14px 圆角，background-image 会跟边缘渐隐的四层渐变抢同一属性）。
+   🔴 线画在 padding box 内侧 0~1px（比原 border 内移 1px）：.proc-box 有 overflow:hidden，
+      它裁的是 padding box，伪元素往 border 区扩会被裁成 0.5px。1px 内移看不出来。 */
+body[data-proc-border="none"] .row.proc-live .proc-box{border-color:transparent!important}
+body[data-proc-border="solid"] .row.proc-live .proc-box{border-style:solid}
+body[data-proc-border="dashed"] .row.proc-live .proc-box{
+  border-color:transparent!important;                 /* 线交给 ::after 画，原生 dashed 太密 */
+  position:relative;                                  /* ::after 的包含块；z-index:auto，不建层叠上下文 */
+  --proc-dash-img:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%3E%3Crect%20style='x:.5px%3By:.5px%3Bwidth:calc(100%25%20-%201px)%3Bheight:calc(100%25%20-%201px)'%20rx='12.5'%20fill='none'%20stroke='%23ffffff'%20stroke-opacity='.14'%20stroke-width='1'%20stroke-dasharray='6%204'/%3E%3C/svg%3E");
+}
+body[data-proc-border="dashed"] .row.proc-live .proc-box::after{
+  content:"";position:absolute;inset:0;
+  border-radius:calc(var(--radius-md) - 1px);         /* padding box 的圆角 = 14 - 1 */
+  background-image:var(--proc-dash-img);
+  background-size:100% 100%;background-repeat:no-repeat;
+  pointer-events:none;
+}
+/* 白主题：同一个 SVG 换描边色（data URI 里引用不了 CSS 变量，只能备一份）。
+   走变量覆盖而不是再写一遍 ::after，主体规则仍然只有一处。 */
+html[data-theme="white"] body[data-proc-border="dashed"] .row.proc-live .proc-box{
+  --proc-dash-img:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%3E%3Crect%20style='x:.5px%3By:.5px%3Bwidth:calc(100%25%20-%201px)%3Bheight:calc(100%25%20-%201px)'%20rx='12.5'%20fill='none'%20stroke='%23000000'%20stroke-opacity='.16'%20stroke-width='1'%20stroke-dasharray='6%204'/%3E%3C/svg%3E");
+}
+
+body.proc-edge-on .row.proc-live .proc-box{
+  background-color:var(--surface2);                     /* 不提亮：原色 */
+  background-image:
+    linear-gradient(to right,  var(--surface), rgba(var(--surface-rgb),0) 9px),
+    linear-gradient(to left,   var(--surface), rgba(var(--surface-rgb),0) 9px),
+    linear-gradient(to bottom, var(--surface), rgba(var(--surface-rgb),0) 8px),
+    linear-gradient(to top,    var(--surface), rgba(var(--surface-rgb),0) 8px);
+}
+/* 思考气泡背景（设置 → 界面，2026-10-28 第53轮）：live 泡那块「面」显不显示。
+   关掉 = background 全透明 —— 上面那条四边羽化也一并退场（面都没了，谈不上羽化）；
+   光晕、描边各自听自己的开关，不跟着走（三个开关保持正交）。
+   🔴 必须写在 body.proc-edge-on 之后：两者特异性同为 (0,4,1)，靠书写顺序取胜。
+   🔴 只选 .proc-live：非 live 的旧泡本来就是 rgba(255,255,255,.02) 的浅面，不归这个开关管。
+   🔴 不用 !important：白主题 21541 行只改 border-color，不碰背景，写了反而挡住将来的覆盖。 */
+body.proc-bg-off .row.proc-live .proc-box{
+  background-color:transparent;
+  background-image:none;
+}
+/* 标题行与正文之间那条 1px 分界线（border-bottom:1px solid var(--border)）：
+   正文已经边缘渐隐了，上面还横一条硬线最割裂 ⇒ 跟着一起拿掉。
+   归「思考气泡边缘渐隐」管（procFadePref，默认开；关掉时 body 带 proc-fade-off）。
+   ⚠ 用 border-bottom-color:transparent 而不是 border-bottom:none —— 后者少 1px 高度，
+     live 折叠档（盒高恒 88px）会让正文整体上移一帧，看着像跳。 */
+body:not(.proc-fade-off) .row.proc-live .proc-head-line{border-bottom-color:transparent}
+body.proc-edge-on:not(.think-glow-off) .row.proc-live .proc-box{animation:neonGlowSoft 14s linear infinite}
+/* 光晕「柔和版」：与 neonGlow 逐帧同色、同线性节奏，唯一差别是没有最内层那圈 0 0 0 1px。
+   面已经羽化了，这圈 1px 亮线留着等于把"边"重新画了出来（它是"边缘看着硬"的第二个来源）。
+   ⚠ 霓虹配色自此是两处定义（neonGlow / neonGlowSoft）：改色必须两处同改，
+     否则开关这个选项会看到光晕跳色。 */
+@keyframes neonGlowSoft{
+  0%{box-shadow:0 5px 20px -4px rgba(34,230,255,.60),0 12px 42px 2px rgba(139,92,246,.38),0 4px 70px 14px rgba(34,230,255,.16)}
+  20%{box-shadow:0 5px 20px -4px rgba(139,92,246,.60),0 12px 42px 2px rgba(255,79,216,.38),0 4px 70px 14px rgba(139,92,246,.16)}
+  40%{box-shadow:0 5px 20px -4px rgba(255,79,216,.60),0 12px 42px 2px rgba(255,154,60,.38),0 4px 70px 14px rgba(255,79,216,.16)}
+  60%{box-shadow:0 5px 20px -4px rgba(255,154,60,.60),0 12px 42px 2px rgba(124,240,96,.38),0 4px 70px 14px rgba(255,154,60,.16)}
+  80%{box-shadow:0 5px 20px -4px rgba(124,240,96,.60),0 12px 42px 2px rgba(60,139,255,.38),0 4px 70px 14px rgba(124,240,96,.16)}
+  100%{box-shadow:0 5px 20px -4px rgba(34,230,255,.60),0 12px 42px 2px rgba(139,92,246,.38),0 4px 70px 14px rgba(34,230,255,.16)}
+}
+/* 「减少动效」里原规则是 (0,3,1) 的 animation:none，会被上面 (0,5,1) 那条压掉，必须补一条 */
+@media(prefers-reduced-motion:reduce){
+  body.proc-edge-on .row.proc-live .proc-box{animation:none}
+}
 .proc-body .w-think{opacity:.6;font-style:italic;margin:2px 0;font-size:11px;white-space:pre-wrap;word-break:break-word}
 .proc-body .w-think.md{white-space:normal}
 .proc-body .w-tool-call{color:var(--tool);font-weight:600;margin:3px 0;font-size:11px}
-.proc-body .w-tool-out{color:var(--tdim);opacity:.75;font-size:10.5px;margin:1px 0 6px 15px;white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.proc-body .w-tool-out{color:var(--tdim);opacity:.75;font-size:10.5px;margin:1px 0 6px 22px;white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+/* 工具折叠块（2026-10-29）：默认只留一行头部（黄色扳手 + 工具名 + 三角），点开看命令与输出 */
+.proc-body .w-tool{margin:4px 0 5px}
+.proc-body .w-tool-head{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;
+  padding:2px 9px 2px 3px;border-radius:8px;color:var(--tool);font-weight:600;font-size:11px;line-height:16px;
+  transition:background .15s ease}
+.proc-body .w-tool-head:hover{background:rgba(255,255,255,.06)}
+.proc-body .w-tool-head:active{background:rgba(255,255,255,.1)}
+.proc-body .w-tool-ico{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;color:var(--tool)}
+.proc-body .w-tool-ico svg{width:12px;height:12px;fill:currentColor;display:block}
+.proc-body .w-tool-cnt{font-weight:400;opacity:.55;font-size:10px}
+.proc-body .w-tool-tri{font-size:8px;opacity:.55;transition:transform .18s ease;line-height:1}
+.proc-body .w-tool.open .w-tool-tri{transform:rotate(90deg)}
+.proc-body .w-tool-body{display:none;margin:3px 0 2px 3px;padding:0 0 0 11px;border-left:2px solid rgba(255,183,60,.28)}
+.proc-body .w-tool.open .w-tool-body{display:block}
+.proc-body .w-tool-body .w-tool-out{margin:1px 0 4px 0}
+.proc-body .w-tool-body code{color:var(--tdim);opacity:.85;font-size:10.5px}
+html[data-theme="white"] .proc-body .w-tool-head:hover{background:rgba(0,0,0,.05)}
+html[data-theme="white"] .proc-body .w-tool-head:active{background:rgba(0,0,0,.09)}
+/* 无内容工具行（.w-tool-flat）：无三角纯展示，指针与 hover 按普通文本对待 */
+.proc-body .w-tool.w-tool-flat .w-tool-head{cursor:default}
+.proc-body .w-tool.w-tool-flat .w-tool-head:hover,
+.proc-body .w-tool.w-tool-flat .w-tool-head:active{background:transparent}
+
+html[data-theme="white"] .proc-body .w-tool-body{border-left-color:rgba(198,138,22,.35)}
 .proc-body .w-resp{margin:4px 0;color:var(--text);word-break:break-word}
 /* live 过程日志：工具轮的动作叙述逐行 + 当前轮正在打的字。见 liveLogHTML()。
    没有这层时，非推理模型（thinking 恒为空）展开思考框就是一个空白大盒子。 */
 .proc-body .w-live-log:not(:empty){margin-top:4px}
-.proc-body .w-live-log .w-inter-line{color:var(--text);opacity:.8;margin:3px 0;padding:2px 0 2px 8px;border-left:2px solid var(--border2);white-space:pre-wrap;word-break:break-word}
+.proc-body .w-live-log .w-inter-line{color:var(--text);opacity:.8;margin:3px 0;padding:2px 0;white-space:pre-wrap;word-break:break-word}
 .proc-body .w-live-wait{color:var(--tdim);padding:3px 0;font-style:normal}
 .proc-body .proc-turn{color:var(--text);opacity:.85;margin:5px 0;padding:5px 8px;background:rgba(255,255,255,.03);border-radius:var(--radius-sm)}
 .proc-body .proc-turn p{margin:3px 0}
@@ -1566,7 +1765,7 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
    正文超出部分照旧在 .proc-body 内部滚动，盒子高度依然恒定不跳。 */
 /* height 必须进 transition：空态(108px) ↔ 有内容(352px) 靠它平滑拉开，
    否则第一个 token 到达的瞬间，下面整块对话会被顶下去 244px。 */
-.row.proc-live .proc-box{background:var(--surface2);border-color:rgba(255,255,255,.16);opacity:1;color:var(--text);font-size:12px;max-height:none;animation:neonGlow 14s linear infinite;filter:none;transition:max-height .35s cubic-bezier(.22,1,.36,1),height .35s cubic-bezier(.22,1,.36,1),opacity .15s,border-color .15s}
+.row.proc-live .proc-box{background:var(--surface2);border-color:rgba(255,255,255,.16);opacity:1;color:var(--text);font-size:12px;max-height:none;animation:neonGlow 14s linear infinite;filter:none;transition:max-height .42s cubic-bezier(.3,.3,.5,1),height .42s cubic-bezier(.3,.3,.5,1),opacity .15s,border-color .15s}
 /* 🔴 height 必须写死，不能只给 max-height：正文比 48px 短的时候（模型刚吐头两行思考），
    body 的自然高就是内容高 → 盒子跟着内容一路长高（实测 66px→76px→88px 三段），
    每长一档就把整个对话顶上去 9~12px，用户看到的就是「一发送，画面跳几下」。
@@ -1585,12 +1784,42 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
 .row.proc-live .proc-box.open.proc-empty:not(.proc-asking){height:108px;max-height:108px}
 .row.proc-live .proc-box.open.proc-empty:not(.proc-asking) .proc-body{flex:1 1 auto;min-height:0;height:auto;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
 /* 占位行：三点呼吸 —— 让"没内容"读成"在等"，而不是"坏了"。
-   min-width 是给盒子定宽用的：盒宽本来跟 head 行（"思考中… 简约"）走，只有 ~126px，
+   min-width 是给盒子定宽用的：盒宽本来跟 head 行（状态图形 + 档位按钮）走，比较窄，
    三点 + 文案会把最后那个「…」顶出右边界（实测被裁）。这条把占位行撑到 200px，
    盒子随之变宽，文案完整（手机上被 .proc-box 的 max-width:100% 兜住）。 */
 .w-live-wait{display:flex;align-items:center;gap:6px;min-width:200px}
 .w-live-dots{display:inline-flex;align-items:center;gap:3px;flex:0 0 auto}
 .w-live-dots i{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.4;animation:wlwPulse 1.2s ease-in-out infinite}
+/* ── 运行状态图形：绿点 / 三点（设置 → 界面，2026-10-29 第61/62轮）──────
+   三点**不是新画的**：就是思考框里那颗 .proc-orb —— 由 _statusMark('处理中…') 生成、
+   _orbKick() 挂到**同一个** rAF 驱动上，跟着 token 流速转。画法 / 动画 / 颜色一个字节都没复制。
+   🔴 用户定：**一个页面里只许有一个三点图形**。所以：
+      ① 三点模式下顶栏什么都不画（点也不画）—— 那里的图形只是同一件事的第三次重复；
+      ② 浮键里的图形要等思考泡里那颗**完全滚出视野**才登场（IntersectionObserver，见 _orbWatchStart）。
+      任意时刻全页 .proc-orb 数量 ≤ 1：泡里看得见就在泡里，看不见才交棒给浮键。
+   🔴 唯一开关 body.run-spin，现在只表示"浮键此刻该画图形"，不兼职别的。
+      模式本身由 body.run-ind-spin 表达（跟"是否在跑"无关，所以拆成两个类，各自管一件事）。
+   🔴 异常必须留下：idle / thinking 可以不画，但 warn / error 的黄点红点是让人动手的信号，永远画。 */
+/* 三点模式：顶栏不画运行指示（thinking 与 idle 都不画），异常照旧 */
+body.run-ind-spin #sDot:not(.warn):not(.error){display:none}
+/* ── 浮键里「箭头 ↔ 三点」的交接（同一个 18px 格子，两层叠着换）─────────────
+   🔴 为什么不做 morph：箭头是**一条描边折线**（stroke 2.1、无填充、3 个顶点），三点是
+      **三个填充圆 + 一条细连线**（fill，且圆心由 _orbStep 每帧写 cx/cy）。两边既不同类
+      也不同数，插值的中间态没有意义；真要 morph 只能自建一个"交接专用 SVG"、再把旋转
+      驱动复制一份 —— 那正是上一轮被要求删掉的东西（同一语义不许两处各写一遍）。
+   ✅ 所以走**交叠淡化**：箭头缩着退场、三点从同一尺寸长出来，中间只留 60ms 交叠 ——
+      读起来像同一个东西在换形状（逐帧看是"箭头散成三点"），而不是一个消失另一个出现。
+   🔴 两层都必须留在文档里（不能 display:none）：display 切换没有起始计算值，过渡不触发，
+      那就会退化成硬切。
+   🔴 时间轴要短：0.22s 走完。再长一点，点"回到底部"就会觉得按钮变钝了。 */
+#btnJump>svg{transition:opacity .12s ease-out,transform .22s cubic-bezier(.34,.8,.3,1)}
+body.run-spin #btnJump>svg{opacity:0;transform:scale(.62)}
+#jumpOrb{position:absolute;inset:0;margin:auto;width:18px;height:18px;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;opacity:0;transform:scale(.62);
+  transition:opacity .12s ease-out .06s,transform .22s cubic-bezier(.34,.8,.3,1) .06s}
+body.run-spin #jumpOrb{opacity:1;transform:scale(1)}
+#jumpOrb .proc-orb,#jumpOrb .proc-orb svg{width:18px;height:18px}
+@media(prefers-reduced-motion:reduce){#btnJump>svg,#jumpOrb{transition:none}}
 .w-live-dots i:nth-child(2){animation-delay:.18s}
 .w-live-dots i:nth-child(3){animation-delay:.36s}
 @keyframes wlwPulse{0%,100%{opacity:.35;transform:translateY(0)}50%{opacity:1;transform:translateY(-1px)}}
@@ -1605,11 +1834,10 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
 .row.proc-live .proc-box.proc-asking .proc-body{height:auto;max-height:110px}      /* 提问态：正文让位给卡片，卡片必须整块可见 */
 /* .proc-live-dot 黄点已去掉 */
 .proc-live-dot{display:none}
-/* 气泡展开体的显示档位：简约 = 只渲染思考（与 09-01~09-21 的老形态一致）；
-   复杂 = 再叠一层过程日志（工具动作叙述 + 当前轮正在打的字），用来兜住"模型不返回 reasoning"。
-   档位存 localStorage 的 proc_view_mode，缺省 simple。见 toggleProcMode() / procBodyHTML()。 */
-.proc-mode-btn{flex-shrink:0;font-size:9.5px;line-height:1;padding:2px 7px;border-radius:9px;border:1px solid var(--border2);color:var(--tdim);opacity:.8;cursor:pointer;user-select:none;transition:opacity .15s,color .15s}
-.proc-mode-btn:hover{opacity:1;color:var(--text)}
+/* 气泡展开体：单档全量（2026-10-29 去掉简约/复杂切换按钮）——
+   思考 + 过程日志（编号步骤 + 正在打的字）永远一列展示，没有档位可切。
+   步骤统一用 .w-step-no 编号徽章，形成一条条对齐的清单。 */
+.w-step-no{display:inline-block;min-width:24px;height:16px;line-height:16px;border-radius:8px;background:rgba(127,127,127,.16);color:var(--tdim);font-size:9.5px;text-align:center;margin-right:6px;vertical-align:-3px;font-family:ui-monospace,Consolas,monospace;user-select:none}
 /* ── 上滑加载:顶部提示行(呼吸点)——存在即说明"上面还有更早的消息" ──
    旧版只是个静态 div：内容没撑出滚动条时"上滑"根本产生不了 scroll 事件，
    提示永远兑现不了（用户看到的"显示上滑加载，但怎么滑都不动"）。现在它同时是按钮，
@@ -1699,6 +1927,22 @@ html[data-theme="white"] .hp-skel::after{
 #tokenDisplay.hp-skel::after{left:50%;transform:translate(-50%,-50%)}
 #balanceDisplay.hp-skel{--hp-w:62px}
 @media(prefers-reduced-motion:reduce){.hp-skel::after{animation-duration:3.4s}}
+/* ── 首屏未就绪：顶栏只留 ☰，其余一律不出现（§118）──
+   以前只给标题 / token / 余额各盖一条骨架，于是"加载中"的顶栏是半成品拼盘：
+   标题骨架条 + 绿点 + 余额骨架条 + 右上两枚图标，宽度还随占位值跳动 ——
+   用户原话：「没加载完不要显示那些很奇怪，你又影响布局」。
+   ⇒ 未就绪期只保留 #btnMenu（不依赖任何数据、CSS 画出来的常态圆钮），
+      .hdr-info（标题/状态点/记忆环/余额）与 .hdr-pill-r（流程图/文件/调试）整块不可见；
+      _hpClear() 与消息区骨架同一刻解封，顶栏只"长"一次，没有半成品中间态。
+   🔴 为什么不把 header 整块藏掉：首屏装载实测要 10s 上下（529 个任务、12.5G 主库），
+      全藏等于让顶栏空一大截，比露骨架更像"应用坏了"。☰ 是唯一"先有后无"为零的元素。
+   🔴 用 visibility 而不是 display：header 是 absolute 浮层，保留几何 ⇒ 内容不位移；
+      换成 display:none 会把 #winCtrls / 拖动带一起抽走，窗口拖不动。
+   🔴 必须带 !important 且覆盖到孙节点：
+      `body.mb-open #topicTitle.hp-skel > #mbHdrTitle` 那条是 (1,4,1) 的
+      visibility:visible，会穿透父级的 hidden 自己亮起来。 */
+html[data-boot] .hdr-info, html[data-boot] .hdr-info *,
+html[data-boot] .hdr-pill-r, html[data-boot] .hdr-pill-r *{visibility:hidden !important}
 /* 触顶上拉的物理回弹(带轻微过冲) */
 .pull-rebound{transition:transform .38s cubic-bezier(.2,1.4,.36,1)!important}
 @media(prefers-reduced-motion:reduce){
@@ -1939,7 +2183,7 @@ html[data-theme="white"] #btnFlowChart:hover{opacity:1;background:rgba(var(--acc
     <div class="skel-row you"><span class="skel-av"></span><span class="skel-lines"><i class="skel-bar" style="width:48%"></i></span></div>
   </div>
 </main>
-<button id="btnJump" onclick="jumpBottom()" title="回到底部" data-page-node-id="suot2KpdKZwotcUDgWBAm3"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="9uaf8d8N7ip3FrrEm8kxOK"><path d="m6 9 6 6 6-6" data-page-node-id="IEHeiNEtrPJVDy8cCV3xWy"/></svg></button>
+<button id="btnJump" onclick="jumpBottom()" title="回到底部" data-page-node-id="suot2KpdKZwotcUDgWBAm3"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="9uaf8d8N7ip3FrrEm8kxOK"><path d="m6 9 6 6 6-6" data-page-node-id="IEHeiNEtrPJVDy8cCV3xWy"/></svg><span id="jumpOrb" aria-hidden="true"></span></button>
 <footer data-page-node-id="HCHcKJDyDuJ4GjQiJqU2kp"><div class="ft-meta" data-page-node-id="FtMetaRow"><span id="sText" style="display:none" data-page-node-id="5fvIIpnUaZxH1bKR4k7tvT"></span><span id="tokenDisplay" class="hp-skel" data-page-node-id="FOBO7vamDYScRoSQ1DlI8d">—</span></div><div id="attachPreview" style="display:none;flex-wrap:wrap;gap:6px;padding:6px 8px;background:var(--surface2);border-top:1px solid var(--border)" data-page-node-id="yhOv5DMFkpuyyAh58krcBG"></div><div class="input-row" data-page-node-id="SrZNQIQvUw3jq3L6WJVMwW"><input type="file" id="fileInput" multiple style="display:none" onchange="onFileSelect(this)" data-page-node-id="CqWIYwKndzTfTL9tgFzdBT"><button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="添加附件" data-page-node-id="RJwZ0SRzpcwJt1ugersOTE"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="iuiDCKfmIlScUkrGpd0opv"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" data-page-node-id="bOzZUrTJtPrw3JGDMyiyep"/></svg></button><textarea id="msgInput" rows="1" placeholder="输入消息…" onkeydown="onKey(event)"></textarea><button class="send" id="btnSend" onclick="toggleSend()" title="发送" data-page-node-id="983AB8HRgBx90LPUBkVEHF"><svg class="ico-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="3y7v19Me6vEKpjfi6DT2M3"><path d="M12 19V5" data-page-node-id="K4uPQwgfuDxBYFCEELQ4HB"/><path d="m6 11 6-6 6 6" data-page-node-id="Wb9lgQ6gY5qCtazXxWs7Zx"/></svg><svg class="ico-stop" viewBox="0 0 24 24" data-page-node-id="OIoaAyHWyka0aqXAr7TBuw"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" data-page-node-id="DkbLuNJzVJeirdWFyNCB9E"/></svg></button></div></footer>
 </div>
 <div id="debugPanel" data-page-node-id="ldff4vcJfpKOl1QPmP4E0Z">
@@ -2347,6 +2591,13 @@ function clipTitleText(s){
     setTimeout(function(){ _keyErrThrottle = false; }, 8000);
   }
   function _notifyNetErr() {
+    // ⚠️ 主动超时/主动取消不算网络故障：
+    //    轮询探针的超时 abort 会一路冒泡到这里的 catch，如果不区分，
+    //    一次（我们自己造成的）超时就上报一次 Native.onNetworkError，
+    //    APP 侧走静默重试并计数，累计 5 次就弹"连不上服务器"地址框 ——
+    //    等于把"轮询手表自己掐掉一个慢请求"误报成"服务器挂了"，反而把用户吓一跳。
+    //    只对真实错误上报，让静默重连只反映真失联。
+    try { if (window.__dayanAbortSuppress > 0) return; } catch(_e) {}
     if (_netErrThrottle) return;
     _netErrThrottle = true;
     try { if (typeof Native !== 'undefined' && Native.onNetworkError) Native.onNetworkError(); } catch(_) {}
@@ -2547,7 +2798,7 @@ if (!_encKeyB64) { try { var _tk = localStorage.getItem('dg_token'); if (_tk) he
   window.__dayanCrypto = { key: _encKeyB64, canEncrypt: !!(_encKeyB64 && _cryptoCapable),
                          encrypt: _encrypt, decrypt: _decrypt };
 })();
-var chatBox, msgInput, btnSend, sDot, sText, uInfo, topicList, topicTitle, sidebar, overlay, workingDot, balanceBanner, balanceDisplay, balLbl, balText, costDisplay, tokenDisplay, sidebarTokens, workingPoll=null, hideBannerPref=true, balMode='full', wmMode='off', showTaskCostPref=true, showElapsedPref=true, showTokensPref=true, userAvatar='';
+var chatBox, msgInput, btnSend, sDot, sText, uInfo, topicList, topicTitle, sidebar, overlay, workingDot, balanceBanner, balanceDisplay, balLbl, balText, costDisplay, tokenDisplay, sidebarTokens, workingPoll=null, hideBannerPref=true, balMode='full', wmMode='off', showTaskCostPref=true, showElapsedPref=true, showTokensPref=true, thinkGlowPref=true, procFadePref=true, procEdgePref=true, procBorderPref='dashed', procBgPref=true, runIndPref='spin', userAvatar='';
 var messages=[], currentTopic=null, topics=[], cnyRate=7.0, appName='AI';
 var ATT_ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
 var LS_KEY='dayan_cache_v2';
@@ -2612,7 +2863,7 @@ function restoreDraft(tid, doFocus, onlyIfEmpty){
     var txt=loadDraft(tid);
     msgInput.value=txt;                // ② 空草稿也要覆盖：清掉上一个任务留在框里的字
     msgInput.style.height='auto';
-    if(txt) msgInput.style.height=Math.min(msgInput.scrollHeight,120)+'px';
+    if(txt) msgInput.style.height=Math.min(msgInput.scrollHeight,window.__composerInputMax?window.__composerInputMax():120)+'px';
     // 只有"本来就在写草稿"时才还焦点：没草稿就别抢（切换常常发生在用户翻消息时）
     if(doFocus && txt){ msgInput.focus(); msgInput.setSelectionRange(txt.length,txt.length); }
   }catch(e){}
@@ -3011,6 +3262,9 @@ function updateCost(d){
 function updateToken(data){
   if(!tokenDisplay) return;
   var rt = parseInt(data.last_request_tokens) || 0;
+  // 过程泡的三角呼吸用 token 数当随机种子（见 _orbKick）：同一个 token 值 ⇒ 同一组形状，
+  // 每次请求的 token 变了，形状序列才换 —— 可复现，不是纯噪声。
+  window._tokLast = rt || parseInt(data.total_tokens) || 0;
   if(rt <= 0) { tokenDisplay.textContent = '— tok'; tokenDisplay.style.color = 'var(--tdim)'; tokenDisplay.title = '本次请求输入 token 数（点击查看实际内容）'; tokenDisplay.style.cursor = 'default'; tokenDisplay.onclick = null; }
   else { tokenDisplay.textContent = rt.toLocaleString() + ' tok'; tokenDisplay.style.color = 'var(--accent)'; tokenDisplay.title = '本次请求输入 token 数（点击查看实际内容）'; tokenDisplay.style.cursor = 'pointer'; tokenDisplay.onclick = function(){ showReqModal(); }; }
   // Sidebar: cumulative tokens
@@ -3048,6 +3302,204 @@ function copyReqBody(){
 }
 
 // 状态显示：正常状态只用圆点颜色（绿=就绪/黄=处理中），异常才显示文字
+/* 运行状态指示形态（设置 → 界面，2026-10-29 第61/62轮）：绿点 / 三点。
+   🔴 唯一判据是 DOM：sDot 身上有没有 .thinking。绝不另存一个 isRunning 布尔 ——
+      那个会和真实状态错位（§20/47：布尔标志 ≠ 当下事实，判据问 DOM）。
+   🔴 用户定：**一个页面只许有一个三点图形**。三点模式下顶栏什么都不画（点也不画），
+      浮键要等思考泡里那颗**真的看不见**才接棒。判据是几何，不是"有没有上滑过"：
+      贴底时泡在眼前，上滑一点点泡还在眼前（只是不全），只有真的看不见了才需要替身。
+   🔴 「看不见」有**两条边界**，都得管（第 62 轮 · 用户补的正是第二条）：
+      ① 滚出 main 的盒底 —— IO 的 root 边界本来就在管；
+      ② 被悬浮输入框压住 —— footer 是 position:absolute（composer-floating.js 铺的），
+         压在 main 盒底上方一百多像素，IO 眼里那颗图形仍"在盒子里" ⇒ 必须靠 rootMargin
+         把可见区收缩掉（_orbIOMake）。实测漏掉 ② 时：图形 100% 被输入框盖住，
+         _orbInView 仍是 true，浮键不出三点 —— 用户看到的就是"盖住了但按钮没换"。
+   🔴 首次应用在定义处同步执行，不塞 init()（init 开头要 await 一串 fetch，
+      会先闪一下绿点再变成三点）。 */
+var _orbIO=null, _orbIOEl=null, _orbInView=true;   // 泡里那颗图形此刻在不在视野里
+var _orbMarginH=-1;                                // 上次构建 IO 时收缩掉的底边高度(px)
+var _orbMOs=[];                                    // 🔴 观察器句柄必须留引用（见 _orbWatchStart）
+var _orbClearT=null;                               // 浮键图形淡出后延迟清空 DOM
+function applyRunInd(){
+  var d=document.getElementById('sDot');
+  var running=!!(d && d.classList.contains('thinking'));
+  // 模式与"是否在跑"是两件事：模式决定顶栏画不画，跑 + 看不见 才决定浮键画不画。
+  document.body.classList.toggle('run-ind-spin', runIndPref==='spin');
+  var on = (runIndPref==='spin') && running && !_orbInView;
+  document.body.classList.toggle('run-spin', on);
+  // 图形本体不在这里画 —— 调思考框那个**唯一出口**，多一个渲染路径就多一份漂移。
+  // 🔴 卸载只清 innerHTML：元素一断连，_orbStep 自己把注册表项回收（顺带把相位 stash 给宿主，
+  //    下次上场接着转，不跳回初始三角）。
+  var h=document.getElementById('jumpOrb'); if(!h) return;
+  if(on){
+    clearTimeout(_orbClearT); _orbClearT=null;   // 等待清空期间又切回来了 ⇒ 撤销
+    if(!h.firstChild){
+      // initRunInd() 首次调用时 _statusMark / _orbKick 已由函数声明提升，但 _ORB_INIT 等
+      // var 还没赋值 —— 那时 state 不可能是 thinking，这里再加一道 typeof 兜底。
+      if(typeof _statusMark!=='function' || typeof _orbKick!=='function') return;
+      h.innerHTML=_statusMark('处理中…');   // 不传 introMs ⇒ 不重播 0.9s 入场，直接满速
+      _orbKick(h);
+    }
+  }else if(h.firstChild && !_orbClearT){
+    // 🔴 不能立刻清：清空 = 内容瞬间消失，CSS 那边刚起头的淡出就没东西可淡了。
+    //    等过渡走完（220ms）再清，清之前再确认一次状态 —— 这段等待里可能又切回来了。
+    _orbClearT=setTimeout(function(){
+      _orbClearT=null;
+      var el=document.getElementById('jumpOrb');
+      if(el && !document.body.classList.contains('run-spin')) el.innerHTML='';
+    },260);
+  }
+}
+/* 盯着"泡里那颗图形"在不在视野里。
+   🔴 用 IntersectionObserver 而不是 scroll 事件：内容往下长会把图形顶出视口，
+      那种位移**没有 scroll**，只靠滚动监听永远等不到。
+   🔴 判据是 intersectionRatio > 0，也就是"只要还露着一条边就算看得见"——
+      用户要的是**完全看不到**才出替身，差一像素都不算。
+   🔴 元素每次 render 都重建，所以同时挂 MutationObserver：换了目标就改 observe 谁。 */
+/* 输入框压住正文的那一段有多高（从 chatBox 底边往上量，px）。
+   🔴 量 .input-row 的上沿，不量 footer 的上沿：footer 自己 background:transparent，
+      真正挡住内容的是里面那条胶囊（border + --surface2 + 22px 圆角）。
+      两者差的就是 footer 的 padding-top(6px)，而那段是透明的，能看见。 */
+function _orbOccludeH(){
+  if(!chatBox) return 0;
+  var f=document.querySelector('#mainPanel > footer');
+  if(!f) return 0;
+  var row=f.querySelector('.input-row') || f;
+  var bot=chatBox.getBoundingClientRect();
+  var h=Math.round(bot.bottom - row.getBoundingClientRect().top);
+  // 输入框藏起来 / 还没布局 / 高过整个聊天区 ⇒ 一律按"不遮挡"算。
+  // 否则 rootMargin 会把可见区整个吃掉，浮键会常驻三点，反而更错。
+  if(!(h>0)) return 0;
+  var max=Math.floor(bot.height);
+  return h>max ? max : h;
+}
+/* 建（或重建）观察器。rootMargin 底部收缩 = 把"被输入框压住"也算进"看不见"。
+   🔴 rootMargin 只能在构造时给，事后赋值**不生效也不报错** ⇒ 遮挡高度一变就重建一个。
+   🔴 重建时**不重置** _orbInView：新 IO 的首次回调会给出正确值，中间只差一帧，
+      方向是"先当看得见"——宁可晚一帧出浮键，也绝不先闪出第二个图形。 */
+function _orbIOMake(h){
+  if(!chatBox) return;
+  if(h==null) h=_orbOccludeH();
+  if(_orbIO){ try{ _orbIO.disconnect(); }catch(e){} }
+  _orbMarginH=h;
+  _orbIO=new IntersectionObserver(function(es){
+    /* 🔴 这里**不许**再校一次遮挡高度然后"重建 + return"。曾经那么写过，结果：
+       _orbOccludeH() 在 92/93 之间抖 1px（亚像素四舍五入），于是每一批交集值
+       都被判成"按旧边界算的"→ 整批丢弃 → 无限重建 → _orbInView 永远停在 false，
+       表现为"图形已经完整露出来了，按钮里那颗三点还不肯下去"。
+       边界更新只走 _orbSyncMargin（入口都在 _orbWatchStart：DOM 变动、--composer-h 真源、
+       footer 尺寸、滚动含 140ms 尾部补偿、resize）。 */
+    for(var i=0;i<es.length;i++){
+      if(es[i].target!==_orbIOEl) continue;
+      var v=!!(es[i].isIntersecting && es[i].intersectionRatio>0);
+      if(v!==_orbInView){ _orbInView=v; applyRunInd(); }
+    }
+  },{root:chatBox, threshold:0, rootMargin:'0px 0px -'+h+'px 0px'});
+  if(_orbIOEl) _orbIO.observe(_orbIOEl);
+}
+/* 兜底同步：ResizeObserver 只在 footer **自身尺寸**变化时触发，而"被压住多少"还取决于
+   main 的高度与 footer 内部排版。实测它就漏过一次（构建时 104，之后实际 92）——
+   12px 的偏差正好是一整颗图形的直径，于是"半被盖"被判成"完全看不见"。
+   所以凡有 DOM 变动（_orbBind）都顺带对一次，代价是两次 getBoundingClientRect。 */
+function _orbSyncMargin(){
+  if(!chatBox || !_orbIO) return;
+  var h=_orbOccludeH();
+  // 🔴 容差 2px，不是 ===。亚像素四舍五入会让这个值在 92/93 之间来回跳，
+  //    而每跳一次就重建 IO = 刚 observe 就被 disconnect，交集回调永远拿不到手。
+  //    一颗图形才 12px，1px 的边界误差不影响"完全被盖"的判定。
+  if(Math.abs(h-_orbMarginH)>=2) _orbIOMake(h);
+}
+function _orbPick(){
+  // 稳态短路：目标还挂在树上就不用扫 —— render 是整页重建，一次几万节点，白扫很贵
+  if(_orbIOEl && _orbIOEl.isConnected) return _orbIOEl;
+  // live 泡只有一个，但历史里可能有残影 ⇒ 取最后一个（最新的在底部）
+  var els=chatBox.querySelectorAll('.proc-orb');
+  return els.length ? els[els.length-1] : null;
+}
+// DOM 变动合并到下一帧，一次 render 只扫一遍（流式输出时 childList 可能连发）
+var _orbBindPend=false;
+function _orbBindSoon(){
+  if(_orbBindPend) return;
+  _orbBindPend=true;
+  requestAnimationFrame(function(){ _orbBindPend=false; _orbBind(); });
+}
+function _orbBind(){
+  if(!chatBox) return;
+  _orbSyncMargin();     // 先对边界再换目标
+  var el=_orbPick();
+  if(el===_orbIOEl) return;
+  var first=!_orbIOEl;      // 只有在"原本没有图形"时才算首次
+  if(_orbIOEl){ try{ _orbIO.unobserve(_orbIOEl); }catch(e){} }
+  _orbIOEl=el;
+  if(!el){ _orbInView=false; applyRunInd(); return; }   // 没图形 ⇒ 谈不上"看得见"
+  // 🔴 重建换目标时**保留上一次的判断**：摘要行 500ms 会重画一次图形，位置几乎没动，
+  //    这里若重置成 true，浮键里的三点每 500ms 就会消失一帧再回来（看着像在闪）。
+  //    只有"从无到有"才按"看得见"起步 —— 那是保守方向，绝不会先闪出第二个图形。
+  if(first) _orbInView=true;
+  _orbIO.observe(el);
+  applyRunInd();
+}
+function _orbWatchStart(){
+  if(!chatBox || _orbIO) return;
+  _orbIOMake();
+  _orbBind();
+  var mo=new MutationObserver(_orbBindSoon);            // 🔴 observe() 返回 undefined，不能链式 push
+  mo.observe(chatBox,{childList:true,subtree:true});
+  _orbMOs.push(mo);
+  /* 输入框会自己长高（自动增高到约半屏）⇒ 遮挡高度变了就得重建 IO。
+     🔴 触发源跟 --composer-h 走，**不再自己观察 footer**：composer-floating.js 的
+        syncComposerHeight() 是那件事的唯一出口（写 --composer-h / --composer-space，
+        自带 lastComposerHeight 去重，并且它自己也挂了一个 ResizeObserver）。
+        我这边再挂一个 = 同一件事观察两遍，而且实测会漏 —— footer 高度 110→98 那一次
+        它没回调，边界停在 104（差 12px，正好一颗图形的直径），
+        于是"半被盖住"被判成"完全看不见"，浮键提前接棒。
+        盯 html 元素的 style 属性还顺带躲开"元素被 render 换掉"这一类问题。
+     🔴 不直接拿 --composer-h 当遮挡高度：它等于**整个 footer** 的高度，而真正挡住
+        内容的是里面那条 .input-row 胶囊，两者差 footer 的 padding-top(6px)，
+        直接用会让判断提前整整半颗图形。变量只当"该重新量了"的闹钟。 */
+  /* 🔴 所有观察器都 push 进 _orbMOs 留引用：只写 new MutationObserver(...).observe(...)
+     等于创建完就把句柄扔掉，实测它就不再回调（--composer-h 从 110 写成 98，这本该触发，
+     结果 _orbMarginH 一直停在 104，边界多收缩一整颗图形）。 */
+  if(window.MutationObserver){
+    var mo2=new MutationObserver(function(){ _orbSyncMargin(); });
+    mo2.observe(document.documentElement,{attributes:true,attributeFilter:['style']});
+    _orbMOs.push(mo2);
+  }
+  /* 再兜一层：footer 自身尺寸（附件条、仪表行、安全区）。直接调，不套 rAF ——
+     ResizeObserver 的回调本来就在"布局后、绘制前"批量给出，一次变化只会来一次，
+     再叠一层 rAF 反而可能因为节流标志没复位而漏掉后续回调。 */
+  var f=document.querySelector('#mainPanel > footer');
+  if(f && window.ResizeObserver){
+    try{ var ro=new ResizeObserver(_orbSyncMargin); ro.observe(f); _orbMOs.push(ro); }catch(e){}
+  }
+  /* 再兜一层：滚动 / 视口变化。这两件事不改 DOM 也不一定改 --composer-h，
+     但底下的懒渲染、字体回流、键盘弹起都可能让 .input-row 上沿挪位置。
+     只量不改（_orbSyncMargin 内部有"值没变就 return"），成本是两次已有布局的 rect。 */
+  var sp=false, stail=null;
+  chatBox.addEventListener('scroll',function(){
+    if(!sp){
+      sp=true;
+      requestAnimationFrame(function(){ sp=false; _orbSyncMargin(); });
+    }
+    // 🔴 滚动停下后再量一次：footer 的高度常常在滚动**之后**才稳定
+    //    （内容重排、仪表行由骨架换成数字、懒渲染补进来）。
+    //    实测那一档没人通知 —— 变量从 110 写成 98 了，边界却还停在 104，
+    //    于是"图形刚碰到输入框上沿"就被判成"完全看不见"，替身提前登场。
+    clearTimeout(stail); stail=setTimeout(_orbSyncMargin,140);
+  },{passive:true});
+  window.addEventListener('resize',_orbSyncMargin);
+}
+function initRunInd(){
+  try{ runIndPref = (localStorage.getItem('run_indicator')==='dot') ? 'dot' : 'spin'; }
+  catch(e){ runIndPref='spin'; }
+  applyRunInd();
+}
+function setRunInd(v){
+  runIndPref = (v==='dot') ? 'dot' : 'spin';
+  try{ localStorage.setItem('run_indicator', runIndPref); }catch(e){}
+  applyRunInd();
+}
+initRunInd();
 function setSt(c,t){
   sDot.className=c||'';
   var abnormal = (c==='error'||c==='warn');
@@ -3059,6 +3511,7 @@ function setSt(c,t){
     sText.textContent='';
     sText.style.display='none';
   }
+  applyRunInd();
 }
 function pad2(n){ return n<10?'0'+n:''+n; }
 // 相隔几天（按本地自然日算，不是 24 小时）：0=今天 1=昨天 2=前天 依次类推。
@@ -3666,6 +4119,33 @@ var topicSwipeOpen=null;
 // ask = ask_user 阻塞式提问在等你回答。将来后端加新 kind，在这里补文案即可。
 var ACTION_NEEDED_LABELS={ask:'待回答', confirm:'待确认', paused:'待处理'};
 
+// 终态 = "有结果没看"（绿 done / 红 failed / 灰 cancelled），不是"跑完了一会儿"。
+// 2026-10-29 用户定：侧栏那枚点**已读才消失**，不靠定时 —— 什么时候看、什么时候消。
+var _WS_TERMINAL={done:1,failed:1,cancelled:1};
+function _wsIsTerminal(s){ return !!_WS_TERMINAL[s]; }
+
+function _postTopicRead(tid){
+  try{
+    fetch('/api/topic/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic_id:tid})})
+      .catch(function(){});
+  }catch(e){}
+}
+
+// 侧栏终态点的唯一清除入口（"已读"）：用户打开过这个任务。
+// 🔴 本地和后端必须**一起**归零：只删本地那一枚的话，下一轮 8s 轮询会把它又灌回来
+// （用户看到的现象就是"点开了点还在"）。只清终态，运行中的状态动不得。
+function markTopicRead(tid){
+  if(!tid) return;
+  var hit=false;
+  for(var i=0;i<topics.length;i++){
+    if(topics[i].id!==tid) continue;
+    if(_wsIsTerminal(topics[i].working_status)){ delete topics[i].working_status; hit=true; }
+    break;
+  }
+  if(hit) renderTopics();
+  _postTopicRead(tid);
+}
+
 // 侧栏运行点 / 待办标签：拉一次全任务 working 状态，写进 topics 元数据后交给 renderTopics 渲染
 async function syncWorkingDots(){
   try {
@@ -3677,8 +4157,14 @@ async function syncWorkingDots(){
       if(t.action_needed) amap[t.id]=t.action_needed;
       if(t.loop_active) lmap[t.id]=1;
     });
+    // 🔴 用户正打开着这条任务 ⇒ 它跑完的那一瞬就算看过了，别再点亮。
+    // 否则当前任务上永远挂着一枚绿点，还得让用户再点一次它才肯消 —— 那就不叫"已读才消失"了。
+    var _curId=(currentTopic&&currentTopic.id)||null, _autoRead=[];
     for(var i=0;i<topics.length;i++){
       var tid=topics[i].id;
+      if(map[tid] && _wsIsTerminal(map[tid]) && tid===_curId && !_sendingTopics[tid]){
+        delete map[tid]; _autoRead.push(tid);
+      }
       if(map[tid]){ topics[i].working_status=map[tid]; }
       else if(topics[i].working_status && !_sendingTopics[tid]){
         delete topics[i].working_status;  // 后端已无运行态：清本地残留（本任务自己的运行态由 _sendingTopics 保护）
@@ -3691,6 +4177,7 @@ async function syncWorkingDots(){
       if(amap[tid]) topics[i].action_needed=amap[tid];
       else if(topics[i].action_needed) delete topics[i].action_needed;
     }
+    for(var _ar=0;_ar<_autoRead.length;_ar++) _postTopicRead(_autoRead[_ar]);
   } catch(e){}
 }
 
@@ -4313,9 +4800,25 @@ function render(){
       if(!m._seen){ pcls+=' anim-in'; m._seen=true; }
       dp.className=pcls;
       dp.setAttribute('data-uid', mid(m));
-      dp.innerHTML='<div class="av"><img src="/icon.png" alt="AI"></div><div class="proc-wrap"><div class="proc-box'+(m.open?' open':'')+(m.live?' proc-live':'')+'" onclick="toggleProc('+mid(m)+',event)"><div class="proc-head-line"><span class="proc-caret">▶</span><span class="proc-sum">'+procSummary(m)+'</span>'+(m.live?'<span class="proc-live-dot"></span><span class="proc-mode-btn" title="点击切换：简约（只显示思考）/ 复杂（含工具动作与正在打的字）" onclick="event.stopPropagation();toggleProcMode()">'+procModeLabel()+'</span>':'')+'</div><div class="proc-body">'+((m.open||m.live)?procBodyHTML(m):'')+'</div></div></div>';
+      dp.innerHTML='<div class="av">'+_avHTML('ai')+'</div><div class="proc-wrap"><div class="proc-box'+(m.open?' open':'')+(m.live?' proc-live':'')+'" onclick="toggleProc('+mid(m)+',event)"><div class="proc-head-line"><span class="proc-mark">'+procMarkHTML(m)+'</span><span class="proc-sum">'+procSummary(m)+'</span>'+(m.live?'<span class="proc-live-dot"></span>':'')+'</div><div class="proc-body">'+((m.open||m.live)?procBodyHTML(m):'')+'</div></div></div>';
       // 首帧就定好空态：不然先按 352px 画出来再缩回 108px，肉眼看到的是闪一下
       if(m.live&&m.open) _syncProcEmpty(dp.querySelector('.proc-box'), dp.querySelector('.proc-body'), m);
+      // 摘要行首帧把内容指纹初始化 —— 否则第一次 updateProcDom 会以为"内容变了"重写一次，
+      // 动画刚起就被重启（只发生一次，但正好是第一眼）。
+      // （溢出裁断已交给 CSS 原生 ellipsis，不再有首帧测量；_fitThinkTail 已退役。）
+      if(m.live){
+        // 🔴 必须用 IIFE 把 dp 传进去：`var _dp` 在 for 里是函数作用域，
+        //    闭包会全部捕获循环结束后的那一个 —— 首帧只量到最后一个泡，
+        //    别的泡的 orb 一个都注册不上（图形静止、也不报错）。
+        (function(_dp){
+          var _s0=_dp.querySelector('.proc-sum');
+          if(_s0) _s0._html=_s0.innerHTML;   // 别让第一次 updateProcDom 误判"内容变了"再重写一次
+          // 状态图形在标题行最左的 .proc-mark 里：注册同步做，别等下一帧
+          // （放进 rAF 会先画一帧静态三角，那本身就是"跳一下"）
+          var _mk=_dp.querySelector('.proc-mark');
+          if(_mk){ _mk._html=_mk.innerHTML; _orbKick(_mk); }
+        })(dp);
+      }
       _frag.appendChild(dp);
       i++;
       continue;
@@ -4405,7 +4908,7 @@ function render(){
         metaHTML='<span class="err-note">⚠ '+esc(m.error_msg||'这条消息没有得到回复')+'</span>'
                 +'<button class="resend-btn" type="button" title="把这条消息原样再发一次" onclick="resendByUid('+mid(m)+')">'+RESEND_SVG+'重新发送</button>';
       }
-      var avContent=m.role==='you'?(userAvatar?'<img src="'+getAvatarObjectURL()+'" alt="You">':DEFAULT_AVATAR_SVG):'<img src="/icon.png" alt="AI">';
+      var avContent=_avHTML(m.role==='you'?'you':'ai');   // 菊花占位 + 破图兜底统一在 _avHTML（2026-10-29）
       if(m.kind==='error'){
         // 失败事件卡（服务端以 args.kind='error' 落库）：不画气泡 —— 它不是 AI 说的话，
         // 是一段运行事件。默认只占一行（首行当标题），点开才展开完整排障详情。
@@ -4609,9 +5112,11 @@ async function newTopic(){
 var switchSeq=0;
 async function switchTopic(tid){
   try{ if(typeof closeMindBoard === 'function') closeMindBoard(); }catch(e){}
-  if(currentTopic&&currentTopic.id===tid){ if(window.innerWidth<=768) closeSidebar(true); return; }
+  if(currentTopic&&currentTopic.id===tid){ markTopicRead(tid); if(window.innerWidth<=768) closeSidebar(true); return; }
   if(window._switching) return;
   window._switching=true;
+  // 打开即已读：侧栏那枚绿/红点在这里消掉（含"点第二次当前任务"）
+  markTopicRead(tid);
   try {
   // 切任务时**不许抢焦点**：用户可能正用键盘在消息区翻/选中文字，
   // 无条件 focus() 输入框会把焦点和光标一起拽走（桌面壳里尤其明显）。
@@ -4642,6 +5147,10 @@ async function switchTopic(tid){
   // （与 §62 草稿同理：恢复侧不主动清空态，残留物就会跟着跑到别的任务里。）
   clearQuote();
   topicTitle.textContent=dispTitle(currentTopic);
+  // 🔴 先清空态再探测（§118）：_flowProbe 是异步的，等它回来之前 .show 还带着**上一个任务**
+  // 的值 —— 手机上右岛只按 .show 露面，于是切任务那一下会先冒出一枚流程图图标、随后又消失。
+  // 这就是用户说的"加载时多出来的图标"。先置 false，探测结果回来再开。
+  _setFlowBtn(false);
   _flowProbe(tid);   // 立刻按本任务纠正入口按钮，别让上一个任务的图残留在标题旁
   // Cache-first：优先内存缓存(本会话切走时刚存的)，localStorage 兜底；
   // localStorage 可能因 WebView 配额满而写入失败(静默catch)，不能只依赖它
@@ -4960,10 +5469,32 @@ function _loadProgress(ps){
 // 带**真实**下载进度的 JSON 拉取。服务端 _json 恒带 Content-Length，所以
 // "已收字节/总字节"是硬数据；手机走公网时这段传输正是主要耗时。
 // 取不到总长（命中缓存/分块传输）一律退回普通 json()，提示条只转 spinner，绝不按时间猜百分比。
+// 读 body 的单块超时：流一旦静默（隧道卡住），reader.read() 会永久 pending，
+// 而这里的 finally 也会跟着永不执行 —— 外面那个 _tailBusy 就一起死。
+async function _readChunkTimeout(reader, ms){
+  var timer=null;
+  var t=new Promise(function(_,rej){ timer=setTimeout(function(){ rej(new Error('bodyChunkTimeout')); }, ms); });
+  try{
+    return await Promise.race([reader.read(), t]);
+  } finally { if(timer) clearTimeout(timer); }
+}
+
+// 包一层“主动超时 abort”：不把它当真实网络故障上报（见 _notifyNetErr 里的说明）
+function _abortAsTimeout(ac){
+  try{ window.__dayanAbortSuppress=(window.__dayanAbortSuppress||0)+1; }catch(e){}
+  try{ ac.abort(); }catch(e){}
+  setTimeout(function(){ try{ window.__dayanAbortSuppress=Math.max(0,(window.__dayanAbortSuppress||1)-1); }catch(e){} }, 0);
+}
+
 async function _fetchJsonProgress(url){
   var tk=_loadOpen();
+  var _ac=null, _headTo=null;
   try{
-    var resp=await fetch(url);
+    try{ if(typeof AbortController!=='undefined') _ac=new AbortController(); }catch(e){ _ac=null; }
+    // 响应头 15s 不到就主动 abort：这是手机端最常卡的一步（连接建了但服务端不回）。
+    if(_ac){ _headTo=setTimeout(function(){ _abortAsTimeout(_ac); }, 15000); }
+    var resp=await fetch(url, _ac?{signal:_ac.signal}:undefined);
+    if(_headTo){ clearTimeout(_headTo); _headTo=null; }
     // 浏览器若没把 304 补成缓存正文，body 会是空的 —— 绕缓存重取一次，别让一次命中变成"加载失败"
     if(resp.status===304) resp=await fetch(url,{cache:'no-store'});
     // 加密链路（手机走公网）：正文在 fetch 包装层 _readEncBody 里已经流式读完并报了进度，
@@ -4977,7 +5508,9 @@ async function _fetchJsonProgress(url){
     var reader=body.getReader(), dec=new TextDecoder('utf-8'), txt='';
     var ps={total:total,got:0,rate:0,_pt:0,_pg:0,token:tk};
     for(;;){
-      var st=await reader.read();
+      // 每块 20s 超时：流静默时 reader.read() 会永久 pending，finally 永不执行，
+      // 外层轮询锁跟着一起死。宁可报错重试，也不能无声挂住。
+      var st=await _readChunkTimeout(reader, 20000);
       if(st.done) break;
       ps.got+=st.value.length;
       txt+=dec.decode(st.value,{stream:true});   // stream:true 处理跨块的多字节 UTF-8
@@ -4986,7 +5519,10 @@ async function _fetchJsonProgress(url){
     txt+=dec.decode();
     ps.got=total; _loadProgress(ps);
     return JSON.parse(txt);
-  } finally { _loadClose(tk); }
+  } finally {
+    if(_headTo){ clearTimeout(_headTo); _headTo=null; }
+    _loadClose(tk);
+  }
 }
 function _loadEnd(){
   _loadN=Math.max(0,_loadN-1);
@@ -5051,7 +5587,23 @@ function _ensureSkel(){
 function _hpClear(){
   var els=document.querySelectorAll('.hp-skel');
   for(var i=0;i<els.length;i++) els[i].classList.remove('hp-skel');
+  // 顶栏从"整块不出现"切到可见（§118）。这个标记和 hp-skel 必须同一刻摘 ——
+  // 只摘一个就是"标题好了、状态行还在扫"那种半吊子，正是这次要消掉的东西。
+  document.documentElement.removeAttribute('data-boot');
 }
+
+// 兜底解封：data-boot 冻的是顶栏的半成品部分，万一哪条启动路径没走到 _hpClear
+// （未捕获异常 / 停在 await 上），标题区会一直空着 —— 那比"露半成品"严重得多。
+// 🔴 30s 而不是 12s：实测首屏正常装载就要 10s 上下（529 任务 / 12.5G 主库），
+//    12s 的兜底会被正常路径频繁抢跑，等于把骨架条又放回来（判据变成"谁先到"）。
+// 🔴 兜底走 _hpClear() 而不是只 removeAttribute：解封和摘骨架必须同一个出口，
+//    只解封的话顶栏会以"骨架条 + 绿点"的样子出现，正是这次要消掉的东西。
+setTimeout(function(){
+  if(document.documentElement.hasAttribute('data-boot')){
+    console.warn('[boot] 30s 未走到 _hpClear，兜底解封顶栏');
+    _hpClear();
+  }
+}, 30000);
 
 // 服务端消息 → 前端消息模型。loadMessages(全量/分页) 与 loadNewMessages(增量) 共用同一套解析，
 // 避免两处各写一份、日后改一处漏一处（历史上 dedupe/错误标记清理就吃过这个亏）。
@@ -5409,15 +5961,35 @@ function setupScrollLoad(){
       if(inner&&inner.scrollHeight>inner.clientHeight+2&&(inner.scrollTop+e.deltaY)>0) return;
       _userUp=true; chatStick=false;
     },{passive:true,capture:true});
-    var _tY0=null;
+    /* 手指状态参与跟底判据（第 64 轮 · 2026-10-29）
+       🔴 实测（390×844，思考流每 25ms 一次 DOM 变更）：从贴底往上慢拖
+         12/24/40/80/120/160px，`backSum` 恰好等于拖拽距离、结束离底**恒为 0** ——
+         每一像素都被 `_followBurst` 还回去了。用户看到的就是「被输入框顶来顶去、反复震荡，
+         要拖一段距离才恢复正常」。
+       两条原因缺一不可：① pin 每写一次 scrollTop=max 就派发一次 scroll，`chatAtBottom()` 成立
+         ⇒ `_userUp=false; chatStick=true`，把「用户要离开底部」当场擦掉；② 意图阈值 6px 在 pin
+         抢先落位后永远攒不够。所以必须把「手指在不在、动没动」本身当成判据，不能只看位置。 */
+    var _tY0=null,_tPrev=null,_tSum=0,_tDown=false;
     chatBox.addEventListener('touchstart',function(e){
-      _tY0=(e.touches&&e.touches[0])?e.touches[0].clientY:null;
+      _tY0=_tPrev=(e.touches&&e.touches[0])?e.touches[0].clientY:null;
+      _tSum=0; _tDown=true;
     },{passive:true,capture:true});
     chatBox.addEventListener('touchmove',function(e){
       if(_tY0==null) return;
       var y=(e.touches&&e.touches[0])?e.touches[0].clientY:_tY0;
+      if(_tPrev!=null) _tSum+=Math.abs(y-_tPrev);   // 累计路程：点击抖动 ≤2px，拖拽必然超过
+      _tPrev=y;
       if(y-_tY0>6&&chatBox.scrollTop>2){ _userUp=true; chatStick=false; }   // 手指下拉 = 看更早内容
     },{passive:true,capture:true});
+    /* 松手补判：pin 在拖拽期间是暂停的（见 _followPin），所以手指只挪 3~6px 时
+       touchmove 那条 6px 规则可能没赶上，而人已经明确在往上看了。
+       判据用「净位移 >2px 且累计路程 ≥3px」——3px 以下仍按点击抖动处理，不抢跟底。 */
+    function _chatTouchEnd(){
+      if(_tDown&&_tY0!=null&&_tPrev!=null&&(_tPrev-_tY0)>2&&_tSum>=3){ _userUp=true; chatStick=false; }
+      _tDown=false; _tSum=0; _tY0=null; _tPrev=null;
+    }
+    chatBox.addEventListener('touchend',_chatTouchEnd,{passive:true,capture:true});
+    chatBox.addEventListener('touchcancel',_chatTouchEnd,{passive:true,capture:true});
     // ── 跟随落位：内容一变就补一次（只在跟随态）────────────────────────────
     // 为什么不能只靠轮询顺手补：**内容长高本身不产生 scroll 事件**（scrollTop 没动），
     // 也不改 chatBox 自身尺寸（它是 overflow:auto 的滚动容器），于是旧实现只能等下一次
@@ -5437,6 +6009,11 @@ function setupScrollLoad(){
     var _folTok=0;
     function _followPin(){
       if(!chatStick||window._skipRenderScroll||_loadingMore) return false;
+      /* 🔴 手指按在内容上、而且已经动过（累计 ≥2px）时，pin 必须让位。
+         这一条是「顶来顶去」的直接解药：pin 每帧把视口拽回底部，还会顺手擦掉 _userUp，
+         两件事叠起来就让慢速拖拽**永远**推不动（实测 160px 的拖拽被完整还回来）。
+         2px 是抖动门限：手指只是搭在屏幕上看内容时，跟底照旧生效。 */
+      if(_tDown&&_tSum>=2) return false;
       var m=chatBox.scrollHeight-chatBox.clientHeight;
       if(m>0&&chatBox.scrollTop<m) chatBox.scrollTop=m;
       return true;
@@ -5502,7 +6079,7 @@ function setupScrollLoad(){
 var _msgUid=0;
 function mid(m){ if(!m.uid) m.uid=++_msgUid; return m.uid; }
 function makeLiveProc(){
-  var w={type:'proc',role:'ai',live:true,working:true,steps:[],status:'思考中…',thinking:'',tools:[],resp:'',turn:null,remaining:null,ts:Date.now()/1000,open:false};
+  var w={type:'proc',role:'ai',live:true,working:true,steps:[],status:'处理中…',thinking:'',tools:[],resp:'',turn:null,remaining:null,ts:Date.now()/1000,open:false};
   mid(w);
   return w;
 }
@@ -5514,10 +6091,17 @@ function applyWorkingData(w, wd){
   w.status=labels[wd.status]||'处理中…';
   w.turn=(wd.turn!=null)?wd.turn:null;
   w.remaining=(wd.remaining!=null)?wd.remaining:null;
-  w.thinking=wd.thinking||'';          // 上层：reasoning_content 实时思考
-  w.inter=_splitInterMark(wd.intermediate||'');  // 下层：已确认的工具轮动作叙述（换行累积）
-  w.resp=wd.response||'';               // 下层底部：当前轮模型打字（工具轮=动作，最终轮=答案）
+  w.thinking=wd.thinking||'';          // 当前轮 reasoning（2026-10-29 起后端只推本轮，换轮清零）
+  w.inter=_splitInterMark(wd.intermediate||'');  // 累积动作叙述（timeline 为空时=旧后端回退数据源）
+  w.resp=wd.response||'';               // 当前轮模型打字（工具轮=动作，最终轮=答案）
+  w.timeline=wd.timeline||[];           // 按轮交织时间线 [{thinking,inter,tools,out?}]：历轮思考跟着动作走
   w.tools=(wd.tool_calls||[]).map(function(t){return t.name;});
+  // 转速由 token 流速驱动（见 _orbOmegaTick）：这里回报一次「已经吐出来多少字符」，
+  // 增量 ÷ 间隔 就是流速。三段都算 —— 想事的 thinking 也是 token。
+  _orbSampleFlow(w.thinking.length + w.resp.length + String(wd.intermediate || '').length);
+  // 大眼自己的思维链（task/thought_chain.py）最后一步，服务端在 /api/working 里附带；
+  // 老服务端没有这个字段 → undefined，摘要行自然退回实时思考，不会报错。
+  w.thought=wd.thought||null;
   // ── 阻塞式提问卡片（ask_user 等待中）──
   // 带上 w：卡片必须落在**这条消息自己的**过程泡里。旧写法用
   // chatBox.querySelector('.row.proc-live .proc-box')（= 文档里第一个 live 泡），
@@ -5626,7 +6210,383 @@ function _splitInterMark(s){
   return String(s||'').replace(_INTER_MARK_RE,'\n'+_INTER_NOTE);
 }
 // 收起态的一行摘要（已去掉"第N轮"显示）
+// 【2026-10-27 用户要求】live 态显示"思维链当下的内容"。
+// 【2026-10-28 用户更正】「前面截一段，后面截一段很奇怪，你就截后面一段就好了」：
+//   源已经不是 reasoning 流，而是**每步写好的成品摘要**（task/thought_chain.py，
+//   一两句、自带主语，如「原因清楚了：video() 用多进程 Pool，worker…」）——
+//   开头才是主句，从尾巴截出来的就是「Pool，worker…」这种没头没脑的残句
+//   （再叠服务端落链时截的尾部 "…"，两头各缺一截，就是用户截图里的样子）。
+//   所以：**从开头显示**，超宽交给 CSS 原生 ellipsis 在末尾出 "…"（见 .s-tail>.clip）。
+function _thinkTail(t){
+  var s=String(t||'').replace(/\s+/g,' ').trim();
+  if(!s) return '';
+  // 兜底上限：正常摘要一两句（<100 字）；异常超长时**截尾**（符合"只截后面"），省 DOM
+  return s.length>300?s.slice(0,300)+'…':s;
+}
+// ── 三点连线（.proc-orb）的驱动 ──────────────────────────────────────────
+// 用户要的：① 三个点连成线 ② 点与点的距离用随机数变 ③ 整体顺时针转起来
+//          ④ 全程连贯，不能"动一下停一下" ⑤ 随机种子取当前 token 数
+//
+// 🔴 别用「设目标 + 每帧插值」。插值是指数收敛的：速度随距离衰减，逼近目标后归零，
+//    只能干等下一次换目标 ⇒ 屏幕上必然是"动一下停一下"，把间隔调多快都一样。
+//    这里改成**关于时间的解析式**：没有目标、没有插值、没有"换目标"那套状态机：
+//        角度_i = ph + 120°·i + D_i·sin(2πt/T_i + φ_i)       ← ph 是累加的旋转相位
+//        半径_i = R0 + A_i·sin(2πt/S_i + ψ_i)                ← 点距一直在变
+//    三个点用互不相同的 T_i/S_i/φ_i/ψ_i，叠加后角速度永远不为零 ⇒ 不会停。
+// 转速：ω 由 **token 流速**驱动（见 _orbOmegaTick），快输出就快转、想事时慢转。
+//       ⚠ ω 不是常量 ⇒ 角度**不能**写 ω·t（ω 一变，历史相位会整体缩水＝图形跳变），
+//       必须逐帧累加 ph += ω·dt。这是唯一的「状态」，不是「设目标再插值」那种状态机。
+// 随机：相位/周期/振幅全部由 seed 决定，seed = 当前 token 数（+ 递增序号避免同形）。
+// 代价：每帧 3 组三角函数 + 1 次相位累加 + 4 个属性写，12×12 区域；实测 10µs 量级。
+var _orbs = [], _orbRaf = 0, _orbSeq = 0, _orbPausedAt = 0;
+var _TAU = Math.PI * 2, _DEG = Math.PI / 180;
+// 转速区间（rad/s）：屏幕 y 向下 ⇒ 角度递增＝视觉顺时针。
+// 🔴 下界不是随手定的：角抖动项的角速度上界 = max(D_i·2π/T_i)，D≤16°、T≥1.6s ⇒ 1.096 rad/s。
+//    ω 必须严格大于它，否则点会倒转、看起来就是「卡一下」。1.45 留了 32% 余量。
+//    改 D/T 的取值时必须回来重算这个下界。
+var _ORB_WMIN = 1.45;         // 想事 / 工具执行时的慢转（4.3s 一圈，仍在动）
+var _ORB_WMAX = 4.00;         // 满速（1.57s 一圈）
+// ── 入场三段式（用户定：等模型首字 → 三点逐个显现 → 连线 → 才开始转）──
+// 纯时间解析式驱动（进度只看 Date.now()-起点），状态烙在 SVG 的 data-intro 属性上，
+// 整页重建 / 增量重写都能原地接着播，不重头不跳帧。总长 0.9s：
+//   0.00~0.54  三个点逐个显现（每颗错开 0.14s、各自 0.26s 淡入，smoothstep）
+//   0.54~0.90  三角连线沿 path 画一圈（stroke-dashoffset 收到 0）
+//   0.90 之后   相位(t/ph)解冻，按流速正常起转 —— intro 期间 t/ph 全程冻结
+var _ORB_INTRO_T = 0.90;      // 入场总时长（秒）
+var _ORB_TPS_K = 45;          // 流速映射的拐点：45 tok/s 时到中速（中文流出常在这一档）
+var _ORB_R0 = 3.05;           // 基准半径（±0.36 整体 ±0.18 个体 ⇒ 2.51~3.59，坐标 2.41~9.59）
+var _ORB_INIT = [[6, 2.6], [8.94, 7.7], [3.06, 7.7]];   // 与 _statusMark 的静态三角一致
+
+// ── token 流速 → 转速 ────────────────────────────────────────────────────
+// 信号源：/api/working 每次轮询报的产出字符总数（thinking + intermediate + response）。
+//   这三段文本本身就是「token 一个个吐出来」的结果，增量 ÷ 间隔 就是输出流速。
+//   🔴 不用 /api/usage.total_tokens：8 秒轮询一次，做速度只会一顿一顿。
+//   🔴 不用 wd.remaining：那是「剩余轮数预算」，跟 token 无关。
+// 1.6 = 中文「字/token」的粗略比例，只用来把数字说成 tps 口径（映射曲线会把这个常数吸收掉，
+// 它不参与任何判断逻辑，改它只影响 ω 的标定）。
+var _orbTps = 0;              // 平滑后的流速（token/s）
+var _orbTpsAt = 0;            // 上次拿到新产出的时刻（秒）——断流时按它衰减
+var _orbFlowAt = 0, _orbFlowPrev = 0;
+var _orbOmega = _ORB_WMIN;    // 当前角速度（rad/s），每帧朝目标平滑趋近
+var _orbOmAt = 0;
+
+// 每来一次 /api/working 喂一次（500ms 级别，O(1)）
+function _orbSampleFlow(n){
+  var now = performance.now() / 1000;
+  if(!_orbFlowAt){ _orbFlowAt = now; _orbFlowPrev = n; return; }
+  var dt = now - _orbFlowAt;
+  if(dt < 0.12) return;                 // 重连 / 多端会连发几次，攒着别当成瞬时速度
+  var d = n - _orbFlowPrev;
+  _orbFlowAt = now; _orbFlowPrev = n;
+  if(d < 0){ _orbTps = 0; return; }     // 换轮 / 上下文重开：整段清零，不按负速算
+  // 🔴 正好没产出 ≠ 没在跑：一次 500ms 的空白就清零，转速会"掉一下再爬上来"（正是要消灭的观感）。
+  //    这种空白交给上面的断流衰减处理（它按 1.2s 的节奏回落，肉眼是连续减速）。
+  if(d === 0) return;
+  _orbTpsAt = now;
+  var inst = d / dt / 1.6;              // 字符/s → tok/s
+  _orbTps += (inst - _orbTps) * (1 - Math.exp(-dt / 0.7));   // 指数平滑，抹掉 500ms 采样的锯齿
+}
+// 流速 → 稳态转速（比较饱和：低速段灵敏、高速段不再快多少，避免"停一下又猛地转起来"）
+// 公式只写这一处 —— 出图脚本也调它，图和实际行为才是同一件事。
+function _orbOmegaOf(tps){
+  return _ORB_WMIN + (_ORB_WMAX - _ORB_WMIN) * (tps / (tps + _ORB_TPS_K));
+}
+// 每帧一次（与 orb 个数无关）：断流衰减 → 目标转速 → 平滑趋近
+function _orbOmegaTick(t){
+  var dt = t - _orbOmAt; _orbOmAt = t;
+  if(!(dt > 0) || dt > 0.25) dt = 0.0167;
+  // 断流超过 0.9s：流速按 τ=1.2s 回落 ⇒ 工具跑几十秒时是慢转，不是停住
+  if(_orbTps > 0.01 && t - _orbTpsAt > 0.9) _orbTps *= (1 - Math.min(0.5, dt / 1.2));
+  if(_orbTps < 1) _orbTps = 0;         // 死区：指数衰减只是逼近 0，留着 0.x 会让 ω 永远差一点到不了下界
+  var tgt = _orbOmegaOf(_orbTps);
+  // 转速本身也平滑（τ≈0.3s）：ω 阶跃会让「转得快」变成「咔一下变快」
+  _orbOmega += (tgt - _orbOmega) * Math.min(0.4, dt / 0.30);
+  return _orbOmega;
+}
+
+function _orbHash(a, b){
+  var h = (2166136261 ^ (a >>> 0)) >>> 0;
+  h = Math.imul(h ^ (b >>> 0), 16777619) >>> 0;
+  h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995) >>> 0; h ^= h >>> 15;
+  return h >>> 0;
+}
+// (seed, 组, 序号) → [0,1)，同一组入参永远同一个值 ⇒ 同种子形状可复现
+function _orbRnd(seed, a, i){ return _orbHash(_orbHash(seed, a), i) / 4294967296; }
+
+// 由 seed 派生这一组点的相位/周期/振幅（只在首次出现时算一次，之后被继承）
+function _orbParams(o){
+  var s = o.seed;
+  // 半径拆两层：整体呼吸（三点共用）+ 各点小差异（制造不等边）
+  // 🔴 各点独立起伏太大会把「旋转」盖掉，静态看就是乱抖 —— 整体那份要给足，个体那份要小。
+  o.A0  = 0.26 + _orbRnd(s, 17, 1) * 0.10;      // 整体半径起伏
+  o.S0  = 2.6 + _orbRnd(s, 17, 2) * 0.7;        // 整体起伏周期
+  o.P0  = _orbRnd(s, 17, 3) * _TAU;
+  o.phi = [_orbRnd(s, 11, 1) * _TAU, _orbRnd(s, 11, 2) * _TAU, _orbRnd(s, 11, 3) * _TAU];
+  o.psi = [_orbRnd(s, 12, 1) * _TAU, _orbRnd(s, 12, 2) * _TAU, _orbRnd(s, 12, 3) * _TAU];
+  o.Tj  = [1.9 + _orbRnd(s, 13, 1) * 0.9, 1.6 + _orbRnd(s, 13, 2) * 0.9, 2.1 + _orbRnd(s, 13, 3) * 0.9];
+  o.Ta  = [1.25 + _orbRnd(s, 14, 1) * 0.55, 1.5 + _orbRnd(s, 14, 2) * 0.55, 1.1 + _orbRnd(s, 14, 3) * 0.55];
+  o.D   = [6 + _orbRnd(s, 15, 1) * 10, 6 + _orbRnd(s, 15, 2) * 10, 6 + _orbRnd(s, 15, 3) * 10];   // 角抖动，度
+  o.A   = [0.08 + _orbRnd(s, 16, 1) * 0.10, 0.08 + _orbRnd(s, 16, 2) * 0.10, 0.08 + _orbRnd(s, 16, 3) * 0.10];
+}
+// 第 j 个点在当前这一刻的位置 —— 公式只写这一处（_orbStep / _orbRegister / 出图脚本共用）
+// 🔴 旋转项读 o.ph（逐帧累加），**不是** ω·o.t：ω 随流速变化，用 ω·t 会让历史相位被重算，
+//    表现就是转速一变、整个图形瞬移一下。
+function _orbPoint(o, j){
+  var t = o.t;
+  var ang = o.ph + j * 2.0943951
+          + o.D[j] * _DEG * Math.sin(_TAU * t / o.Tj[j] + o.phi[j]);
+  var r = _ORB_R0 + o.A0 * Math.sin(_TAU * t / o.S0 + o.P0)
+                  + o.A[j] * Math.sin(_TAU * t / o.Ta[j] + o.psi[j]);
+  o.cur[j][0] = 6 + Math.cos(ang) * r;
+  o.cur[j][1] = 6 + Math.sin(ang) * r;
+}
+// 每帧的 DOM 写入：6 个数值只格式化一次，d 和 cx/cy 复用同一批字符串
+// （原来是 12 次 toFixed —— 同一批坐标算了两遍）
+function _orbWrite(o){
+  var p = o.cur, s = o._s || (o._s = ['', '', '', '', '', '']);
+  s[0] = p[0][0].toFixed(2); s[1] = p[0][1].toFixed(2);
+  s[2] = p[1][0].toFixed(2); s[3] = p[1][1].toFixed(2);
+  s[4] = p[2][0].toFixed(2); s[5] = p[2][1].toFixed(2);
+  o.path.setAttribute('d',
+    'M' + s[0] + ' ' + s[1] + 'L' + s[2] + ' ' + s[3] + 'L' + s[4] + ' ' + s[5] + 'Z');
+  o.c[0].setAttribute('cx', s[0]); o.c[0].setAttribute('cy', s[1]);
+  o.c[1].setAttribute('cx', s[2]); o.c[1].setAttribute('cy', s[3]);
+  o.c[2].setAttribute('cx', s[4]); o.c[2].setAttribute('cy', s[5]);
+}
+// ── 入场三段式的每帧写入：进度是纯时间解析式（§111），不累计、可任意续播 ──
+// 点 j 显现窗口 = [j*0.14, j*0.14+0.26]；连线窗口 = [0.54, 0.90]。
+// intro 期间坐标冻结（_orbStep 不推进 t/ph），这里只写 opacity 与 dashoffset。
+function _orbIntroApply(o, it){
+  var i, v;
+  for(i = 0; i < 3; i++){
+    v = (it - i * 0.14) / 0.26;
+    v = v <= 0 ? 0 : (v >= 1 ? 1 : v);
+    v = v * v * (3 - 2 * v);                       // smoothstep：起止速度都是 0，"浮现"感
+    o.c[i].style.opacity = (v * 0.92).toFixed(3);  // 0.92 = CSS 里 .proc-orb circle 的稳态
+  }
+  v = (it - 0.54) / 0.36;
+  v = v <= 0 ? 0 : (v >= 1 ? 1 : v);
+  v = v * v * (3 - 2 * v);
+  // 三角周长：intro 期间点不动，量一次就够（交接重建后 cur 换了代，惰性重算）
+  if(!o._introLen){
+    var L = 0, p = o.cur;
+    for(i = 0; i < 3; i++){
+      var a = p[i], b = p[(i + 1) % 3];
+      L += Math.sqrt((a[0]-b[0])*(a[0]-b[0]) + (a[1]-b[1])*(a[1]-b[1]));
+    }
+    o._introLen = Math.ceil(L) + 1;                // +1 余量：周长随起伏略变，别把线画不满
+  }
+  o.path.style.strokeDasharray = o._introLen;
+  o.path.style.strokeDashoffset = (o._introLen * (1 - v)).toFixed(2);
+}
+// 入场结束：清 inline → 回 CSS 稳态（点 .92、连线 .32 无 dash），相位随即解冻
+function _orbIntroClear(o){
+  o.path.style.strokeDasharray = '';
+  o.path.style.strokeDashoffset = '';
+  o.c[0].style.opacity = ''; o.c[1].style.opacity = ''; o.c[2].style.opacity = '';
+}
+function _orbReduced(){
+  try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(e){ return false; }
+}
+// 「交接包」：把当前这一帧的顶点 + 全部时间/相位参数打成一包，塞给宿主。
+// 🔴 只定义这一处 —— 退场（_orbStep）和内容重写（updateProcDom）都必须用它，
+//    两边字段不一致会出现「能接上坐标但接不上 t0 ⇒ 转着转着跳一下」。
+function _orbStash(o){
+  return { cur:[o.cur[0].slice(), o.cur[1].slice(), o.cur[2].slice()],
+           p:{ seed:o.seed, t:o.t, ph:o.ph, A0:o.A0, S0:o.S0, P0:o.P0,
+               phi:o.phi, psi:o.psi, Tj:o.Tj, Ta:o.Ta, D:o.D, A:o.A } };
+}
+function _orbRegister(el){
+  if(!el || el._orb) return;
+  var svg = el.querySelector('svg'); if(!svg) return;
+  var path = svg.querySelector('path'), cs = svg.querySelectorAll('circle');
+  if(!path || cs.length !== 3) return;
+  // 交接包挂在槽位自己身上（.proc-mark）：图形被 innerHTML 换掉时宿主还是同一个元素
+  var host = (el.closest && (el.closest('.proc-mark') || el.closest('.proc-sum'))) || el.parentNode;
+  var o = { el:el, path:path, c:[cs[0], cs[1], cs[2]], host:host, seed:0,
+            t:0, ph:0, tLast:0,          // 局部时间 / 累加相位 / 上一帧时刻（秒）
+            cur:[_ORB_INIT[0].slice(), _ORB_INIT[1].slice(), _ORB_INIT[2].slice()],
+            A0:0, S0:1, P0:0, phi:null, psi:null, Tj:null, Ta:null, D:null, A:null };
+  var prev = host && host._orbPrev;
+  if(prev && prev.p){
+    // 内容刚被重写掉：把时间原点、相位、当前顶点原样接过来 —— 接着转，不跳不闪
+    o.seed = prev.p.seed;
+    o.A0 = prev.p.A0; o.S0 = prev.p.S0; o.P0 = prev.p.P0;
+    o.phi = prev.p.phi; o.psi = prev.p.psi; o.Tj = prev.p.Tj;
+    o.Ta = prev.p.Ta; o.D = prev.p.D; o.A = prev.p.A;
+    o.t = prev.p.t; o.ph = prev.p.ph;    // 接着转：相位原样接过来，一帧都不跳
+    o.cur = [prev.cur[0].slice(), prev.cur[1].slice(), prev.cur[2].slice()];
+    host._orbPrev = null;
+  }else{
+    // 首次出现：种子 = 当前 token 数 + 递增序号（同一时刻几个泡不会长成一模一样）
+    o.seed = ((window._tokLast | 0) * 131 + (++_orbSeq) * 7919) | 0;
+    _orbParams(o);
+    o.ph = _orbSeq * 1.7; o.t = _orbSeq * 0.37;   // 同时出现几个泡也不长成一模一样
+  }
+  o.tLast = performance.now() / 1000;
+  el._orb = o; _orbs.push(o);
+  // 入场判定：起点时间烙在 SVG 的 data-intro 上（procMarkHTML 首次生成图形时写入）。
+  // 没带 / 已超时 / reduced-motion → 直接满血态（整页重建的老 orb 不许重播一遍入场）。
+  var _iv = el.getAttribute ? el.getAttribute('data-intro') : null;
+  if(_iv && !_orbReduced() && (Date.now() - Number(_iv)) < _ORB_INTRO_T * 1000){
+    o.introT0ms = Number(_iv);
+  }else{
+    o.introDone = true;
+  }
+  // 同步写一帧：调用方就在写 innerHTML 的同一个任务里，浏览器一帧都不会画中间态
+  // （首次出现也写 —— 否则会先显示一帧静态等边三角再变形，那就是"跳一下"）
+  for(var j = 0; j < 3; j++) _orbPoint(o, j);
+  _orbWrite(o);
+  // 入场中的 orb 同步落当前进度帧（点全隐起步）—— 同任务内，不会闪一帧满血
+  if(!o.introDone) _orbIntroApply(o, (Date.now() - o.introT0ms) / 1000);
+}
+// 把 root 底下新出现的 .proc-orb 收进注册表（root 自己有也算）
+function _orbKick(root){
+  if(!root) return;
+  if(root.nodeType === 1 && root.classList && root.classList.contains('proc-orb')) _orbRegister(root);
+  if(root.querySelectorAll){
+    var els = root.querySelectorAll('.proc-orb'), i;
+    for(i = 0; i < els.length; i++) _orbRegister(els[i]);
+  }
+  if(_orbs.length) _orbStart();
+}
+function _orbStart(){
+  if(_orbRaf || document.hidden) return;
+  if(_orbReduced()) return;          // 系统要求减少动效 → 保持静止三角形
+  _orbRaf = requestAnimationFrame(_orbStep);
+}
+function _orbStep(now){
+  _orbRaf = 0;
+  if(document.hidden) return;        // 切到后台：不排下一帧，回来由 visibilitychange 重启
+  var t = now / 1000, live = 0, i, j;
+  var omega = _orbOmegaTick(t);            // 每帧一次，与 orb 个数无关
+  for(i = _orbs.length - 1; i >= 0; i--){
+    var o = _orbs[i];
+    if(!o.el.isConnected){
+      // 泡被重建了 → 退场，但把时间与形状留给宿主，新元件原地接管（见 _orbRegister）
+      if(o.host && o.host.isConnected) o.host._orbPrev = _orbStash(o);
+      _orbs.splice(i, 1); continue;
+    }
+    live++;
+    var dt = t - o.tLast;
+    // 掉帧 / 刚回前台 / 首帧：钳住。相位是累加的，dt 一大就会一次转很远
+    if(!(dt > 0) || dt > 0.25) dt = 0.0167;
+    o.tLast = t;
+    // 入场三段式：只走时间线，t/ph 冻结（点静止在初始位形上浮现、连线），画完才解冻起转
+    if(!o.introDone){
+      var it = (Date.now() - o.introT0ms) / 1000;
+      if(it >= _ORB_INTRO_T){ o.introDone = true; _orbIntroClear(o); }
+      else { _orbIntroApply(o, it); continue; }
+    }
+    o.t += dt;
+    o.ph += omega * dt;                    // 屏幕 y 向下 ⇒ 角度递增＝视觉顺时针
+    for(j = 0; j < 3; j++) _orbPoint(o, j);
+    _orbWrite(o);
+  }
+  if(live) _orbRaf = requestAnimationFrame(_orbStep);
+}
+// 切后台时停表，回来时把 t0 平移掉暂停的时长（否则形状会"跳"掉一段）
+document.addEventListener('visibilitychange', function(){
+  if(document.hidden){
+    if(_orbRaf){ cancelAnimationFrame(_orbRaf); _orbRaf = 0; }
+    _orbPausedAt = performance.now();
+  }else{
+    if(_orbPausedAt){
+      // 相位是累加的，暂停期间本来就没有推进 ⇒ 只要把每颗的「上一帧时刻」对齐到眼前。
+      // （以前平移 t0 是因为角度写的是 ω·t，现在不需要了）
+      var nowS = performance.now() / 1000, i;
+      for(i = 0; i < _orbs.length; i++) _orbs[i].tLast = nowS;
+      _orbOmAt = 0; _orbPausedAt = 0;
+    }
+    _orbStart();
+  }
+});
+// 摘要行最左的状态图形（三点 + 连线，由上面的驱动整体顺时针匀速旋转、点距连续起伏）。
+// 🔴 只有默认态「处理中…」用图形表达；等待你确认 / 整理回复中 / 服务重启中 一律返回空串，
+//    由 procSummary 出文字 —— "一直转"表达的是"正在跑"，用在"等你回答"上会误导。
+// title/aria 留原文，鼠标悬停或读屏仍能拿到"处理中"这个词。
+function _statusMark(st, introMs){
+  if((st||'处理中…')!=='处理中…') return '';
+  // 初始形状 = 静态等边三角（中心 6,6）：驱动没起来时（reduced-motion、JS 未就绪）
+  // 就是这个样子；起来后第一帧直接被解析式覆盖，所以不会有人看到"跳一下"。
+  // data-intro = 入场序列起点（epoch ms）：_orbRegister 据此判"该播入场还是直接满血"，
+  // 烙在元素上 ⇒ 整页重建后照样能续播/跳过，不依赖任何 JS 侧状态。
+  return '<span class="proc-orb" title="处理中…" aria-label="处理中…"'
+       + (introMs ? ' data-intro="' + introMs + '"' : '') + '>'
+       + '<svg viewBox="0 0 12 12" aria-hidden="true">'
+       + '<path d="M6 2.6L8.94 7.7L3.06 7.7Z"/>'
+       + '<circle cx="6" cy="2.6" r="1.15"/><circle cx="8.94" cy="7.7" r="1.15"/>'
+       + '<circle cx="3.06" cy="7.7" r="1.15"/></svg></span>';
+}
+// 「模型已有响应」判据：四个输出通道任一非空（reasoning / 当前轮打字 / 工具轮叙述 / 工具调用）。
+// 用户定：模型没吐字之前，head 的三点图形不上场 —— "在等"这件事由正文占位行表达。
+function _hasModelOutput(m){
+  return !!((m.thinking && String(m.thinking).length) || (m.resp && String(m.resp).length)
+         || (m.inter && String(m.inter).length) || (m.tools && m.tools.length));
+}
+// 槽位内容的唯一出口：live 泡 → 图形；非 live 一律空（静态泡不该有"还在转"的标记）。
+// ① 特殊状态（等待你确认 / 整理回复中 / 服务重启中）不出图形，由 procSummary 出文字
+//    （"一直转"表达的是"正在跑"，用在"等你回答"上会误导）；
+// ② 默认态还要求模型已有响应 —— 图形每次登场都走入场三段式（_orbIntroAt 烙在 m 上，
+//    图形下场就清零，下次登场重新播），en route 到 data-intro 属性，跨整页重建存活。
+function procMarkHTML(m){
+  if(!(m&&m.live)) return '';
+  if((m.status && m.status!=='处理中…') || !_hasModelOutput(m)){
+    m._orbIntroAt = 0;                    // 图形下场：下次登场重走入场序列
+    return '';
+  }
+  if(!m._orbIntroAt) m._orbIntroAt = Date.now();
+  return _statusMark('处理中…', m._orbIntroAt);
+}
+// 改写槽位内容的唯一入口。内容没变就不动 DOM —— 图形一被销毁重建就要靠 _orbPrev 接管，
+// 能不动就不动（updateProcDom 是 500ms 一次）。
+// 🔴 先 stash 后改写：新图形注册时读的就是 host._orbPrev，顺序反了会跳回初始三角。
+function _procMarkSet(mark, html){
+  if(!mark || mark._html===html) return;
+  if(html){
+    var old=mark.querySelector('.proc-orb');
+    if(old && old._orb) mark._orbPrev=_orbStash(old._orb);
+  }else{
+    mark._orbPrev=null;            // 收图形：别留旧交接包，免得下次误接管
+  }
+  mark.innerHTML=html; mark._html=html;
+  _orbKick(mark);
+}
 function procSummary(m){
+  if(m&&m.live){
+    // 这一行**只承载大眼自己的思维链**（task/thought_chain.py 里 AI 每步写的 summary）。
+    // 🔴 不再退回模型 reasoning（用户：不要退回，只留思维链）——
+    //    reasoning 照样在展开体的 .w-think 里，摘要行不重复它。
+    // 🔴 只认**属于本轮**的那一步（ts 不早于本轮开始），否则链上停着的旧步
+    //    （实测最近一条是两个月前的）会被当成正在发生的事。
+    var tc='';
+    if(m.thought&&m.thought.summary){
+      var _tt=Number(m.thought.ts)||0;
+      if(_tt&&(!m.ts||_tt>=m.ts-30)) tc=_thinkTail(String(m.thought.summary));
+    }
+    if(tc) return '<span class="s-tail"><span class="clip"><i>'+esc(tc)+'</i></span></span>';
+    // 本轮还没有思维链步 → 等模型首字期间这一行空着（图形还没上场，head 干净，
+    // "在等"由正文占位行表达）；图形入场**完成后**（用户定）：摘要行不能一直空着，
+    // 补「处理中」三个字，首次出现渐显 —— 之后就算思维链步来了又走，这几个字再
+    // 回场也直接是稳定态，不重播渐显（_procTxtAt 每个 live 泡只烙一次）。
+    // 🔴 渐显用 CSS 负 animation-delay 对齐已播进度：渐显期内（0.45s）无论撞上 500ms
+    //    增量重写还是 3s 整页重建，新元素都从当前进度接着淡入，不跳回透明。
+    //    过了渐显期就发**固定串**（不带动画类）—— .proc-sum 的 _html 签名从此稳定，
+    //    不会再触发 innerHTML 重写（6508 行的大忌：重写会让 CSS 动画从 0 重播）。
+    // 非默认状态（等待你确认 / 整理回复中 / 服务重启中）没有图形，文字落在这里。
+    if(m.status && m.status!=='处理中…') return '<span class="s">'+esc(m.status)+'</span>';
+    if(m._orbIntroAt && (Date.now()-m._orbIntroAt) >= _ORB_INTRO_T*1000){
+      if(!m._procTxtAt) m._procTxtAt = Date.now();
+      var _el = Date.now() - m._procTxtAt;
+      if(_el < 500)
+        return '<span class="s proc-fadein" style="animation-delay:-'+(_el/1000).toFixed(2)+'s">'+esc('处理中')+'</span>';
+      return '<span class="s">'+esc('处理中')+'</span>';
+    }
+    return '';
+  }
+  return '<span class="s">'+_procSummary(m)+'</span>';
+}
+function _procSummary(m){
   // 折叠占位（结论视图）：明细还没拉下来 —— 先报"这一段有多少条过程记录"，
   // 让用户一眼知道这里发生过什么，而不用为了看一眼数字把几 MB 的过程明细全拉下来。
   if(m.lazy){
@@ -5664,15 +6624,22 @@ function procSummary(m){
     // 只在这里出现，所以不会和服务端占位的数字并列打架。
     return esc((m.status||'处理中…')+(m.gapHint?(' · '+m.gapHint+' 步'):'')+(tail?' · '+tail:''));
   }
-  var tools=[], hasThink=false, hasInter=false;
+  var tools=[], hasThink=false, hasInter=false, vis=0;
   var st=m.steps||[];
   for(var i=0;i<st.length;i++){
-    if(st[i].kind==='tool'){ var nm=_fixToolStep(st[i]).name||''; if(nm&&tools[tools.length-1]!==nm) tools.push(nm); }
+    // "N 步"的口径必须和展开后的编号一致（2026-10-29）：空叙述不发号也不进步数，
+    // 否则折叠行说 7 步、展开最大编号只有 4 —— 又一处"数字对不上"。
+    if(st[i].kind==='tool'){ var nm=_fixToolStep(st[i]).name||''; if(nm&&tools[tools.length-1]!==nm) tools.push(nm); vis++; }
     else if(st[i].kind==='think') hasThink=true;
-    else if(st[i].kind==='inter'||st[i].kind==='text') hasInter=true;
+    else if(st[i].kind==='inter'||st[i].kind==='text'){
+      var _t=String(st[i].text||'').replace(_INTER_MARK_RE,' ').replace(_INTER_NOTE,'').replace(/\s+/g,' ').trim();
+      if(!_t) continue;
+      hasInter=true; vis++;
+    }
+    else if(String(st[i].text||'').trim()) vis++;
   }
   if(!tools.length&&hasThink&&!hasInter&&st.length===1) return esc('💭 思考过程');
-  var s=st.length+' 步';
+  var s=vis+' 步';
   if(tools.length) s+=' · '+tools.slice(0,3).join(' → ')+(tools.length>3?' +'+(tools.length-3):'');
   else if(hasThink) s+=' · 💭';
   return esc(s);
@@ -5682,32 +6649,19 @@ function procSummary(m){
 // 为什么必须有它：思考框原来只渲染 thinking，而 thinking **只有推理模型才给**。
 // 实测第三方渠道的 DeepSeek-V4-Flash 全库 thinking 长度都是 0 ——
 // 展开后是个纯空白的大盒子，用户只能从摘要行看到最后 24 字 → "思考框看不到内容"。
-// ── 气泡展开体的显示档位（用户可切）──────────────────────────────────
-//   simple（简约）＝ 只渲染 thinking，与 09-01 起的老形态一致，清爽；
-//   full（复杂）  ＝ 再叠一层过程日志（工具轮动作叙述逐行 + 当前轮正在打的字），
-//                   用来兜住"模型不返回 reasoning 时展开体是空的"这个情况。
-// 缺省 simple：升级后你看到的仍是熟悉的样子，想要更多信息自己点右边那颗按钮。
-function procMode(){
-  try{ return localStorage.getItem('proc_view_mode')==='full'?'full':'simple'; }catch(e){ return 'simple'; }
-}
-function procModeLabel(){ return procMode()==='full'?'复杂':'简约'; }
+// ── 气泡展开体：单档全量（2026-10-29 去掉简约/复杂切换）──────────────
+// 思考 + 过程日志（编号步骤 + 正在打的字）永远一列展示，没有档位可切。
 // 占位行的唯一出口（三处渲染都调它，别再各写一份字面量）。
-// 两种"空"必须分开说：真的还没吐字 vs 这个模型压根不给 reasoning。
-// 后者在简约档是**永久**空态（DeepSeek-V4-Flash 全库 thinking 长度 0），
-// 一直写"等待模型输出…"等于骗人 —— 直说并指路切「复杂」档。
+// 单档全量后只在"思考与日志全空"时出现 —— thinking 恒空的模型由过程日志兜底，不再是永久空态。
 function procWaitHTML(m){
-  var hasOther = !!String((m&&m.resp)||'').trim() || !!String((m&&m.inter)||'').trim();
   // §108：文案**不带省略号**（用户：「这里等待输出的后面3个点去掉」）。
   // 那三个点读起来像"话还没说完"，而"还在等"这件事已经由左边的 .w-live-dots 转圈表达；
   // 文字再补一个"…"就是同一语义画两遍（§17/21/29 的老毛病）。
-  var txt = (procMode()!=='full' && hasOther)
-    ? '该模型没有返回思考过程 · 点右侧切到「复杂」看执行细节'
-    : '等待模型输出';
-  return '<div class="w-live-wait"><span class="w-live-dots"><i></i><i></i><i></i></span><span>'+txt+'</span></div>';
+  return '<div class="w-live-wait"><span class="w-live-dots"><i></i><i></i><i></i></span><span>等待模型输出</span></div>';
 }
 // 展开体此刻是不是"一个字都没有"：判据问 DOM，不看 m.thinking 之类的数据位。
-// 简约/复杂两档渲染出来的东西不一样（简约档只有 reasoning），只有 DOM 知道
-// 用户眼前到底有没有内容；按数据位猜会得到"明明有内容却被压成空态"的错误结论。
+// 只有 DOM 知道用户眼前到底有没有内容；按数据位猜会得到
+// "明明有内容却被压成空态"的错误结论。
 function _procBodyEmpty(body){
   if(!body) return true;
   var t=body.textContent||'';
@@ -5718,48 +6672,132 @@ function _procBodyEmpty(body){
 // 空态 → 展开档压矮（样式见 CSS 里 .proc-empty 那几条）。只改 class，不动 DOM。
 function _syncProcEmpty(box, body, w){
   if(!box||!box.classList) return;
-  // 快速通道：有 reasoning 就一定不空（省掉大段 textContent 拷贝；reasoning 动辄上万字）
-  var empty = (w && String(w.thinking||'')) ? false : _procBodyEmpty(body);
+  // 快速通道：有 reasoning / 有历轮时间线 / 有在打的字 ⇒ 一定不空。
+  // （旧版只看 reasoning：工具执行期 reasoning 已被服务端清空，于是每 500ms 对一个
+  //   5000 节点的树跑一次 body.textContent —— 单次 30ms 起，纯白烧。第65轮实测。）
+  var _hasAny = w && (String(w.thinking||'') || (w.timeline&&w.timeline.length) || String(w.resp||'') || String(w.inter||''));
+  var empty = _hasAny ? false : _procBodyEmpty(body);
   box.classList.toggle('proc-empty', empty);
 }
-// 就地切换：写档位 → 重建当前所有 live 气泡的展开体（静态气泡不动）。
-function toggleProcMode(){
-  var next=(procMode()==='full')?'simple':'full';
-  try{ localStorage.setItem('proc_view_mode',next); }catch(e){}
-  for(var i=0;i<messages.length;i++){
-    var m=messages[i];
-    if(!m||!m.live) continue;
-    var el=chatBox.querySelector('.row.proc[data-uid="'+mid(m)+'"]');
-    if(!el) continue;
-    var btn=el.querySelector('.proc-mode-btn');
-    if(btn) btn.textContent=procModeLabel();
-    var body=el.querySelector('.proc-body');
-    if(body){
-      // 清空后交给 syncLiveProcBody 按新档位重建（它会全量补齐 thinking 并重建日志区）
-      body.innerHTML='';
-      syncLiveProcBody(body,m);
-      _bindProcScroll(mid(m), body);
-      body.scrollTop=body.scrollHeight;
-    }
-  }
+// 按轮交织的过程日志（2026-10-29）：每一轮 = 这轮的思考片段 + 编号动作 + 工具 + 输出流。
+// 思考跟着自己那轮的动作走，编号跨轮连续 —— 像工作流一样一列列排下来。
+// 数据源 timeline 由后端每轮收尾 append；timeline 为空（旧后端未重启）回退渲染 inter 全量。
+// 尾部固定留 .w-think-cur 空壳：当前轮思考由 syncLiveProcBody 增量 append
+//（reasoning 动辄上万字，只有 textNode 增量通道不卡）。
+// 工具折叠块（2026-10-29）：默认折叠、点击展开。_toolOpen 按 key 记住展开态 ——
+// live 日志区每 3s 签名重建一次，不记住的话用户正看着输出就被折回去。
+var _toolOpen={};
+var _WRENCH_SVG='<svg viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>';
+function _toolBlock(key,name,bodyHtml,extraHead,cnt){
+  // 2026-10-29 展开没内容的工具不配三角不配展开 —— 点开什么都没有的三角是骗人的。
+  // 无内容 ⇒ 纯行（.w-tool-flat）：无三角/无 data-key/不进 _toolOpen；
+  // 「N 条」也只在真带内容的那块显示（live 多工具轮的输出全挂最后一块，前面几块不该报数）。
+  var hasBody=!!(bodyHtml&&String(bodyHtml).trim());
+  var hn=(hasBody&&cnt!=null&&cnt>0)?'<span class="w-tool-cnt">'+cnt+' 条</span>':'';
+  // 🔴 引号必须跟 class 走：class 的收尾双引号无条件补上，data-key 整段（含自己的引号）条件追加。
+  // 上一版把收尾引号挪进了 data-key 分支 ⇒ 纯行变成 class="w-tool w-tool-flat>（引号不闭合，
+  // 解析器把 > 吃进属性值，classList 全废），有内容行变成 class="w-tool data-key="L2">（属性错乱）。
+  return '<div class="w-tool'+(hasBody?'':' w-tool-flat')+((hasBody&&_toolOpen[key])?' open':'')+'"'
+    +((hasBody)?' data-key="'+esc(key)+'"':'')+'>' 
+    +'<div class="w-tool-head">'+(extraHead||'')+'<span class="w-tool-ico">'+_WRENCH_SVG+'</span>'
+    +'<span class="w-tool-name">'+esc(name)+'</span>'+hn+(hasBody?'<span class="w-tool-tri">\u25B6</span>':'')+'</div>'
+    +(hasBody?'<div class="w-tool-body">'+bodyHtml+'</div>':'')
+    +'</div>';
 }
-// 这三块合起来才等于"这一轮到底在干什么"，顺序也与定格后的静态 steps 一致。
-function liveLogHTML(m){
-  var h='';
-  var inter=String((m&&m.inter)||'');
+document.addEventListener('click',function(ev){
+  var t=ev.target;
+  var hd=t&&t.closest?t.closest('.w-tool-head'):null;
+  if(!hd) return;
+  var box=hd.parentNode; if(!box||!box.classList) return;
+  if(!box.querySelector('.w-tool-body')) return; // 展开没内容的行不响应点击（2026-10-29）
+  var on=box.classList.toggle('open');
+  var k=box.getAttribute('data-key');
+  if(k){ if(on) _toolOpen[k]=1; else delete _toolOpen[k]; }
+},false);
+function _tlRoundHTML(r, n0, tn0){
+  // 渲染一轮，返回 {h, n, tn}：n=累计动作编号，tn=累计工具序号（两者都跨轮连续）。
+  // 🔴 编号/序号的**唯一**算法在这里：上层不许再写一份"数编号"的循环，否则两处必然对不上。
+  var h='', n=n0||0, tn=tn0||0;
+  if(!r) return {h:'', n:n, tn:tn};
+  if(r.thinking) h+='<div class="w-think md">'+fmtThink(r.thinking)+'</div>';
+  // 2026-10-29 编号单位=一条叙述（与静态 steps / 服务端「N 步」同口径）。
+  // 原来按 \n 拆行逐行发号：多行叙述吃掉多个号，跟静态一比编号整体错位 —— 用户指的"对不上"。
+  // 截断标记/上限提示是账本记号不是内容，剥掉再判空。
+  var inter=String(r.inter||'').replace(_INTER_MARK_RE,' ').replace(_INTER_NOTE,'').replace(/\s+/g,' ').trim();
   if(inter){
-    var ls=inter.split('\n');
-    for(var i=0;i<ls.length;i++){
-      var t=ls[i].replace(_INTER_MARK_RE,' ').replace(/\s+/g,' ').trim();
-      if(!t||t===_INTER_NOTE) continue;
-      h+='<div class="w-inter-line">'+esc(t)+'</div>';
+    n++;
+    h+='<div class="w-inter-line"><span class="w-step-no">'+n+'</span>'+esc(inter)+'</div>';
+  }
+  var outs=r.out||[]; var _ob='';
+  for(var o2=0;o2<outs.length;o2++){ var t2=String(outs[o2]).replace(/\s+/g,' ').trim(); if(t2) _ob+='<div class="w-tool-out">'+esc(t2)+'</div>'; }
+  if(r.tools&&r.tools.length){
+    // 工具默认折叠（2026-10-29）：头部=黄色扳手+工具名+三角；输出挂在最后一个工具块里。
+    // 2026-10-29 编号统一：工具也是"看得见的动作"，与叙述共用一条编号序列（静态 steps 同算法，
+    // 否则跑完定格后编号整体位移 —— 用户看到的"数字对不上"）。
+    for(var q=0;q<r.tools.length;q++){
+      tn++; n++;
+      h+=_toolBlock('L'+tn,r.tools[q],(q===r.tools.length-1)?_ob:'','<span class="w-step-no">'+n+'</span>',outs.length||null);
+    }
+  } else if(_ob){
+    h+='<div class="w-tool open" data-key=""><div class="w-tool-head"><span class="w-tool-ico">'+_WRENCH_SVG+'</span><span class="w-tool-name">输出</span><span class="w-tool-tri">\u25B6</span></div><div class="w-tool-body">'+_ob+'</div></div>';
+  }
+  return {h:h, n:n, tn:tn};
+}
+function _tlHistHTML(tl, upto){
+  var h='', n=0, tn=0;
+  for(var i=0;i<upto;i++){
+    var r=_tlRoundHTML(tl[i], n, tn);
+    h+=r.h; n=r.n; tn=r.tn;
+  }
+  return {h:h, n:n, tn:tn};
+}
+// 末轮签名：只有"这轮还在长"的两样东西会变 —— 叙述长、输出条数。
+// 没有 timeline 时（旧后端未重启）退化成 inter 长度 —— 那时 last 容器装的是 inter 平铺。
+function _tlSig(m){
+  var tl=(m&&m.timeline)||[];
+  if(!tl.length) return 'F:'+String((m&&m.inter)||'').length;
+  var lr=tl[tl.length-1]||{};
+  return 'L'+tl.length+':'+String(lr.inter||'').length+':'+((lr.out||[]).length);
+}
+/* ── 按轮交织的过程日志（2026-10-29）──
+   每一轮 = 这轮的思考片段 + 编号动作 + 工具 + 输出流，编号跨轮连续。
+   性能结构（2026-10-29 第65轮实测）：160 轮的任务整块重建一次 120ms，而 working
+   轮询 500ms 一次 ⇒ 主线程 1/4 时间在重画**早就收尾、不会再变的历史轮**，桌面端持续卡。
+   所以拆成四段，各按自己的签名独立更新：
+     .w-tl-hist   已收尾的历史轮 —— 轮数增加只 append 一块，变少才整建（一轮一次）
+     .w-tl-last   末轮 —— 工具输出还在长，签名变只重建这一块（约 2KB）
+     .w-think-cur 当前轮思考 —— textNode 增量（reasoning 上万字，只能增量）
+     .w-resp      正在打的字 —— 独立签名，只重建自己
+   🔴 编号连续性靠 data-n/data-tn 传递：下一段从上一段容器的 data-* 接着数，
+      绝不为"当前轮在长"去重画历史轮。 */
+function liveLogHTML(m){
+  var tl=(m&&m.timeline)||[];
+  var hist={h:'',n:0,tn:0}, last={h:'',n:0,tn:0};
+  if(tl.length){
+    hist=_tlHistHTML(tl, tl.length-1);
+    last=_tlRoundHTML(tl[tl.length-1], hist.n, hist.tn);
+  } else {
+    // 旧后端回退：timeline 还没来时把 inter 平铺进末段（保持动作叙述不丢，且仍可增量更新）
+    var inter0=String((m&&m.inter)||'');
+    if(inter0){
+      var ls2=inter0.split('\n'), _n=0, _h='';
+      for(var i2=0;i2<ls2.length;i2++){
+        var t3=ls2[i2].replace(_INTER_MARK_RE,' ').replace(/\s+/g,' ').trim();
+        if(!t3||t3===_INTER_NOTE) continue;
+        _n++;
+        _h+='<div class="w-inter-line"><span class="w-step-no">'+_n+'</span>'+esc(t3)+'</div>';
+      }
+      last={h:_h, n:_n, tn:0};
     }
   }
   var resp=String((m&&m.resp)||'');
-  if(resp) h+='<div class="w-resp md">'+fmt(resp)+'</div>';
-  // 三块全空（刚起轮、模型还没吐第一个 token）才占位。thinking 非空时不占位 ——
-  // 思考已经占满面板，再加一行"等待输出"反而误导。
-  if(!h && !((m&&m.thinking)||'')) h=procWaitHTML(m);
+  var hasAny=(hist.h!==''||last.h!=='');
+  var h='<div class="w-tl-hist" data-n="'+hist.n+'" data-tn="'+hist.tn+'">'+hist.h+'</div>'
+       +'<div class="w-tl-last" data-n="'+last.n+'" data-tn="'+last.tn+'">'+last.h+'</div>'
+       +'<div class="w-think w-think-cur"></div>'
+       +(resp?'<div class="w-resp md"><span class="w-step-no">✎</span>'+fmt(resp)+'</div>':'');
+  // 时间线/思考/打字全空（刚起轮）才占位 —— 有内容再加"等待"行反而误导
+  if(!hasAny && !resp && !((m&&m.thinking)||'')) h=procWaitHTML(m);
   return h;
 }
 // 思考框 body 渲染：live 态 = 实时思考(reasoning) + 过程日志(动作叙述/当前轮打字)；
@@ -5767,36 +6805,47 @@ function liveLogHTML(m){
 function procBodyHTML(m){
   var h='';
   if(m.live){
-    // 实时思考（reasoning_content）。注意：**很多模型压根不返回 reasoning**
-    // （实测第三方渠道的 DeepSeek-V4-Flash 全库 thinking 长度都是 0），
-    // 所以它不能是展开体的唯一内容源。
-    if(m.thinking){ var tt=m.thinking; if(tt.length>500) tt='…'+tt.slice(-500); h+='<div class="w-think md">'+fmtThink(tt)+'</div>'; }
-    // 日志区按档位渲染。简约档也保留这个空容器（结构一致，切档时 syncLiveProcBody 可直接复用）；
-    // 若连思考都没有，给一行轻提示，而不是留一个大白盒。
-    if(procMode()==='full'){
-      h+='<div class="w-live-log">'+liveLogHTML(m)+'</div>';
-    } else {
-      h+='<div class="w-live-log">'+(m.thinking?'':procWaitHTML(m))+'</div>';
-    }
+    // 当前轮思考不再在此渲染（2026-10-29 按轮交织）：它由 liveLogHTML 尾部的
+    // .w-think-cur 空壳承接（syncLiveProcBody 增量 append），跟着动作走、不重复出现。
+    h+='<div class="w-live-log">'+liveLogHTML(m)+'</div>';
     return h;
   }
-  // 静态：按时间顺序平铺所有步骤
+  // 静态：按时间顺序平铺所有步骤，统一编号徽章（与 live 态同一套视觉秩序）
   var st=m.steps||[];
+  var wn=0;
   for(var j=0;j<st.length;j++){
     var s=st[j];
+    // 2026-10-29 编号统一（与 live _tlRoundHTML 同一算法）：
+    //   编号只发给"看得见的动作"= 叙述行 / 工具 / 轮文本；思考不占号（live 里思考本来就没徽章）；
+    //   空叙述不发号不渲染 —— 带 tool_calls 的 ai 消息经常没有正文，旧代码照发编号，
+    //   就是你截图里"只有数字没有内容"的空行；折叠摘要的"N 步"也按同一口径数（见下方 _procSum）。
     if(s.kind==='think'){
       // 思考正文懒加载：带 mid 但无 text = 还没拉（首屏不传正文，省下数 MB）。
       // 展开这个面板时 _ensureProcThinking 会自动补，这里是它的过渡占位。
       if(!s.text&&s.mid){ h+='<div class="w-think md w-think-ph">💭 思考过程 · 展开时加载</div>'; continue; }
-      var t2=s.text||''; if(t2.length>2000) t2=t2.slice(0,2000)+'…'; h+='<div class="w-think md">'+fmtThink(t2)+'</div>';
+      var t2=s.text||''; if(t2.length>2000) t2=t2.slice(0,2000)+'…';
+      if(t2.trim()) h+='<div class="w-think md">'+fmtThink(t2)+'</div>';
+      continue;
     }
-    else if(s.kind==='tool'){
+    if(s.kind==='inter'){
+      // 与 live 同口径：一条叙述一个号；截断标记/上限提示剥掉再判空。
+      var ln=String(s.text||'').replace(_INTER_MARK_RE,' ').replace(_INTER_NOTE,'').replace(/\s+/g,' ').trim();
+      if(!ln) continue;
+      if(ln.length>2000) ln=ln.slice(0,2000)+'…';
+      wn++;
+      h+='<div class="w-inter-line"><span class="w-step-no">'+wn+'</span>'+esc(ln)+'</div>';
+      continue;
+    }
+    wn++;
+    var _no='<span class="w-step-no">'+wn+'</span>';
+    if(s.kind==='tool'){
       s=_fixToolStep(s);
-      h+='<div class="w-tool-call">🔧 '+esc(s.name||'工具调用')+(s.args?' <code>'+esc(JSON.stringify(s.args).slice(0,120))+'</code>':'')+'</div>';
-      if(s.out){ var so=String(s.out); if(so.length>200) so=so.slice(0,200)+'…'; h+='<div class="w-tool-out">'+esc(so)+'</div>'; }
+      var _tb='';
+      if(s.args) _tb+='<code class="w-tool-args">'+esc(JSON.stringify(s.args).slice(0,300))+'</code>';
+      if(s.out){ var so=String(s.out); if(so.length>600) so=so.slice(0,600)+'…'; _tb+='<div class="w-tool-out">'+esc(so)+'</div>'; }
+      h+=_toolBlock('S'+wn,s.name||'工具调用',_tb,_no,null);
     }
-    else if(s.kind==='inter'){ var ln=s.text||''; if(ln.length>300) ln=ln.slice(0,300)+'…'; h+='<div class="w-inter-line">'+esc(ln)+'</div>'; }
-    else { h+='<div class="proc-turn md">'+fmt(s.text||'')+'</div>'; }
+    else { var tx=String(s.text||''); if(tx.trim()) h+='<div class="proc-turn md">'+_no+fmt(tx)+'</div>'; }
   }
   return h||'<div style="color:var(--tdim)">（无记录）</div>';
 }
@@ -5807,52 +6856,91 @@ function procBodyHTML(m){
 //   ② .w-live-log（动作叙述 + 当前轮打字）—— 内容签名变了才重建（长度+尾部指纹）。
 //      不增量是因为它走 markdown 渲染，逐字符 append 出不了正确的排版。
 function syncLiveProcBody(body, w){
-  var thinkEl=body.querySelector('.w-think');
+  // 结构（2026-10-29 按轮交织 + 分段更新）：.w-live-log =
+  //   [.w-tl-hist 历轮] [.w-tl-last 末轮] [.w-think-cur 当前轮思考] [.w-resp 正在打的字]
+  // 🔴 这里的原则：**谁在变，只重画谁**。整块重建在 160 轮任务上是 120ms/次，
+  //    而 working 轮询 500ms 一次 —— 那等于把主线程按在地上摩擦（第65轮实测定位）。
+  var logEl=body.querySelector('.w-live-log');
+  var histEl=body.querySelector('.w-tl-hist');
+  var lastEl=body.querySelector('.w-tl-last');
+  var thinkEl=body.querySelector('.w-think-cur');
+  var respEl=body.querySelector('.w-resp');
   var fullText=w.thinking||'';
-  // 元素不存在或无 _renderedLen 标记（新建/重建/折叠态切换过来）→ 初始化空容器
-  if(!thinkEl||thinkEl._renderedLen===undefined){
+  var tl=(w.timeline||[]);
+  var resp=String(w.resp||'');
+  // 容器/空壳缺失（新建/重建/占位态切换）→ liveLogHTML 一次性建齐
+  if(!logEl||!thinkEl||thinkEl._renderedLen===undefined||!histEl||!lastEl){
     // ⚠️ 下面这句会重建 body 的子结构，必须先把滚动位置存下来再还回去：
     // render() 整体重建后 _restoreProcScrolls() 刚把用户的位置迁到新节点上，
     // 这里 innerHTML 一刷位置又归零 —— 画面上就表现为"内容自己跳回顶部"。
     var _keepTop=body.scrollTop;
-    body.innerHTML='<div class="w-think"></div><div class="w-live-log"></div>';
-    thinkEl=body.querySelector('.w-think');
+    body.innerHTML='<div class="w-live-log">'+liveLogHTML(w)+'</div>';
+    logEl=body.querySelector('.w-live-log');
+    histEl=body.querySelector('.w-tl-hist'); lastEl=body.querySelector('.w-tl-last');
+    thinkEl=body.querySelector('.w-think-cur'); respEl=body.querySelector('.w-resp');
+    if(!thinkEl){ thinkEl=document.createElement('div'); thinkEl.className='w-think w-think-cur'; logEl.appendChild(thinkEl); }
     thinkEl._renderedLen=0;
-    var _l0=body.querySelector('.w-live-log'); if(_l0) _l0._sig='';
+    if(histEl){
+      histEl._n=parseInt(histEl.getAttribute('data-n')||'0',10)||0;
+      histEl._tn=parseInt(histEl.getAttribute('data-tn')||'0',10)||0;
+      histEl._hl=tl.length?tl.length-1:0;
+    }
+    if(lastEl) lastEl._sig=_tlSig(w);
     if(_keepTop>0) body.scrollTop=_keepTop;
   }
-  var rendered=thinkEl._renderedLen;
-  // 防御：thinking 变短（换轮时服务端会把它清零）则重置
+  // ① 历史轮：轮数增加 → 只 append 新增那几块；变少（重置/切任务）→ 整建。
+  //    历史轮一旦收尾就固定不变，绝不为"当前轮在长"重画它们。
+  var wantHist=tl.length?tl.length-1:0;
+  var haveHist=histEl._hl||0;
+  if(wantHist!==haveHist){
+    if(wantHist>haveHist){
+      var n0=histEl._n||0, tn0=histEl._tn||0, add='';
+      for(var i=haveHist;i<wantHist;i++){
+        var rr=_tlRoundHTML(tl[i], n0, tn0);
+        add+=rr.h; n0=rr.n; tn0=rr.tn;
+      }
+      histEl.insertAdjacentHTML('beforeend', add);
+      histEl._n=n0; histEl._tn=tn0; histEl._hl=wantHist;
+      histEl.setAttribute('data-n', n0); histEl.setAttribute('data-tn', tn0);
+    } else if(!_selInside(histEl)){
+      var hr=_tlHistHTML(tl, wantHist);
+      histEl.innerHTML=hr.h;
+      histEl._n=hr.n; histEl._tn=hr.tn; histEl._hl=wantHist;
+      histEl.setAttribute('data-n', hr.n); histEl.setAttribute('data-tn', hr.tn);
+    }
+  }
+  // ② 末轮：工具输出还在长 —— 只重建这一块（单轮约 2KB，亚毫秒级）
+  var lsig=_tlSig(w);
+  if(lastEl && lastEl._sig!==lsig && !_selInside(lastEl)){
+    lastEl._sig=lsig;
+    var lres=_tlRoundHTML(tl.length?tl[tl.length-1]:null, histEl._n||0, histEl._tn||0);
+    lastEl.innerHTML=lres.h;
+    lastEl.setAttribute('data-n', lres.n); lastEl.setAttribute('data-tn', lres.tn);
+  }
+  // ③ 正在打的字：独立签名，只重画自己（绝不连带历史轮）
+  if(resp){
+    if(!respEl){
+      respEl=document.createElement('div'); respEl.className='w-resp md';
+      respEl._sig=''; logEl.appendChild(respEl);
+    }
+    var rsig='R'+resp.length+':'+resp.slice(-6);
+    if(respEl._sig!==rsig && !_selInside(respEl)){
+      respEl._sig=rsig;
+      respEl.innerHTML='<span class="w-step-no">✎</span>'+fmt(resp);
+    }
+  } else if(respEl && respEl.parentNode){
+    respEl.parentNode.removeChild(respEl);
+  }
+  // ④ 当前轮思考：textNode 增量 append
+  // 防御：thinking 变短（换轮时服务端会把它清零）则重置 —— 历轮思考已在 timeline 里，不丢
+  var rendered=thinkEl._renderedLen||0;
   if(fullText.length<rendered){
     thinkEl.textContent='';
     rendered=0; thinkEl._renderedLen=0;
   }
-  // 增量 append 新增文本
   if(fullText.length>rendered){
     thinkEl.appendChild(document.createTextNode(fullText.slice(rendered)));
     thinkEl._renderedLen=fullText.length;
-  }
-  // ── 日志区：档位 + 签名都没变就完全不动 DOM（保住用户在上面选中的文字/滚动位置）──
-  var logEl=body.querySelector('.w-live-log');
-  if(!logEl){
-    logEl=document.createElement('div');
-    logEl.className='w-live-log';
-    body.appendChild(logEl);
-  }
-  var inter=String(w.inter||''), resp=String(w.resp||'');
-  var lsig;
-  if(procMode()==='full'){ lsig='F:'+inter.length+':'+resp.length+':'+resp.slice(-6); }
-  else { lsig='S:'+((w.thinking||'')?'t':'e'); }   // 简约档：只看有没有思考，决定要不要给占位
-  if(logEl._sig!==lsig){
-    // 🔴 用户正在这一段里选中文字（拖选/双击选词）就先别重建：innerHTML 一刷，
-    // 选区当场消失 —— 文字能选却选不住，等于白给。不推进 _sig，
-    // 选区一结束的下一次轮询（3s）自然把新内容补上。
-    if(!_selInside(logEl)){
-      logEl._sig=lsig;
-      logEl.innerHTML=(procMode()==='full')
-        ? liveLogHTML(w)
-        : ((w.thinking||'')?'':procWaitHTML(w));
-    }
   }
   // 内容一到就摘掉空态（height 会从 108 平滑长到 352），反之回缩
   _syncProcEmpty(body.parentNode, body, w);
@@ -5875,6 +6963,24 @@ function _selInside(el){
 //   4. 折叠/展开切换 → 重置到最新，恢复跟随
 // 用 scroll 事件检测用户操作，用 scrollTo({behavior:'smooth'}) 滚动
 var _procScrollTrack={}; // uid → {body, userControlled, userTop, lastST, scrollHandler}
+// 过程泡边缘渐隐：按**当下真的溢出**哪一侧来决定挂不挂类（2026-10-28）。
+// 为什么不在 CSS 里写死：正文只有两行时，上沿那层渐隐会把首行擦淡 —— 那是凭空少字。
+// 1px 容差：125% 缩放下 scrollTop 会取成小数（如 61.5），`>0` 会误判成"上头还有"。
+function _procFade(body){
+  if(!body || !body.classList || !body.classList.contains('proc-body')) return;
+  if(procFadePref === false) return;              // 关着：applyFadePref 已摘类，这里别再往上写
+  if(!body.clientHeight) return;                  // height:0（折叠档）：此刻量不出溢出，等展开时算
+  var up = body.scrollTop > 1;
+  var dn = body.scrollTop + body.clientHeight < body.scrollHeight - 1;
+  body.classList.toggle('proc-fade-up', up);
+  body.classList.toggle('proc-fade-dn', dn);
+}
+// scroll 事件不冒泡，但**捕获阶段照样经过祖先** —— 一条挂在 document 上的捕获监听
+// 就能覆盖所有 .proc-body（含静态展开泡，它们没有逐元素的 scroll 绑定）。
+document.addEventListener('scroll', function(e){
+  var t = e.target;
+  if(t && t.classList && t.classList.contains('proc-body')) _procFade(t);
+}, true);
 function _isAtBottom(body){
   return body.scrollHeight - body.scrollTop - body.clientHeight < 30;
 }
@@ -5975,7 +7081,19 @@ function updateProcDom(w){
     return;
   }
   var sum=el.querySelector('.proc-sum');
-  if(sum) sum.innerHTML=procSummary(w);
+  if(sum){
+    var _h=procSummary(w);
+    // 🔴 内容一样就**别重写 innerHTML**：里面的动画元素一被销毁重建，CSS 动画就从 0 重播。
+    //    updateProcDom 是 500ms 一次 ⇒ 1.5s 的转圈每 500ms 被打断一次，
+    //    用户看到的是"转着转着突然顿一下"——不是掉帧，是重启（2026-10-28 实测定位）。
+    if(sum._html!==_h){
+      // 先记下旧图形的最后一帧（这个元素马上就被 innerHTML 干掉了），
+      // 新元素注册时会读它原地接管 —— 否则每次思维链更新形状都要跳回初始三角。
+      sum.innerHTML=_h; sum._html=_h;
+    }
+  }
+  // 状态会从「处理中…」变成「等待你确认」/「整理回复中」—— 槽位要跟着换（图形 ↔ 空）。
+  _procMarkSet(el.querySelector('.proc-mark'), procMarkHTML(w));
   var box=el.querySelector('.proc-box');
   var body=el.querySelector('.proc-body');
   if(box&&body){
@@ -5989,6 +7107,7 @@ function updateProcDom(w){
       if(t && !t.userControlled){
         _scrollToBottom(body);
       }
+      _procFade(body);        // 内容长高时 scrollTop 不变 ⇒ 没有 scroll 事件，这里补算
     } else if(w.open){
       // 静态展开态：仅在用户贴底时跟随
       var bStick=body.scrollHeight-body.scrollTop-body.clientHeight<20;
@@ -6119,8 +7238,8 @@ async function _loadProcSteps(m, body){
       else if(gp[i].role==='ai'&&gp[i].text){ steps.push({kind:'inter',text:gp[i].text,ts:gp[i].ts}); }
     }
     if(steps.length){
-      // 结论那条消息自带的思考（groupProcess 归并进来的）：放到桶顶，展开时顺带拉正文
-      if(m.thinkMid) steps.unshift({kind:'think',text:'',mid:m.thinkMid,ts:m.ts});
+      // 结论那条消息自带的思考（groupProcess 归并进来的）：时间上在全部工具轮之后 ⇒ 放段尾
+      if(m.thinkMid) steps.push({kind:'think',text:'',mid:m.thinkMid,ts:m.ts});
       m.steps=steps;
       m.lazy=false;
     }
@@ -6132,8 +7251,10 @@ async function _loadProcSteps(m, body){
     body.scrollTop=0;
   }
   // 摘要行跟着从"⚙ 过程 · N 步（点击展开）"换成真实的工具名链
-  var el=chatBox.querySelector('.row.proc[data-uid="'+(m.uid||0)+'"] .proc-sum');
+  var _row=chatBox.querySelector('.row.proc[data-uid="'+(m.uid||0)+'"]');
+  var el=_row&&_row.querySelector('.proc-sum');
   if(el) el.innerHTML=procSummary(m);
+  if(_row) _procMarkSet(_row.querySelector('.proc-mark'), procMarkHTML(m));
 }
 // 从缓存/历史恢复时，若某个过程泡本就是展开态且思考还没拉，补齐它（点开才拉的原则不破，
 // 因为只有"用户上次就展开着"的才会命中）
@@ -6150,6 +7271,9 @@ function _hydrateOpenProcs(){
 function finalizeLiveProc(w, steps){
   // 清理 scroll 监听
   if(w.uid) _unbindProcScroll(w.uid);
+  // 定格时这里**不重渲 DOM**，最左那个状态图形会继续转着装作还在跑 —— 单独收掉。
+  var _mk=chatBox.querySelector('.row.proc[data-uid="'+(w.uid||0)+'"] .proc-mark');
+  if(_mk && _mk.parentNode) _mk.parentNode.removeChild(_mk);
   w.live=false; w.working=false; w.inflight=false; w.open=false;
   delete w.status; delete w.resp; delete w.thinking; delete w.tools; delete w.turn; delete w.remaining; delete w.inter;
   if(steps&&steps.length){ w.steps=steps; return; }
@@ -6256,9 +7380,11 @@ function groupProcess(list){
       if(m.thinking||m.has_thinking){
         // 结论视图：结论前面就是折叠占位，把这条思考并进那个占位里，
         // 别再多出一个"只有💭思考"的小泡（点开占位时思考与过程一起拉回来）。
+        // 2026-10-29：unshift→push。结论的思考发生在**所有工具轮之后**，按时间该在段尾，
+        // 原来放段顶就是用户说的"思考在上面、动作在下面"的静态版。
         var _prv=out[out.length-1];
         if(_prv&&_prv.type==='proc'&&_prv.lazy){ _prv.thinkMid=m.id; }
-        else { buf.unshift({kind:'think',text:m.thinking||'',mid:m.id,ts:m.ts}); }
+        else { buf.push({kind:'think',text:m.thinking||'',mid:m.id,ts:m.ts}); }
         m=Object.assign({},m,{thinking:'',has_thinking:false});
       }
       flush(m);
@@ -6504,7 +7630,7 @@ function recoverPendingReply(tid, wMsg){
       return;
     }
     try{
-      var wr=await fetch('/api/working?topic_id='+tid);
+      var wr=await _fetchTimeout('/api/working?topic_id='+tid, 8000);
       var wd=await wr.json();
       fails=0;
       polls++;
@@ -7352,6 +8478,8 @@ window.onKey = function(e){
 
 // Init DOM first
 initDom();
+// 视口观察器必须等 chatBox 就绪（顶层 initRunInd() 跑的时候它还是 undefined）
+_orbWatchStart();
 // ── Topic swipe gesture (right-swipe to reveal actions on left) ──
 (function(){
   var tsState=null;
@@ -12834,7 +13962,7 @@ function rowToNewTopic(row){
     if(!msgInput) return;
     msgInput.value='> 上一段对话：'+snip.replace(/\n/g,'\n> ')+'\n\n';
     msgInput.style.height='auto';
-    msgInput.style.height=Math.min(msgInput.scrollHeight,120)+'px';
+    msgInput.style.height=Math.min(msgInput.scrollHeight,window.__composerInputMax?window.__composerInputMax():120)+'px';
     try{ msgInput.focus(); msgInput.setSelectionRange(msgInput.value.length,msgInput.value.length); }catch(e){}
     try{ saveDraft(); }catch(e){}
   });
@@ -12851,6 +13979,7 @@ function selectRowText(row){
 
 // ── 菜单本体 ────────────────────────────────────────────────────────────
 var _msgMenuRow=null, _msgMenuAt=0, _msgTouchAt=0, _msgMenuSel='';
+var _msgMenuTouchReq=false, _msgMenuFromTouch=false;   // 本次菜单是否来自触屏（触屏时选区菜单优先弹在选区上方）
 function msgMenuHide(){ var m=document.getElementById('msgCtxMenu'); if(m) m.remove(); _msgMenuRow=null; _msgMenuSel=''; }
 function _msgAct(a,row,sel){
   if(!row) return;
@@ -12921,7 +14050,7 @@ function _quoteSel(t,row){
 function _msgMenuShow(row,x,y,alignRight,mode,selText){
   if(!row) return;
   msgMenuHide(); ctxMenuHide();
-  _msgMenuRow=row; _msgMenuAt=Date.now();
+  _msgMenuRow=row; _msgMenuAt=Date.now(); _msgMenuFromTouch=!!_msgMenuTouchReq;
   mode=mode||'msg';
   _msgMenuSel=(mode==='text')?(selText||_selInRow(row)):'';
   var hasText=!!_msgRowText(row);
@@ -12981,13 +14110,24 @@ function _msgMenuShow(row,x,y,alignRight,mode,selText){
   var W=window.innerWidth, H=window.innerHeight, G=8;
   var sel=(mode==='text')?_selRect():null;
   if(sel){
-    // 避让选区：右侧 → 左侧 → 下方 → 上方，四条都放不下才退化成"钳进视口"
+    // 避让选区。触屏（长按/拖选）：优先放选区【上方】——手机上选区几乎占满行宽，
+    // 放两侧或下方会压住系统选择光标的手柄（用户实测截图）。桌面右键维持原顺序。
     var gap=10;
-    if(sel.right+gap+r.width<=W-G){ x=sel.right+gap; y=sel.top; }
-    else if(sel.left-gap-r.width>=G){ x=sel.left-gap-r.width; y=sel.top; }
-    else{
-      x=Math.min(Math.max(G,sel.left),W-G-r.width);
-      y=(sel.bottom+gap+r.height<=H-G)?(sel.bottom+gap):Math.max(G,sel.top-r.height-gap);
+    var placed=false;
+    if(_msgMenuFromTouch){
+      var ax=Math.min(Math.max(G,sel.left+(sel.width-r.width)/2),Math.max(G,W-G-r.width));
+      var ay=sel.top-gap-r.height;
+      if(ay>=G){ x=ax; y=ay; placed=true; }               // 上方放得下 → 上面
+      else if(sel.bottom+gap+r.height<=H-G){ x=ax; y=sel.bottom+gap; placed=true; } // 顶部贴边才退到下方
+    }
+    if(!placed){
+      // 桌面：右侧 → 左侧 → 下方 → 上方，四条都放不下才退化成"钳进视口"
+      if(sel.right+gap+r.width<=W-G){ x=sel.right+gap; y=sel.top; }
+      else if(sel.left-gap-r.width>=G){ x=sel.left-gap-r.width; y=sel.top; }
+      else{
+        x=Math.min(Math.max(G,sel.left),W-G-r.width);
+        y=(sel.bottom+gap+r.height<=H-G)?(sel.bottom+gap):Math.max(G,sel.top-r.height-gap);
+      }
     }
   } else if(alignRight){
     x=x-r.width;
@@ -13011,6 +14151,7 @@ document.addEventListener('contextmenu',function(ev){
   var row=(!ed&&t&&t.closest)?t.closest('#chatBox .row'):null;
   if(row&&!ev.defaultPrevented){
     ev.preventDefault();
+    _msgMenuTouchReq=false;   // 桌面右键：维持旧避让顺序（右→左→下→上）
     // 只忽略"手机长按之后浏览器补发的那一次 contextmenu"。
     // ⚠️ 判据必须是 _msgTouchAt（长按触发时刻），不能是 _msgMenuAt（任何一次菜单打开）——
     //    用后者的话，用户关掉菜单后 900ms 内再右键会**什么都不弹**（探针实拍抓到）。
@@ -13050,6 +14191,7 @@ document.addEventListener('touchstart',function(e){
     _lpT=null;
     if(!_lpRow||!document.body.contains(_lpRow)) return;
     _msgTouchAt=Date.now();
+    _msgMenuTouchReq=true;    // 触屏长按：选区菜单优先弹在选区上方，别压住选择手柄
     // 已经有选中文字（先拖选再长按）→ 弹选区菜单；否则清掉残留选区弹消息菜单
     var _sel=_selInRow(_lpRow);
     if(!_sel){ try{ var w=window.getSelection(); if(w) w.removeAllRanges(); }catch(e2){} }
@@ -13511,7 +14653,7 @@ function bindFbSurface(grid, scope){
 
 msgInput.addEventListener('input',function(){
   msgInput.style.height='auto';
-  msgInput.style.height=Math.min(msgInput.scrollHeight,120)+'px';
+  msgInput.style.height=Math.min(msgInput.scrollHeight,window.__composerInputMax?window.__composerInputMax():120)+'px';
   // 草稿防抖保存:停顿 400ms 后落盘
   if(draftTimer) clearTimeout(draftTimer);
   draftTimer=setTimeout(function(){ saveDraft(); },400);
@@ -13696,7 +14838,11 @@ function loadThemeSettings(){
     uInfo.textContent=(s.urls||[])[0]||'';
   } catch(e){}
   try { var ur=await fetch('/api/usage'); var ud=await ur.json(); updateToken(ud); } catch(e){}
-  try { var ur=await fetch('/api/cost'); var ud=await ur.json(); updateCost(ud); } catch(e){}
+  // 🔴 不 await（§118）：累计花费是**纯展示数字**，它慢不该拦住后面的首屏装载 ——
+  //    标题、余额、任务列表全排在这一行之后。实测 /api/cost 曾要 20s（汇率源超时），
+  //    把顶栏解封从 3s 拖到 28s，用户看到的就是"上面一直有东西没加载完"。
+  //    后端已改成不在请求线程里等网络；这里再兜一层，展示值晚到就晚到。
+  fetch('/api/cost').then(function(r){return r.json();}).then(updateCost).catch(function(){});
   try { var hr2=await fetch('/api/settings/banner'); var hd2=await hr2.json(); hideBannerPref=hd2.hide_banner!==false; } catch(e){}
   var srvShowBal=true;
   try { var sr2=await fetch('/api/settings/balance_display'); var sd2=await sr2.json(); srvShowBal=sd2.show_balance!==false; } catch(e){}
@@ -13709,7 +14855,7 @@ function loadThemeSettings(){
   if(wmMode!=='off') updateWmDisplay();
   try { await refreshBalance(); } catch(e){}
 
-  try { var av=localStorage.getItem(AVATAR_LS_KEY); if(av) userAvatar=av; } catch(e){}
+  try { var av=localStorage.getItem(AVATAR_LS_KEY); if(av&&av.slice(0,5)==='data:') userAvatar=av; else if(av){ localStorage.removeItem(AVATAR_LS_KEY); } } catch(e){}   // 非 data: 的历史垃圾值直接清
   if(!userAvatar){
     // 本地无头像时从后端拉取（跨浏览器/设备同步）
     fetch('/api/settings/avatar').then(function(r){return r.json();}).then(function(d){
@@ -14006,6 +15152,7 @@ function checkTopicWorking(){
 //   ② 只是工具步在推进 → 就地改末尾占位的"最后一步"文案，不拉任何消息
 var _tailState={tid:null,lastId:-1,working:false};
 var _tailBusy=false;
+var _tailBusyAt=0;   // _tailBusy 置 true 的时刻（看门狗用：卡死超过 30s 强制解锁）
 var _tailWorking=false;   // 最近一次探针测到的"服务端在跑"（供 _topicBusy 用）
 var _tailMiss=0;   // 探针不可用时的兜底计数（见 pollTopicTail）
 var _tailWarnAt=0; // pollTopicTail 异常告警节流时间戳（见其 catch）
@@ -14074,12 +15221,41 @@ function applyTailStep(tid,d){
   }
 }
 
+// ── 带超时的 fetch（轮询专用）──────────────────────────────────────────
+// ⚠️ 为什么必须有：手机 WebView 的 fetch 在网络半死（切流量、WiFi 掉线但 socket 未断、
+//    隧道卡在中间）时**可能永久挂起**，既不 resolve 也不 reject。
+//    而下面的轮询都用 _busy 锁 + finally 解锁：请求一挂死，finally 永不执行，
+//    锁就永远为 true ⇒ 整个自动刷新静默停摆，界面再也不动，只能杀掉 APP 重进。
+//    （2026-10-28 用户报的"一段时间后不刷新任何数据"，根因就是这条。）
+function _fetchTimeout(url, ms){
+  var ac=null, timer=null;
+  try{
+    ac = (typeof AbortController!=='undefined') ? new AbortController() : null;
+  }catch(e){ ac=null; }
+  var p = fetch(url, ac?{signal:ac.signal}:undefined).then(function(r){ return r; });
+  var t = new Promise(function(_, rej){
+    timer = setTimeout(function(){
+      // 主动超时：标成“我们自己掉的”再 abort，不劳 APP 的静默重试计数（见 _notifyNetErr）
+      if(ac && typeof _abortAsTimeout==='function') _abortAsTimeout(ac);
+      rej(new Error('timeout:'+ms));
+    }, ms);
+  });
+  return Promise.race([p, t]).then(function(r){ clearTimeout(timer); return r; },
+                                    function(e){ clearTimeout(timer); throw e; });
+}
+
 async function pollTopicTail(){
+  // 防御性解锁：万一上一轮因为异常把 _tailBusy 留在了 true（旧代码的坑），
+  // 只要距上次进去已超过 30 秒就强行复位，别让一次挂死赔上一整晚。
+  if(_tailBusy && _tailBusyAt && (Date.now()-_tailBusyAt>30000)){
+    try{ console.warn('[pollTopicTail] _tailBusy 卡住超 30s，强制复位'); }catch(_e){}
+    _tailBusy=false;
+  }
   if(document.hidden||!currentTopic||_tailBusy||recoverPoll||window._switching) return;
   var tid=currentTopic.id;
-  _tailBusy=true;
+  _tailBusy=true; _tailBusyAt=Date.now();
   try{
-    var r=await fetch('/api/topic/tail?topic_id='+encodeURIComponent(tid));
+    var r=await _fetchTimeout('/api/topic/tail?topic_id='+encodeURIComponent(tid), 10000);
     var d=await r.json();
     if(!currentTopic||currentTopic.id!==tid||!d) return;
     var busy=_wBusy(d.working);
@@ -14145,7 +15321,9 @@ setInterval(pollTopicTail, 3000);
 // 界面上就会留下一个永远"处理中"的实时泡——答案都出来了它还挂着。
 // 这里每 3 秒巡一次：界面上有实时泡 + 服务端已 idle + 泡超过宽限期 → 强制收尾。
 var _wdBusy=false;
+var _wdBusyAt=0;   // 同 _tailBusyAt：看门狗锁死自救
 setInterval(async function(){
+  if(_wdBusy && _wdBusyAt && (Date.now()-_wdBusyAt>30000)){ _wdBusy=false; }
   if(document.hidden||!currentTopic||_wdBusy||recoverPoll) return;
   var lw=null;
   for(var i=messages.length-1;i>=0;i--){
@@ -14158,10 +15336,10 @@ setInterval(async function(){
     if(!lw._wdSince) { lw._wdSince=Date.now(); return; }
     if(Date.now()-lw._wdSince<20000) return;
   }
-  _wdBusy=true;
+  _wdBusy=true; _wdBusyAt=Date.now();
   try{
     var tid=currentTopic.id;
-    var wr=await fetch('/api/working?topic_id='+tid);
+    var wr=await _fetchTimeout('/api/working?topic_id='+tid, 8000);
     var wd=await wr.json();
     if(!currentTopic||currentTopic.id!==tid) return;          // 期间切走了
     if(_wBusy(wd)) return;                                     // 还在跑，让位给正常轮询（必含 loop_active：压缩那段 status 就是 idle）
@@ -17182,15 +18360,30 @@ function loadInterfaceSettings() {
         }).join('')
       + '</span>';
   };
+  // 三态分段（第51轮）：无 / 实线 / 虚线。原 seg 的 off/lean/full 是另一组语义，不复用。
+  var seg3 = function(group, fn, val, opts){
+    return '<span class="sp-seg">'
+      + opts.map(function(o){
+          return '<label><input type="radio" name="'+group+'" value="'+o[0]+'"' + (val===o[0] ? ' checked' : '')
+               + ' onchange="'+fn+'(this.value)"><span>'+o[1]+'</span></label>';
+        }).join('')
+      + '</span>';
+  };
   bodyEl.innerHTML = [
     '<div class="sp-section">',
     '<h4>界面显示</h4>',
     '<div class="sp-toggle-row"><span style="font-size:13px">隐藏余额横幅</span><label class="sp-toggle"><input type="checkbox"' + (hideBannerPref ? ' checked' : '') + ' onchange="toggleBannerHidden(this.checked)"><span class="slider"></span></label></div>',
     '<div class="sp-toggle-row"><span style="font-size:13px">余额</span>' + seg('balMode','setBalMode',balMode) + '</div>',
     '<div class="sp-toggle-row"><span style="font-size:13px">工作记忆</span>' + seg('wmMode','setWmMode',wmMode) + '</div>',
+    '<div class="sp-toggle-row"><span style="font-size:13px">运行状态</span>' + seg3('runInd','setRunInd',runIndPref,[['dot','绿点'],['spin','三点']]) + '</div>',
     '<div class="sp-toggle-row"><span style="font-size:13px">显示任务金额</span><label class="sp-toggle"><input type="checkbox"' + (showTaskCostPref ? ' checked' : '') + ' onchange="toggleTaskCostVisible(this.checked)"><span class="slider"></span></label></div>',
     '<div class="sp-toggle-row"><span style="font-size:13px">任务耗时</span><label class="sp-toggle"><input type="checkbox"' + (showElapsedPref ? ' checked' : '') + ' onchange="toggleElapsedVisible(this.checked)"><span class="slider"></span></label></div>',
     '<div class="sp-toggle-row"><span style="font-size:13px">任务 Token</span><label class="sp-toggle"><input type="checkbox"' + (showTokensPref ? ' checked' : '') + ' onchange="toggleTokensVisible(this.checked)"><span class="slider"></span></label></div>',
+    '<div class="sp-toggle-row"><span style="font-size:13px">思考气泡光晕</span><label class="sp-toggle"><input type="checkbox"' + (thinkGlowPref ? ' checked' : '') + ' onchange="toggleThinkGlow(this.checked)"><span class="slider"></span></label></div>',
+    '<div class="sp-toggle-row"><span style="font-size:13px">思考气泡边缘渐隐</span><label class="sp-toggle"><input type="checkbox"' + (procFadePref ? ' checked' : '') + ' onchange="toggleProcFade(this.checked)"><span class="slider"></span></label></div>',
+    '<div class="sp-toggle-row"><span style="font-size:13px">思考框边缘渐隐</span><label class="sp-toggle"><input type="checkbox"' + (procEdgePref ? ' checked' : '') + ' onchange="toggleProcEdge(this.checked)"><span class="slider"></span></label></div>',
+    '<div class="sp-toggle-row"><span style="font-size:13px">思考气泡背景</span><label class="sp-toggle"><input type="checkbox"' + (procBgPref ? ' checked' : '') + ' onchange="toggleProcBg(this.checked)"><span class="slider"></span></label></div>',
+    '<div class="sp-toggle-row"><span style="font-size:13px">思考框描边</span>' + seg3('procBorder','setProcBorder',procBorderPref,[['none','无'],['solid','实线'],['dashed','虚线']]) + '</div>',
     '</div>'
   ].join('');
 }
@@ -17210,6 +18403,109 @@ function toggleTokensVisible(show){
   try{ localStorage.setItem('task_tokens_display', show?'1':'0'); }catch(e){}
   if(typeof render==='function') render();
 }
+// 思考气泡光晕（设置 → 界面）：任务进行中的思考泡 / 正在输出答案的气泡会跑 neonGlow 氛围灯，
+// 有人嫌晃眼。开关只切 body 上的一个类，真正的样式覆盖写在 CSS 里（光晕定义不放第二份）。
+// 🔴 首次应用**不塞进 init()**：init 开头要 await 五六个 fetch，刷新时若有任务正在跑，
+//    会先看见一圈光晕再消失（闪一下）。脚本在 body 末尾，这里同步执行即刻生效。
+function applyGlowPref(){
+  document.body.classList.toggle('think-glow-off', thinkGlowPref === false);
+}
+function initGlowPref(){
+  try { thinkGlowPref = localStorage.getItem('think_glow') !== '0'; } catch(e){ thinkGlowPref = true; }
+  applyGlowPref();
+}
+function toggleThinkGlow(on){
+  thinkGlowPref = !!on;
+  try { localStorage.setItem('think_glow', on ? '1' : '0'); } catch(e){}
+  applyGlowPref();          // 纯样式切换：不需要 render() 重建消息区
+}
+initGlowPref();
+// 思考气泡边缘渐隐（设置 → 界面，2026-10-28）：正文在滚动容器边缘"淡到没有"，而不是硬切。
+// 真正生效的是 CSS 的 .proc-body.proc-fade-up/.proc-fade-dn；这里只负责开关与重算。
+// 🔴 关掉时必须把已挂上的类**摘干净**：类留在元素上，只是被 body:not(.proc-fade-off) 挡着，
+//    下次一开就"自己冒出来"，而那时用户看到的是上一个状态的残留。两条路都走才叫关。
+// 🔴 首次应用不塞进 init()：init 里有五六个 await，刷新时会先按旧值渲染一遍。
+function applyFadePref(){
+  document.body.classList.toggle('proc-fade-off', procFadePref === false);
+  var bs = document.querySelectorAll('.proc-body.proc-fade-up,.proc-body.proc-fade-dn');
+  if(procFadePref === false){
+    for(var i=0;i<bs.length;i++) bs[i].classList.remove('proc-fade-up','proc-fade-dn');
+  } else {
+    for(var j=0;j<bs.length;j++) _procFade(bs[j]);
+  }
+}
+function initFadePref(){
+  try { procFadePref = localStorage.getItem('proc_fade') !== '0'; } catch(e){ procFadePref = true; }
+  applyFadePref();
+}
+function toggleProcFade(on){
+  procFadePref = !!on;
+  try { localStorage.setItem('proc_fade', on ? '1' : '0'); } catch(e){}
+  applyFadePref();          // 纯样式切换：不重建消息区
+  var all = document.querySelectorAll('.proc-body');   // 打开时类要按当前溢出重算（不只是原来挂着的）
+  for(var i=0;i<all.length;i++) _procFade(all[i]);
+}
+initFadePref();
+// 思考框「边缘渐隐」（设置 → 界面，2026-10-28）：思考进行中保留底板 / 光晕 / 动画，
+// 只把"边"软下来（底板边界羽化 + 描边透明 + 光晕去掉最内层硬环）。样式全在 CSS，
+// 这里只切 body 上的一个类。
+// 🔴 「思考完成后恢复原样」不需要复原逻辑：CSS 只选 .proc-live，定格那一刻 row 上的
+//    .proc-live 被摘掉，框自己就回来了（少一处状态就少一处不同步）。
+function applyEdgePref(){
+  document.body.classList.toggle('proc-edge-on', procEdgePref !== false);
+}
+function initEdgePref(){
+  try { procEdgePref = localStorage.getItem('proc_edge') !== '0'; } catch(e){ procEdgePref = true; }
+  applyEdgePref();
+}
+function toggleProcEdge(on){
+  procEdgePref = !!on;
+  try { localStorage.setItem('proc_edge', on ? '1' : '0'); } catch(e){}
+  applyEdgePref();          // 纯样式切换：不重建消息区
+}
+initEdgePref();
+// 思考气泡背景（设置 → 界面，2026-10-28 第53轮）：只切 body 上的一个类，样式全在 CSS。
+// 🔴 与「思考框边缘渐隐」解耦：那个管"边软不软"（四边羽化），这个管"面在不在"。
+//    两者可任意组合：面关掉时羽化自然无事可做（没有面可羽化），不需要额外写 if。
+// 🔴 默认 true（保留底板）—— 这个开关是"关掉才改变观感"，跟描边默认 dashed 同理。
+// 🔴 首次应用在定义处同步执行，不塞进 init()（否则刷新会先看到一帧有底板的框）。
+function applyProcBg(){
+  document.body.classList.toggle('proc-bg-off', procBgPref === false);
+}
+function initProcBg(){
+  try { procBgPref = localStorage.getItem('proc_bg') !== '0'; } catch(e){ procBgPref = true; }
+  applyProcBg();
+}
+function toggleProcBg(on){
+  procBgPref = !!on;
+  try { localStorage.setItem('proc_bg', on ? '1' : '0'); } catch(e){}
+  applyProcBg();            // 纯样式切换：不重建消息区
+}
+initProcBg();
+// 思考框描边形态（设置 → 界面，2026-10-28 第51轮）：无 / 实线 / 虚线，三选一。
+// 🔴 与「思考框边缘渐隐」解耦：那个管背景羽化 + 提亮 5%，这个只管 border 的形态，
+//    两者可以任意组合（例如"背景羽化 + 实线"也是合法状态）。
+// 🔴 默认 dashed：用户把描边改成虚线时的观感就是它；独立出来之后不许悄悄变回实线。
+// 🔴 和另外三个偏好一样，首次应用在定义处同步执行，不塞进 init()（否则刷新会闪一下）。
+var PROC_BORDER_MODES = ['none', 'solid', 'dashed'];
+function applyProcBorder(){
+  document.body.setAttribute('data-proc-border',
+    PROC_BORDER_MODES.indexOf(procBorderPref) >= 0 ? procBorderPref : 'dashed');
+}
+function initProcBorder(){
+  try {
+    var v = localStorage.getItem('proc_border');
+    procBorderPref = PROC_BORDER_MODES.indexOf(v) >= 0 ? v : 'dashed';
+  } catch(e){ procBorderPref = 'dashed'; }
+  applyProcBorder();
+}
+function setProcBorder(m){
+  procBorderPref = PROC_BORDER_MODES.indexOf(m) >= 0 ? m : 'dashed';
+  try { localStorage.setItem('proc_border', procBorderPref); } catch(e){}
+  applyProcBorder();        // 纯样式切换：不需要 render() 重建消息区
+}
+initProcBorder();
+
 // 顶栏「余额」「工作记忆」各自的档位由 setBalMode / setWmMode 负责（见上方三态函数组）
 function updateWmDisplay(){
   var el=document.getElementById('wmDisplay');
@@ -17219,6 +18515,13 @@ function updateWmDisplay(){
     var att=d.attention||{};
     var m1=att.task_runtime || (d.topic_id ? null : (att.metrics||{}).M1);
     var pct=m1?m1.pct:null;
+    // 没数据时 dasharray 是 0，只剩一圈 18% 白的底环，贴着状态点看像"实心点+空心点"。
+    // 🔴 2026-10-29 用户定：不显示就不许占位 —— 第 60 轮的 visibility 会留一个空槽
+    //    （余额左边凭空空一块），改 display:none 整个腾空；来数据时写回 'inline-flex'，
+    //    该值必须与 applyWmMode() 非 off 分支一致 —— 两处是同一 inline display 的
+    //    唯二写者，值不一致会在切档位时互相打架。wmMode 现判是防 fetch 期间切到 off
+    //    的旧响应把环又顶回来。
+    if(wmMode!=='off') el.style.display = (pct==null) ? 'none' : 'inline-flex';
     var pctEl=document.getElementById('wmPct');
     var ring=document.getElementById('wmRing');
     if(pctEl) pctEl.textContent = pct!=null? pct+'%' : '—';
@@ -17243,17 +18546,61 @@ var DEFAULT_AVATAR_SVG='<svg viewBox="0 0 24 24" fill="rgba(255,255,255,.96)" st
 var _avatarObjectURL=null; // 缓存 Object URL，避免每次渲染都解析 base64
 function getAvatarObjectURL(){
   if(!userAvatar) return null;
+  // 头像值必须是 data URL。历史 bug 可能往 localStorage 存进 "undefined"/截断串
+  // （手机端出现过：圆圈里漏出文字）→ 当场清掉，回落默认剪影。
+  if(userAvatar==='undefined'||userAvatar==='null'||userAvatar.slice(0,5)!=='data:'){
+    try{ localStorage.removeItem(AVATAR_LS_KEY); }catch(e){}
+    userAvatar='';
+    if(_avatarObjectURL){ URL.revokeObjectURL(_avatarObjectURL); _avatarObjectURL=null; }
+    return null;
+  }
   if(_avatarObjectURL) return _avatarObjectURL;
-  // 将 base64 转为 Blob，再创建 Object URL
-  var parts=userAvatar.split(',');
-  var mime=parts[0].match(/:(.*?);/)[1];
-  var bstr=atob(parts[1]);
-  var n=bstr.length;
-  var u8arr=new Uint8Array(n);
-  while(n--) u8arr[n]=bstr.charCodeAt(n);
-  var blob=new Blob([u8arr],{type:mime});
-  _avatarObjectURL=URL.createObjectURL(blob);
+  // 将 base64 转为 Blob，再创建 Object URL（解析失败不抛 —— 抛了会把整轮 render 炸掉）
+  try{
+    var parts=userAvatar.split(',');
+    var mime=parts[0].match(/:(.*?);/)[1];
+    var bstr=atob(parts[1]);
+    var n=bstr.length;
+    var u8arr=new Uint8Array(n);
+    while(n--) u8arr[n]=bstr.charCodeAt(n);
+    _avatarObjectURL=URL.createObjectURL(new Blob([u8arr],{type:mime}));
+  }catch(e){ _avatarObjectURL=null; return null; }
   return _avatarObjectURL;
+}
+// ── 头像占位/兜底（2026-10-29）─────────────────────────────────────────
+// _avHTML(kind)：'you'|'ai' → [菊花 + img] 或默认剪影。
+// img 用行内 onload/onerror：加载完摘菊花、加载坏换兜底 —— 破图的 alt 文字永远没机会画出来。
+var _AI_AV_FALLBACK='<svg viewBox="0 0 24 24" fill="currentColor" style="width:58%;height:58%;display:block"><path d="M4.5 3.5h15a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9.6l-4.6 3.7a.6.6 0 0 1-1-.5V5.5a2 2 0 0 1 2-2z"/></svg>';
+function _avImgTag(src,alt){ return '<img src="'+src+'" alt="'+alt+'" onload="_avImgOk(this)" onerror="_avImgBad(this)">'; }
+function _avHTML(kind){
+  var spin='<span class="av-spin"></span>';
+  if(kind==='you'){
+    if(userAvatar){
+      var u=getAvatarObjectURL();
+      if(u) return spin+_avImgTag(u,'You');
+      return DEFAULT_AVATAR_SVG;   // 头像值解析不出 → 直接剪影，不转圈
+    }
+    return DEFAULT_AVATAR_SVG;
+  }
+  return spin+_avImgTag('/icon.png','AI');   // icon.png 1.8MB，公网手机端要转好几秒
+}
+function _avImgOk(el){
+  el.classList.add('av-ok');
+  var s=el.parentElement?el.parentElement.querySelector('.av-spin'):null;
+  if(s) s.remove();
+}
+function _avImgBad(el){
+  var s=el.parentElement?el.parentElement.querySelector('.av-spin'):null;
+  if(s) s.remove();
+  if(el.getAttribute('alt')==='You'){
+    // 用户头像坏了：清掉坏值（localStorage + 服务端不再自动覆盖，见 init 校验），回落剪影
+    try{ localStorage.removeItem(AVATAR_LS_KEY); }catch(e){}
+    userAvatar='';
+    if(_avatarObjectURL){ URL.revokeObjectURL(_avatarObjectURL); _avatarObjectURL=null; }
+    el.outerHTML=DEFAULT_AVATAR_SVG;
+  }else{
+    el.outerHTML=_AI_AV_FALLBACK;
+  }
 }
 // 监听跨标签页的 localStorage 变化，自动同步头像
 window.addEventListener('storage',function(e){
@@ -20994,12 +22341,18 @@ header .hdr-pill,header .hdr-dragzone,header #winCtrls{pointer-events:auto}
 /* #workingDot 恒空（"去掉黄点显示"之后只剩 classList.add('pulse')，而 .pulse 没有规则），
    但它是 flex 子元素，会白占一个 gap。直接不参与布局。 */
 #workingDot{display:none}
-#sDot{width:6px;height:6px;margin:0;flex:0 0 auto;
-  box-shadow:0 0 0 2px rgba(var(--success-rgb),.10)}
-/* 8px 外发光去掉了：那是"活的状态"的语汇（.run-dot 靠它），但搬进 40px 的岛里，
-   6px 的点被光晕撑成 11px 荧光绿，比标题还抢眼。只留 2px 淡环 —— 点还是亮的，
-   但退回标点体量。thinking / warn / error 仍保留强发光：那是真在动 / 真出事。 */
-html[data-theme="white"] #sDot.thinking,html[data-theme="white"] #sDot.warn{box-shadow:0 0 0 2.5px rgba(var(--warn-rgb),.15)}
+#sDot{width:6px;height:6px;margin:0;flex:0 0 auto;box-shadow:none}
+/* 🔴 状态色义表（列表 .run-dot 与头部 #sDot 共用这一套，改之前先看这里）：
+     青 --accent  脉冲 = 正在跑   ← .thinking 与 .run-dot 同色同动画（同一个 runPulse）
+     黄 --warn         = 等你回答（列表 .run-tag）/ 连接异常（头部 .warn，异常不是进度）
+     绿 --success      = 已完成   ← 只有 .run-dot.done 用；空闲态不再发绿
+     红 --danger       = 失败
+     中性灰            = 空闲/就绪（6px，无光晕，退回标点体量）
+   以前 #sDot 默认吃 --success，而列表的绿等于 done —— 同一个绿一边说"跑完了"
+   一边说"没在跑"；黄也一样撞车（列表=等你动手，头部=正在处理）。现在绿只属于"完成"。 */
+html[data-theme="white"] #sDot:not(.thinking):not(.warn):not(.error){background:rgba(0,0,0,.20)}
+html[data-theme="white"] #sDot.thinking{box-shadow:0 0 0 2.5px rgba(var(--accent-rgb),.15)}
+html[data-theme="white"] #sDot.warn{box-shadow:0 0 0 2.5px rgba(var(--warn-rgb),.15)}
 html[data-theme="white"] #sDot.error{box-shadow:0 0 0 2.5px rgba(var(--danger-rgb),.14)}
 
 /* min-width 不能写死 0：.hp-skel 的骨架条靠 min-width:var(--hp-w) 撑出 96px，
@@ -21144,12 +22497,11 @@ main{padding-top:var(--hdr-clear)}
    §98 之前"留在流里会把右岛顶回中间"是不对的观感 —— 右岛本来就该停在窗控件左边。 */
 #winCtrls{margin-left:4px}
 body.is-desktop #winCtrls{position:absolute;right:6px;top:50%;transform:translateY(-50%);margin-left:0}
-/* 窗控件脱离流之后，必须把它的宽度从右侧内边距里让回来，否则右岛会钻到 — □ × 底下。
-   §98：**恒为 112px**（100 宽 + 6 右边距 + 6 间隙），不再用 max(…, 内容列) 兜 ——
-   那条 max 在宽窗口下取内容列（434），正是"右岛缩回中间"的原因。
-   现在右岛的"边"就是窗控件左缘；没有窗控件的平板/手机端（body 无 is-desktop）
-   右侧退回 --hdr-edge，右岛直接贴窗口右边。 */
-body.is-desktop header{padding-right:112px}
+/* 右侧内边距：窗控件退役（原生标题栏回归，2026-10-28）后不再需要 112px 让位，
+   右岛贴回窗口右边 --hdr-edge，与手机/平板同一条规则。
+   §98 历史背景：恒为 112px（100 宽 + 6 右边距 + 6 间隙）是为了右岛不钻到
+   — □ × 底下；那颗钉子随窗控件一起拔掉。 */
+body.is-desktop header{padding-right:var(--hdr-edge)}
 .win-ctrls button:hover{background:var(--hover)}
 html[data-theme="white"] .win-ctrls button:hover{background:rgba(0,0,0,.07)}
 
@@ -21171,6 +22523,15 @@ html[data-theme="white"] .win-ctrls button:hover{background:rgba(0,0,0,.07)}
   .hdr-pill-r{display:none}
   .hdr-pill-r:has(> #btnFlowChart.show),
   .hdr-pill-r:has(> #btnDebug.active){display:flex}
+  /* 🔴 容器放行 ≠ 里面的按钮都该出来（§118）。
+     上面那两条 :has() 只回答"右岛里有没有内容"，一旦 display:flex，同样住在里面的
+     #btnFiles 和**没开过**的 #btnDebug 就一起冒出来 —— 用户截图里"加载时多出来的
+     那两个图标"正是这么来的（#btnFlowChart 的 .show 由 _flowProbe 异步补，
+     切任务那一下还带着上一个任务的值，于是图标先出现、再消失）。
+     ⇒ 手机档按按钮各自的资格单独判：文件浏览器在窄屏没有可用形态；
+        调试面板必须自己开着（.active）才认，dev_mode 的内联 display 不再等于"可以出现"。 */
+  #btnFiles{display:none}
+  #btnDebug:not(.active){display:none}
 }
 
 /* —— 8b. 【已作废 · 第 7 轮】手机：右岛并进左岛 ——
@@ -22098,7 +23459,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
    <img id="wpChipFav" alt="" onerror="this.style.visibility='hidden'" onload="this.style.visibility='visible'"><span class="wp-chip-t" id="wpChipT"></span><span class="wp-chip-x" onclick="event.stopPropagation();wpChipClose()">✕</span>
  </div>
 <script src="/task-composer.js?v=20261023-newdir"></script>
-<script src="/composer-floating.js?v=20261027-jumpd"></script>
+<script src="/composer-floating.js?v=20261029-occlude"></script>
 <script>
 /* [2026-10-18] 安卓 WebView 返回键钩子：没有可退的网页历史时，先关最上层浮层，而不是直接退出 App */
 window.__dayanHandleBack = function () {

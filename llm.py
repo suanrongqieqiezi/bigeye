@@ -35,6 +35,29 @@ EVENT_TOOL_CALL = "tool_call"
 EVENT_DONE = "done"
 EVENT_ERROR = "error"
 
+
+# ── 思考档位（reasoning_effort）默认值 ──────────────────────────────
+# 不传这个字段 = 上游按**最贵档**跑。2026-10-28 实测（Temp/_zz_think_probe3/4/6）：
+#   · 客观题 4 道：glm-5.3-flash 默认 376 tok / 4.5s → low 28 tok / 1.7s，全对
+#   · 多步 agent 规划：默认 245 tok → low 105 tok；JSON 合法 3/3、必要工具覆盖
+#     8/8、幻觉工具 0，三档（default/low/medium）完全一致
+#   · 跨模型：deepseek/qwen/minimax 对 low 无反应；**kimi-k2.6 反而 116 → 304**
+#     ⇒ 只能对实测有效的模型前缀给 low，不能全局默认。
+# 源配置 extra_body 里显式写 reasoning_effort 的，以配置为准（此函数不介入）。
+_EFFORT_DEFAULT_PREFIXES = ("glm-", "minimax-")
+
+
+def _default_reasoning_effort(model):
+    """按模型前缀决定是否注入思考档位；返回 None 表示不注入（保持上游默认）。"""
+    m = str(model or "").lower()
+    if not m:
+        return None
+    for p in _EFFORT_DEFAULT_PREFIXES:
+        if m.startswith(p):
+            return "low"
+    return None
+
+
 # ── 连接层瞬时故障识别（网关断连/超时等，可安全重试）──
 TRANSIENT_MARKERS = ("remote end closed", "timed out", "timeout",
                      "connection reset", "connection aborted",
@@ -959,6 +982,11 @@ def _chat_stream_impl(config, messages, tools=None, cancel_event=None, verify_ss
         body["tools"] = tool_spec
         body["tool_choice"] = "auto"
     body["stream_options"] = {"include_usage": True}
+    # ── 思考档位默认值（2026-10-28 实测后加，见 _default_reasoning_effort）──
+    if "reasoning_effort" not in (getattr(config, "extra_body", None) or {}):
+        _eff = _default_reasoning_effort(getattr(config, "model", ""))
+        if _eff:
+            body["reasoning_effort"] = _eff
     # ── 源级附加请求体参数（如 {"enable_thinking": true}）──
     # 推理开关是各家自创的、且**默认关**：同一份权重在部分第三方站点上裸调用不吐
     # reasoning_content，加 {"enable_thinking": true} 才吐（实测 DeepSeek-V4-Flash

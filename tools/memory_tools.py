@@ -205,6 +205,93 @@ def edit_memory(fragment_id: int, text: str = "", tags: str = "", **_):
 
 
 @register_tool(
+    name="retract",
+    description=(
+        "作废一类记忆 —— 用户明确否定/推翻过一个方向时用它，不要用 edit_memory。\n"
+        "keyword 写那句**错的说法**（如「PA00 波特率」「飞线接串口」），别用「串口」这种大类，"
+        "会把有用的记录一起清掉；先 dry_run=true 看一眼清单，不干净就改成 ids 精确点名。\n"
+        "truth 必填，写下正确说法，会存成跨话题常驻的约束。\n"
+        "为什么不能改正文：改写会连向量一起改，近重复保护就失去比对面，"
+        "同一段原始对话下次被压缩时又会被当成新事实存一遍（蓝牙任务里就这样复发过）。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "keyword": {
+                "type": "string",
+                "description": "要作废的那一类事实的关键词（如「串口」「USB 烧写」「物理接线」）。"
+            },
+            "truth": {
+                "type": "string",
+                "description": "正确的说法。会存成本话题的权威约束，之后每轮都在场。"
+            },
+            "reason": {
+                "type": "string",
+                "description": "为什么作废（如「用户已多次说明产品 PCB 无串口焊盘」）。"
+            },
+            "topic_id": {
+                "type": "string",
+                "description": "限定话题；留空 = 当前话题"
+            },
+            "ids": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "精确 id 列表（可选，已知是哪几条时用）"
+            },
+            "dry_run": {
+                "type": "boolean",
+                "description": "只列会作废哪些，先看一眼"
+            },
+        },
+        "required": ["keyword", "truth"],
+    },
+)
+def retract(keyword: str = "", truth: str = "", reason: str = "",
+            topic_id: str = "", ids=None, dry_run: bool = False, **_):
+    _ensure_memory()
+    if not _memory_enabled:
+        return "记忆系统未启用"
+    try:
+        tid = topic_id or ""
+        if not tid:
+            try:
+                from tools.task_context import get_current_topic
+                tid = get_current_topic() or ""
+            except Exception:
+                tid = ""
+        res = _memory_store.retract(keyword=keyword, ids=ids, reason=reason,
+                                    topic_id=tid or None, dry_run=dry_run)
+        if dry_run or not res.get("count"):
+            lines = ["会作废 %d 条：" % res.get("count", 0)]
+            lines += ["  #%s %s" % (i, s) for i, s in res.get("samples", [])]
+            if not res.get("count"):
+                lines.append("  （没命中，关键词换个说法试试）")
+            return "\n".join(lines)
+
+        # 正确的说法存成本话题权威约束 —— 只清不立，下一轮还会漂回去
+        w = 0
+        if truth.strip() and tid:
+            try:
+                _memory_store.add(
+                    truth.strip(), topic_id=tid, source="constraint",
+                    layer="knowledge", authority_level=1, importance=9.0,
+                    epistemic="world", tags="constraint,retract",
+                    user_tag=(reason or "已作废")[:60])
+                w = 1
+            except Exception:
+                pass
+        out = ["作废 %d 条记忆（%s）" % (res["count"], keyword)]
+        for i, s in res.get("samples", [])[:4]:
+            out.append("  #%s %s" % (i, s))
+        if res["count"] > 4:
+            out.append("  …还有 %d 条" % (res["count"] - 4))
+        out.append("立住的新说法：" + (truth.strip()[:100] if w else "（没写，缺 topic）"))
+        return "\n".join(out)
+    except Exception as e:
+        return "作废的时候出了问题：%s" % e
+
+
+@register_tool(
     name="forget",
     description="忘了它。有记忆是错的、过时了——删掉。先用 crystal_recall 查 id。",
     parameters={

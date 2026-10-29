@@ -123,7 +123,7 @@ ALWAYS_ON_TOOLS = {
     # 任务挂件（系统提示每轮引用，必须常驻，否则 AI 打转）
     "update_task_brief", "write_draft",
     # 记忆核心
-    "remember", "crystal_recall",
+    "remember", "crystal_recall", "retract",
     # 上下文管理（工具输出 hint 频繁引用，必须常驻）
     "organize_context", "expand_compressed",
     # 思维导图核心
@@ -135,6 +135,10 @@ ALWAYS_ON_TOOLS = {
     "important_matters_update", "important_matters_remove",
     # 历史翻阅（系统提示每轮引用）
     "read_topic_messages",
+    # 思维链翻阅（我的记忆：热层只看得到最近几步，早期的步靠它往回翻）
+    # 一条 90 token 的 schema 换「能想起自己走到哪了」。此前它埋在
+    # task_dag_advanced 折叠组里、组描述写的是 DAG 高级操作，模型从没找到过。
+    "get_thought_chain",
 }
 
 # ── 工具场景裁剪（v2：常驻工具也按场景动态化）──
@@ -194,12 +198,12 @@ FOLDED_TOOL_GROUPS = {
         ],
     },
     "task_dag_advanced": {
-        "description": "DAG流程图高级操作：节点编辑、问题处理、模板复用、思维链、执行轨迹、返工",
+        "description": "DAG流程图高级操作：节点编辑、问题处理、模板复用、执行轨迹、返工",
         "tools": [
             "remove_dag_node", "update_node_deps", "dynamic_split",
             "ask_question", "report_blocker",
             "save_task_template", "load_task_template", "run_task",
-            "append_thought_step", "get_thought_chain",
+            "append_thought_step",
             "get_execution_trace", "rework_subtree",
             "start_node", "complete_node", "finish_task",
         ],

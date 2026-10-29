@@ -153,8 +153,10 @@ import tools.spawn_agent
 import tools.order_memory_tools  # OM秩序记忆（秩学习规则，Phase1）  # 子代理工具（spawn_agent）
 import tools.rules_engine_tools  # 规则引擎管理工具（rule_list/rule_add/rule_update/rule_delete）
 import tools.audit_guard  # 坑指纹核查工具（audit_check：动作前比对事件账本历史坑）
+import tools.advantage_recall  # JitRL 检索端（advantage_recall：按分捞历史打分的优势/教训）
 import tools.tool_output  # 有界结果引用：read_tool_output（翻页读超限输出）/ tool_output_stats
 import tools.see_image  # 看图：磁盘图片/视频帧 → 多模态模型（折叠分组 vision）。2026-10-16：漏登记导致重启后工具消失
+import tools.verify_ui  # 改完界面自己看一眼：无头浏览器截图 + 取像素 + 主模型读图（verify_ui）。2026-10-29：漏这行 = 文件在、_tools 里没有，模型永远看不到
 
 try:
     import tool_outputs as _tool_output_store  # 超限工具输出落盘（改造②）
@@ -1431,7 +1433,54 @@ def _strip_orphaned_tool_messages(messages):
 
 _CTX_SECTION_MARKER = "━━━ 上下文状态 ━━━"
 
-def _apply_context_wall(system_msg, history_msgs, truncated_count, store=None, topic_id=None):
+def _pop_ctx_wall(msgs):
+    """把 system 里的【上下文状态】段摘出来，返回其文本（没有则返回 ""）。
+
+    🔴 为什么必须摘（2026-10-27 实测，107 轮真实请求按"变了什么"分组）：
+       只有【上下文状态】变 → 平均命中 10.4%（15 轮）
+       完全没变           → 平均命中 73.4%（90 轮）
+       具体：req164 可见60/已整理33 → 98.0%；req166 可见63/已整理5 → 8.6%；req168 → 0.0%。
+       这截只有 200 字，却把前面约 30000 tok（tools+system）的缓存整段作废。
+       典型断点：裁剪在 req156(95.4%) 之后触发，req158 直接 0%。
+
+    已知失效链路：_split_system_dynamic 已经把动态段下沉了，但循环里的
+    _trim_context_to_budget → _apply_context_wall 又把它写回 system。
+    """
+    if not msgs or not isinstance(msgs[0], dict) or msgs[0].get("role") != "system":
+        return ""
+    content = msgs[0].get("content") or ""
+    idx = content.find(_CTX_SECTION_MARKER)
+    if idx < 0:
+        return ""
+    _sep_marker = "═" * 15
+    sep_idx = content.rfind(_sep_marker, 0, idx)
+    cut = sep_idx if sep_idx != -1 and sep_idx < idx else idx
+    wall = content[idx + len(_CTX_SECTION_MARKER):]
+    msgs[0]["content"] = content[:cut].rstrip()
+    return _CTX_SECTION_MARKER + wall
+
+
+def _strip_ctx_wall_from_text(text):
+    """从一段文本里剥掉所有【上下文状态】块（可能在段中间，不只是段首）。
+
+    ⚠ 坑（实测确认）：动态文本里各段分隔符不统一 ——
+      _split_system_dynamic 用 `\n\n` 拼段，_apply_context_wall 写回 system 时用
+      `\n\n═══════════════\n\n`。所以墙前后可能是空行、也可能是═══线。
+    只按 startswith(MARK) 过滤会漏 → segs 里攒成两份墙（已跑出 2 份的失败用例）。
+    """
+    if not text or _CTX_SECTION_MARKER not in text:
+        return text
+    _SEP = re.escape("═" * 15)
+    _mark = re.escape(_CTX_SECTION_MARKER)
+    # 前缀分隔符可选（块可能在段首，也可能夹在段中），连分隔线一起删；
+    # 块内容到下一个分隔符为止。
+    pat = re.compile(r'(?:^|\n\n)(?:' + _SEP + r'\n\n)?' + _mark + r'(?:(?!\n\n).)*', re.S)
+    out = pat.sub("", text)
+    return out.strip("\n")
+
+
+def _apply_context_wall(system_msg, history_msgs, truncated_count, store=None, topic_id=None,
+                        sink=None):
     """Inject context wall into the unified 上下文状态 section.
 
     与 _inject_context_hints 共用同一个 section marker，避免尾部出现多个游离 section。
@@ -1446,7 +1495,7 @@ def _apply_context_wall(system_msg, history_msgs, truncated_count, store=None, t
         f"  找回: read_topic_messages(topic_id='{str(topic_id or '')[:8]}', query='要找回的那件事')",
         f"  逐页翻: read_topic_messages(topic_id='{str(topic_id or '')[:8]}', more=True)",
     ]
-    # 防堆叠：剥离旧的上下文状态 section（连同前面的分隔线）
+    # 防堆叠：先剥离旧 section，为写回 system 做准备（sink 模式下也会先拂拭）
     content = system_msg["content"]
     idx = content.find(_CTX_SECTION_MARKER)
     if idx != -1:
@@ -1456,7 +1505,17 @@ def _apply_context_wall(system_msg, history_msgs, truncated_count, store=None, t
             content = content[:sep_idx].rstrip()
         else:
             content = content[:idx].rstrip()
-    system_msg["content"] = content + _SECTION_SEP + _CTX_SECTION_MARKER + "\n" + "\n".join(wall_lines)
+    system_msg["content"] = content
+    _wall_text = _CTX_SECTION_MARKER + "\n" + "\n".join(wall_lines)
+    if sink is not None:
+        # 下沉模式：写进末尾那条动态消息，不碰 system 前缀（保住 tools+system 缓存）
+        # 防堆叠：sink 里旧的状态块先剥掉（可能在段中间，见 _strip_ctx_wall_from_text）
+        for _i in range(len(sink)):
+            sink[_i] = _strip_ctx_wall_from_text(sink[_i])
+        sink[:] = [s for s in sink if s.strip()]
+        sink.append(_wall_text)
+    else:
+        system_msg["content"] = content + _SECTION_SEP + _wall_text
     if store and truncated_count > 0:
         try:
             ts_str = time.strftime("%Y%m%d%H%M%S")
@@ -1467,7 +1526,8 @@ def _apply_context_wall(system_msg, history_msgs, truncated_count, store=None, t
         except Exception:
             pass
 
-def _trim_context_to_budget(messages, token_limit, store=None, topic_id=None, on_dropped=None):
+def _trim_context_to_budget(messages, token_limit, store=None, topic_id=None, on_dropped=None,
+                           wall_sink=None):
     """预算裁剪入口 —— 先把「归档摘要」摘出来，避免被从前往后裁掉。
 
     `_ct_node` 消息是整理树生成的摘要（[已整理 L1] …），它们本身就位于历史最前面，
@@ -1486,16 +1546,18 @@ def _trim_context_to_budget(messages, token_limit, store=None, topic_id=None, on
     pinned = sorted(_all_nodes, key=lambda m: m.get("_anchor") or 0)[-_CT_PIN_MAX:]
     if not pinned:
         return _trim_context_to_budget_raw(messages, token_limit, store=store,
-                                           topic_id=topic_id, on_dropped=on_dropped)
+                                           topic_id=topic_id, on_dropped=on_dropped,
+                                           wall_sink=wall_sink)
     _pin_ids = {id(m) for m in pinned}
     rest = [m for m in history if id(m) not in _pin_ids]
     trimmed, n = _trim_context_to_budget_raw([messages[0]] + rest, token_limit,
                                              store=store, topic_id=topic_id,
-                                             on_dropped=on_dropped)
+                                             on_dropped=on_dropped, wall_sink=wall_sink)
     return [trimmed[0]] + pinned + trimmed[1:], n
 
 
-def _trim_context_to_budget_raw(messages, token_limit, store=None, topic_id=None, on_dropped=None):
+def _trim_context_to_budget_raw(messages, token_limit, store=None, topic_id=None, on_dropped=None,
+                               wall_sink=None):
     """Trim oldest complete dialogues from front until under budget.
 
     A dialogue = one user message + all following assistant/tool messages
@@ -1543,7 +1605,7 @@ def _trim_context_to_budget_raw(messages, token_limit, store=None, topic_id=None
                 truncated_count = cut_idx - 1
                 history_msgs = [history_msgs[0]] + history_msgs[cut_idx:]
                 history_msgs = _strip_orphaned_tool_messages(history_msgs)
-                _apply_context_wall(system_msg, history_msgs, truncated_count, store, topic_id)
+                _apply_context_wall(system_msg, history_msgs, truncated_count, store, topic_id, sink=wall_sink)
                 _emit_dropped(history_msgs)
                 return [system_msg] + history_msgs, truncated_count
 
@@ -1551,7 +1613,7 @@ def _trim_context_to_budget_raw(messages, token_limit, store=None, topic_id=None
         cut_idx = assistant_indices[-1]
         truncated_count = cut_idx - 1
         history_msgs = [history_msgs[0]] + history_msgs[cut_idx:]
-        _apply_context_wall(system_msg, history_msgs, truncated_count, store, topic_id)
+        _apply_context_wall(system_msg, history_msgs, truncated_count, store, topic_id, sink=wall_sink)
         _emit_dropped(history_msgs)
         return [system_msg] + history_msgs, truncated_count
 
@@ -1565,7 +1627,7 @@ def _trim_context_to_budget_raw(messages, token_limit, store=None, topic_id=None
             truncated_count = user_idx
             history_msgs = history_msgs[user_idx:]
             history_msgs = _strip_orphaned_tool_messages(history_msgs)
-            _apply_context_wall(system_msg, history_msgs, truncated_count, store, topic_id)
+            _apply_context_wall(system_msg, history_msgs, truncated_count, store, topic_id, sink=wall_sink)
             _emit_dropped(history_msgs)
             return [system_msg] + history_msgs, truncated_count
 
@@ -1573,7 +1635,7 @@ def _trim_context_to_budget_raw(messages, token_limit, store=None, topic_id=None
     cut_idx = user_indices[-1]
     truncated_count = cut_idx
     history_msgs = history_msgs[cut_idx:]
-    _apply_context_wall(system_msg, history_msgs, truncated_count, store, topic_id)
+    _apply_context_wall(system_msg, history_msgs, truncated_count, store, topic_id, sink=wall_sink)
     _emit_dropped(history_msgs)
     return [system_msg] + history_msgs, truncated_count
 
@@ -2709,8 +2771,12 @@ def _peek_injection(tid):
         return bool(_inject_queues.get(tid))
 
 
-def set_working(tid, status, thinking="", intermediate="", response="", tool_calls=None, turn=0, remaining=None):
+def set_working(tid, status, thinking="", intermediate="", response="", tool_calls=None, turn=0, remaining=None, timeline=None):
+    # timeline = 按轮交织的过程时间线（每轮收尾 append：思考截尾+动作叙述+工具名+输出流）。
+    # None = 保留旧值（引用传递：收尾处 append 的是同一个 list，/api/working 实时可见）。
+    # 2026-10-29：思考气泡改「按轮交织」——思考片段跟着自己那轮的动作走，不再全部堆顶。
     with _working_lock:
+        _prev = _current_working.get(tid) or {}
         _current_working[tid] = {
             "status": status,
             "thinking": thinking or "",
@@ -2719,26 +2785,58 @@ def set_working(tid, status, thinking="", intermediate="", response="", tool_cal
             "tool_calls": tool_calls or [],
             "turn": turn,
             "remaining": remaining,
+            "timeline": _prev.get("timeline") if timeline is None else timeline,
         }
 
 
 # 终态（回合结束）标记：仅在 /api/topics 里暴露给侧栏绿/红点，
 # /api/working 仍返回 idle（否则前端会把它当"处理中"，重建幽灵实时泡）。
 _TERMINAL_STATUS = ("done", "failed", "cancelled")
-TERMINAL_TTL = 180.0  # 秒：终态点在侧栏保留时长，过期自动清
+# 🔴 终态点**不按时间消失**（2026-10-29 用户定）：绿/红点是"有结果没看"的未读标记，
+# 跟"跑完多久了"无关 —— 晚上跑完、第二天早上才打开，那枚点也必须还在。
+# 唯一清除入口是 mark_topic_read()（用户**打开过**这个任务），由前端在 switchTopic 里调。
+# 只保留**容量**兜底：终态条目最多 _TERMINAL_KEEP_MAX 条，超了按 ts 淘汰最旧的，
+# 防止常驻服务跑几个月后 _current_working 无限增长。
+TERMINAL_TTL = None              # 保留常量名（历史引用），None = 永不按时间清
+_TERMINAL_KEEP_MAX = 400
 
 
 def _purge_expired_locked(now):
-    """清理过期终态（须持锁调用）。"""
-    dead = [t for t, w in _current_working.items()
-            if w.get("status") in _TERMINAL_STATUS and now - (w.get("ts") or 0) > TERMINAL_TTL]
-    for t in dead:
+    """终态清理（须持锁调用）：只做容量兜底，**不按时间**删。
+
+    now 参数留着只为兼容调用点（get_working / get_working_all 都传了）。
+    """
+    terms = [(t, w.get("ts") or 0) for t, w in _current_working.items()
+             if w.get("status") in _TERMINAL_STATUS]
+    overflow = len(terms) - _TERMINAL_KEEP_MAX
+    if overflow <= 0:
+        return
+    terms.sort(key=lambda x: x[1])
+    for t, _ts in terms[:overflow]:
         _current_working.pop(t, None)
+
+
+def mark_topic_read(tid):
+    """「已读」= 用户打开过该任务 ⇒ 抹掉它那一枚终态点（绿=完成 / 红=失败）。
+
+    只清终态。运行中的状态动不得 —— 那是"它还在跑"，不是"有结果没看"；
+    清了会让侧栏运行点整条消失、连停止按钮都判不出在跑。
+    返回 True 表示确实清掉了一枚点（前端可据此省一次重渲染）。
+    """
+    if not tid:
+        return False
+    with _working_lock:
+        w = _current_working.get(tid)
+        if w and w.get("status") in _TERMINAL_STATUS:
+            _current_working.pop(tid, None)
+            return True
+    return False
 
 
 def finish_working(tid, status="done"):
     """回合收尾写终态：done=正常结束/用户停止，failed=异常。
-    /api/topics 用它点亮侧栏绿/红点；TTL 到期自动清，避免常亮。"""
+    /api/topics 用它点亮侧栏绿/红点（未读标记）。**不按时间清**：
+    用户打开过这个任务才由 mark_topic_read() 抹掉 —— 什么时候看、什么时候消。"""
     with _working_lock:
         prev = _current_working.get(tid) or {}
         _current_working[tid] = {
@@ -2760,6 +2858,109 @@ def get_working_all():
     with _working_lock:
         _purge_expired_locked(now)
         return dict(_current_working)
+
+# ── 思维链「最后一步」（过程泡摘要行显示用）──────────────────────────
+# 数据源是 task/thought_chain.py 落盘的 data/thought_chains/<tid>.jsonl，
+# 由 AI 主动调 append_thought_step 追加。这里**只读不写**：界面显示不等于让
+# 机制复活（机制归提示词/工具组管，见 _build_system_blocks 的 Block 2.6）。
+# /api/working 每 500ms 一次，而思维链更新频率极低（一个关键动作才一步）
+# ⇒ 按 (mtime,size) 缓存，命中就复用，别每次都把整个 jsonl 重读一遍。
+_thought_cache = {}                      # tid -> ((mtime, size), payload|None)
+_THOUGHT_TID_RE = re.compile(r"^[0-9A-Za-z_-]{4,40}$")
+
+def get_thought_last(tid):
+    """返回该话题思维链的最后一步（dict），没有链/读不动都返回 None。"""
+    if not tid or not _THOUGHT_TID_RE.match(tid):
+        return None                      # tid 要拼进文件名，先挡路径穿越
+    path = os.path.join(ROOT_DIR, "data", "thought_chains", "%s.jsonl" % tid)
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (st.st_mtime, st.st_size)
+    hit = _thought_cache.get(tid)
+    if hit and hit[0] == key:
+        return hit[1]
+    payload = None
+    try:
+        last = ""
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.strip():
+                    last = line          # 只留最后一条有效行，不建整个列表
+        if last:
+            d = json.loads(last)
+            payload = {
+                "step": d.get("step_id"),
+                "action": d.get("action_type") or "",
+                "summary": d.get("summary") or "",
+                "motivation": d.get("motivation") or "",
+                "result": d.get("result") or "",
+                "next": d.get("next_suggestion") or "",
+                "ts": d.get("timestamp") or 0,
+            }
+    except Exception:
+        payload = None
+    _thought_cache[tid] = (key, payload)
+    return payload
+
+
+# ── 思维链「自动沉淀」（2026-10-28）──────────────────────────────────
+# 背景：思维链原本只有 append_thought_step 一条写入口，靠 AI **自觉**写日记。
+# 实测 2026-09 至今只落了 20 步（全是手工测试），此后一条没有 —— 过程泡摘要行
+# 因此长期只剩状态词（见 /api/working 的 thought 字段）。
+# 但模型每轮本来就在想：同期 4836/8635 条 ai 消息带 thinking，均值 1514 字。
+# 这份 reasoning 想完就扔，下一轮从零开始 —— 既没有链，也没省下任何东西。
+# 这里把它接住：每轮工具决策结束时纯规则蒸馏一条（不调模型、不发请求、1~10ms）。
+# 只写"有决策价值"的轮：带工具调用 且 thinking 够长；纯闲聊/复述不写。
+_THOUGHT_LAST_WRITE = {}          # tid -> (ts, summary)，压掉同一轮被多次调用
+_THOUGHT_MIN_CHARS = 120          # reasoning 短于这个不值得成一步（中文 120 字已有实质内容）
+_THOUGHT_BUDGET = 5               # 热层注入条数上限（token 账：5×58字≈200字）
+
+
+def _auto_thought(tid, reasoning, turn=0, tool_names=None, force=False, narrative=""):
+    """把本轮的「思考」自动沉淀成一条思维步。失败静默（不能影响主循环）。
+
+    数据源优先级（2026-10-28 实测后定的）：**旁白 > reasoning**。
+    narrative = 工具轮模型用 content 说给用户的那句话，已经生成、已经落库、白拿，
+    而且质量比从 reasoning 蒸馏高一档 —— reasoning 是草稿（"Let me grep." / 代码碎片 /
+    悬空疑问），content 是给人看的结论（"看清楚了：…，正确修法是…"）。详见
+    task/thought_chain.py 里 _score_narration 上方的实测对比。
+    代价：旁白只有 36% 的工具轮有（其余模型一句话不说直接调工具），所以 reasoning 仍作兜底。
+
+    force=True：最终轮也写（没有工具调用但是收尾结论，同样值得留）。
+    """
+    try:
+        if not tid:
+            return None
+        narr = (narrative or "").strip()
+        txt = (reasoning or "").strip()
+        if not force and not tool_names:
+            return None
+        # 旁白门槛低（10 字就有内容）；reasoning 要够长才值得压缩
+        from task.thought_chain import (ThoughtChain, distill_narrative,
+                                        distill_reasoning)
+        d = distill_narrative(narr) if narr else None
+        if d is None:
+            if len(txt) < _THOUGHT_MIN_CHARS:
+                return None
+            d = distill_reasoning(txt)
+        if not d or not d.get("summary"):
+            return None
+        # 同一轮内被多处调用（工具轮落库 + 收尾）只写一次
+        prev = _THOUGHT_LAST_WRITE.get(tid)
+        if prev and prev[1] == d["summary"] and (time.time() - prev[0]) < 90:
+            return None
+        tc = ThoughtChain(tid)
+        step = tc.append_from_reasoning(txt, turn=turn, tool_names=tool_names,
+                                        narrative=narr)
+        if step is not None:
+            _THOUGHT_LAST_WRITE[tid] = (time.time(), step.summary)
+        return step
+    except Exception as _e:
+        print(f"[agent] auto_thought skipped: {_e}")
+        return None
+
 
 def _loop_active_for(tid):
     """话题是否有正在跑的 agent 循环（比 _current_working 的状态更宽的窗口）。
@@ -3103,21 +3304,53 @@ def _accumulate_cost(tid, input_tokens, output_tokens, cache_hit=0, model="", se
 
 
 def _fetch_cny_rate():
-    """Fetch live USD→CNY rate, cached 1h."""
+    """Fetch live USD→CNY rate, cached 1h.
+
+    🔴 失败也要落时间戳（§118）：上游 jsdelivr 在国内常年超时（timeout=10），
+       不落戳的话**每一次**调用都要重新等满超时。改前实测 /api/cost 单请求 20s，
+       而它被前端首屏 await 住 ⇒ 标题 / 任务列表全部排队，顶栏 28s 才解封，
+       用户看到的就是"上面一直有东西没加载完"。
+       汇率只是换算系数，拿不到就用旧值（默认 7.0），没有任何理由阻塞请求。
+    """
     global _cny_rate, _rate_updated
     now = time.time()
     if now - _rate_updated < 3600:
         return _cny_rate
+    _rate_updated = now        # 先落戳：这次失败也按"刚拉过"算，杜绝重试风暴
     try:
         rr = urllib.request.urlopen(
             "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json",
             timeout=10, context=None if _VERIFY_SSL else _UNVERIFIED_SSL_CTX)
         rate_data = json.loads(rr.read())
         _cny_rate = rate_data.get("usd", {}).get("cny", _cny_rate)
-        _rate_updated = now
     except Exception as e:
         print(f"[cost] rate fetch failed: {e}")
     return _cny_rate
+
+
+_rate_refreshing = False
+
+
+def _cny_rate_async_refresh():
+    """请求线程只读现值；过期了交给后台去拉（§118）。
+
+    原来 /api/cost 同步调 _fetch_cny_rate()，等于把"外网通不通"绑在
+    "顶栏能不能显示"上 —— 而且前端每 8s 轮询一次 /api/cost，
+    汇率源不通时等于每轮都占一个线程等 10s。
+    """
+    global _rate_refreshing
+    if time.time() - _rate_updated < 3600 or _rate_refreshing:
+        return
+    _rate_refreshing = True
+
+    def _job():
+        global _rate_refreshing
+        try:
+            _fetch_cny_rate()
+        finally:
+            _rate_refreshing = False
+
+    threading.Thread(target=_job, daemon=True).start()
 
 
 # ── Balance cache ────────────────────────────────────
@@ -3728,6 +3961,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         w["mindmap_updated_at"] = mm_data.get("updated_at", 0)
                 except Exception:
                     pass
+            # 附带思维链最后一步：前端过程泡摘要行优先显示它（没有/太旧则退回实时思考）。
+            # w 可能是 _current_working 里的**同一个 dict**，先复制再加字段，
+            # 免得把只给渲染用的字段写进运行态（下次 get_working 还会带着它）。
+            if tid and isinstance(w, dict):
+                try:
+                    _tl = get_thought_last(tid)
+                    if _tl:
+                        w = dict(w)
+                        w["thought"] = _tl
+                except Exception:
+                    pass
             self._json(200, w)
 
         # ── Messages ──
@@ -3780,7 +4024,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                 out.append(_mm)
                             prev_id = it["id"]
                         else:
-                            pending += 1
+                            # 2026-10-29 「N 步」口径 = 展开后真正会编号的可见动作：
+                            # 工具行 1 步；带正文的 ai 叙述 1 步；空文本的 ai（只调工具不说话）
+                            # 不计。旧口径按隐藏消息条数，空叙述也占步 —— 折叠行写 235 步、
+                            # 展开最大编号远小于它，就是用户截图指的"数字对不上"。
+                            if it.get("tn") or it.get("ht"):
+                                pending += 1
                             pending_ts = it["ts"]
                             if it.get("tn"):
                                 pending_step = it["tn"]
@@ -4030,7 +4279,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(404, {"error": "no cached request for this topic"})
         # ── Cost ──
         elif path == "/api/cost":
-            _fetch_cny_rate()
+            # 只读现值，不在请求线程里等网络（§118）
+            _cny_rate_async_refresh()
             with _cost_lock:
                 cost_cny = _total_cost_cny
             rate = _cny_rate
@@ -5649,6 +5899,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(200, {"success": True})
             else:
                 self._json(400, {"error": "topic_id required"})
+
+        # ── Topic: 已读（用户打开过 → 抹掉侧栏那枚终态点）──
+        # 绿/红点的语义是"有结果没看"，不是"跑完了一会儿"：什么时候看、什么时候消。
+        # 只有真打开才算 —— 前端 switchTopic / 轮询发现"当前正看着它跑完"时调这里。
+        elif path == "/api/topic/read":
+            tid = data.get("topic_id", "")
+            if tid:
+                self._json(200, {"success": True, "cleared": mark_topic_read(tid)})
+            else:
+                self._json(400, {"error": "topic_id required"})
+
         # ── Switch model ──
         elif path == "/api/switch-model":
             provider = data.get("provider", "")
@@ -7892,6 +8153,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception:
             pass
 
+        # Block 0.6: 一步一步的叙事纪律（最小自我心智的语言前提）
+        #
+        # 为什么必须有这一块（2026-10-28 端到端实测）：
+        #   思维链是框架自己记的账，但账上的「判断」来自模型自己的旁白。
+        #   只调工具不说话的那几轮（实测占 63%）没有旁白，摘要只能退化成
+        #   `bash` / `discover_tools(group=…)` 这种工具名 —— 一条链读下来是日志，不是想法。
+        #   A/B 实测：要求每步说一句 ⇒ 说话轮 1/4→3/3、thinking −78%、总生成 −72%。
+        #   **说出来比闷头想便宜**，而且顺带把链填满了。
+        # 位置：属于行为纪律 ⇒ 「身份与规则」组 ⇒ 进 system 恒定区（吃前缀缓存，边际成本 0）。
+        # 🔴 新块必须同时登记 _BLOCK_GROUPS 和 _BLOCK_LEVELS，只登一处会被静默丢弃。
+        blocks.append(
+            "【我怎么走每一步】\n"
+            "一步一记，写成两行：\n"
+            "  · 判断：这一步我知道了什么（结论 / 原因 / 边界），一句话\n"
+            "  · 下一步：接着要做什么，具体到动作，一句话\n"
+            "说事不说流程 —— 不要写「我要调用某个工具」，直接说你要弄清什么、怎么弄。\n"
+            "这两行就是我自己以后翻回来看的东西；只写工具名，将来的我读不懂。\n"
+            "\n"
+            "做完不等于改对。改东西守三条：\n"
+            "  · 改前找真源：grep 出真正生效的那一处，别凭名字猜；同一句话/颜色/逻辑常有两处各写一遍，找到一处必须反查第二处。\n"
+            "  · 改时验命中：替换后确认命中数 == 1（0 = 根本没改到，>1 = 改多了）。\n"
+            "  · 改完验效果，工具返回成功不算数：界面用 verify_ui 截图看（宽高量不出「看不看得见」，要取像素）；接口真发一次请求、贴关键字段；数据查回实际值、不查标志位。没验成就说没验成，不许说「已完成」。\n"
+            "拿不准怎么验，翻 skills/改完必验.md。"
+        )
+
         # Block 1: 身份与行为规则
         # 2026-10-26：「重要事项」不再放这里（曾是 Block 1【对我很重要的事】）。
         # 位置就是权重 —— 放在身份区最前面，AI 会把任务参数当行为准则来守；
@@ -8091,8 +8377,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if active_tid:
                 tc = ThoughtChain(active_tid)
                 if tc.step_count > 0:
-                    hot = tc.format_hot_layer(n=5)
-                    blocks.append(_vocab("thought_title") + "\n" + hot)
+                    hot = tc.format_hot_layer(n=6)
+                    blocks.append(_vocab("thought_title") + "\n" + hot
+                                  + "\n" + _vocab("thought_lookback_hint"))
         except Exception:
             pass
 
@@ -8222,7 +8509,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         # 按 weight*importance 取前2补进注入，已在 selected 的跳过
                         try:
                             _guar = store.recall_guaranteed(
-                                exclude_ids={f.get("id") for f in selected}, cap=2)
+                                exclude_ids={f.get("id") for f in selected}, cap=2,
+                                topic_id=tid)
                             if _guar:
                                 selected.extend(_guar)
                         except Exception as _ge:
@@ -8375,6 +8663,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # （探针第一版就是这么全绿的"假通过"：数据在、块也在，就是不显示）。
             # 2026-10-26（同日第二轮）：新增「【我的行事备忘】」，同样两处一起登记。
             "【我的行事备忘】": 15,
+            "【我怎么走每一步】": 15,
             "【该任务重要的信息】": 15,
             "【我现在在做什么】": 15,
             "【我在做的事】": 15,
@@ -8464,6 +8753,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             (1, "━━━ 身份与规则 ━━━", [
                 # 行事备忘排最前：它是"我该怎么做事"，比"我在做什么"更靠前才对。
                 ("【我的行事备忘】", 1),
+                ("【我怎么走每一步】", 1),
                 ("【我在做的事】", 2), ("【我心里记着的】", 2), ("【心智锚点】", 2),
             ]),
             (2, "━━━ 当前任务 ━━━", [
@@ -8747,7 +9037,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         turn = 0
         # 系统注入的动态状态（时间/任务图/记忆/上下文用量）：每轮变，只能追在 messages 末尾，
         # 不能进 system —— 否则前缀缓存全废。用可变容器让 loop 内降级时也能更新。
-        _dyn_state = {"text": "", "injected": False}
+        _dyn_state = {"text": "", "injected": False, "segs": [], "msg": None}
 
         def _send_view(_msgs):
             """实际发给模型的 messages：首次发送前把动态状态追到末尾。
@@ -8756,13 +9046,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
             「tool 结果 → 又一条 user 消息」，容易误判成用户插话而中断当前动作。
             首次追加后它就是历史的一部分（位置在末尾，裁剪不会先切它），
             后续轮次自然带着，前缀仍然连续。
+
+            segs 可变：后续轮次如果要补状态段（如裁剪产生的【上下文状态】），
+            就改 segs 再重写这一条 —— 它位于末尾、本来就不入缓存，改了不亏。
             """
-            if _dyn_state.get("injected"):
-                return _msgs
-            _t = _dyn_state.get("text") or ""
+            _segs = _dyn_state.get("segs") or []
+            # 兜底：任何路径（裁剪/降级重组）把【上下文状态】写回了 system，
+            # 发送前都摘出来。那截只有 200 字，却会把前面约 3 万 token 的
+            # 前缀缓存整段作废（实测：只有它变的轮次平均命中 10.4%，
+            # 完全没变的 90 轮平均 73.4%）。
+            if _msgs and isinstance(_msgs[0], dict) and _msgs[0].get("role") == "system":
+                _wall = _pop_ctx_wall(_msgs)
+                if _wall:
+                    # 防堆叠：segs 里已有的旧状态块先剥掉（可能在段中间，不能只看段首）
+                    _segs = [_strip_ctx_wall_from_text(s) for s in _segs]
+                    _segs = [s for s in _segs if s.strip()]
+                    _segs = list(_segs) + [_wall]
+                    _dyn_state["segs"] = _segs
+            _t = "\n\n".join(s for s in _segs if s)
             if not _t:
                 return _msgs
-            _msgs.append({"role": "user", "content": _DYN_PREFIX + "\n\n" + _t})
+            if _dyn_state.get("injected"):
+                _m = _dyn_state.get("msg")
+                if _m is not None:
+                    _m["content"] = _DYN_PREFIX + "\n\n" + _t
+                return _msgs
+            _m = {"role": "user", "content": _DYN_PREFIX + "\n\n" + _t}
+            _msgs.append(_m)
+            _dyn_state["msg"] = _m
             _dyn_state["injected"] = True
             return _msgs
 
@@ -8795,6 +9106,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if _dyn_state["text"]:
             print(f"[cache] system 已拆：恒定 {len(msgs[0]['content'])} 字 / "
                   f"动态 {len(_dyn_state['text'])} 字（下沉到末尾，保住 tools 前缀缓存）")
+        # 段列表：首段是动态正文，后续可追加【上下文状态】等（见 _apply_context_wall 的 sink）
+        _dyn_state["segs"] = [_dyn_state["text"]] if _dyn_state["text"] else []
         # 缓存调试快照：包含 messages + tools + token 拆解
         # 之前只存 msgs，导致工具 schema（可达 13k+ tokens）不可见，调试时对不上 token 数
         _active_tools = _get_enabled_tool_defs(tid)
@@ -8833,7 +9146,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception as _ctx_err:
             print(f"[agent] set_current_topic failed: {_ctx_err}")
         print(f"[agent] task started, budget {remaining} turns")
-        set_working(tid, "thinking", turn=0, remaining=remaining)
+        set_working(tid, "thinking", turn=0, remaining=remaining, timeline=[])  # 新任务：时间线清零
         _budget_warned = False  # 每个预算周期只提醒一次
         _budget_exhausted = False
         _auto_downgraded = False  # 上下文压力被动降级标记（每任务最多降一次）
@@ -8856,9 +9169,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 full_intermediate = _append_intermediate(
                     full_intermediate, f"（按你的选择，本轮直接用备用源 {_fb0_label} 续跑）")
                 print(f"[agent] resume forced to fallback source: {_fb0_label}")
+
+        # ── 动作链（harness 层账本）────────────────────────────────
+        # 为什么必须有它（2026-10-28，用户原话"每一轮连起来的思维链"）：
+        #   模型单轮内是理性的，跨轮会漂移 —— 它每轮只看得到 tool 结果，
+        #   看不到「我走过来的路」，于是同一个动作失败三次还在换姿势重试、
+        #   说好"接下来验证"却直接下结论、声称改完了却整轮没有任何执行证据。
+        #   账本必须由框架记（要求模型自己调工具写日记的机制，实测一个月只落 20 步）。
+        # 为什么建在循环外：链的价值就是"连起来"。每轮重建等于只有"当前结果"，
+        #   而当前结果本来就在 msgs 里，重建一遍纯属浪费。
+        # 失败一律降级成 None —— 账本坏了绝不能拖累主循环。
+        _chain = None
+        _audit_retries = 0
+        # BIGEYE_ACTION_CHAIN=0 可一键关掉（探针做 A/B 对照用，也是线上兜底开关）
+        if os.environ.get("BIGEYE_ACTION_CHAIN", "1") != "0":
+            try:
+                from task.action_chain import get_chain as _get_action_chain
+                _chain = _get_action_chain(tid)
+                if _chain is not None:
+                    _chain.begin_request(message)
+            except Exception as _ace:
+                _chain = None
+                print(f"[agent] action_chain init skipped: {_ace}")
+
         while remaining > 0:
             _usage_settlement_id = uuid.uuid4().hex
-            _turn_thinking = ""  # 本轮思考（落库口径；实时泡仍用 full_thinking）
+            _turn_thinking = ""  # 本轮思考（落库+实时推送口径，2026-10-29 起实时泡只推本轮）
             # ── 每轮自检运行时绑定（防串任务）──
             # 工具层的"我在哪个任务"来自本线程的绑定（tools/task_context）。
             # 一旦绑定丢了，工具层会静默回落到全局活跃任务 = 用户此刻点开的任务，
@@ -8926,12 +9262,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if et == "thinking_delta":
                     full_thinking += event["delta"]
                     _turn_thinking += event["delta"]
-                    set_working(tid, "thinking", thinking=full_thinking, intermediate=full_intermediate, response=turn_text, turn=turn+1, remaining=remaining)
+                    set_working(tid, "thinking", thinking=_turn_thinking, intermediate=full_intermediate, response=turn_text, turn=turn+1, remaining=remaining)
                 elif et == "text_delta":
                     # turn_text = 当前轮模型说的话（工具轮=动作叙述，最终轮=答案）。
                     # 不直接累加进 full_response——是否进最终答案要等 turn 结束看有无 tool_call。
                     turn_text += event["delta"]
-                    set_working(tid, "responding", thinking=full_thinking, intermediate=full_intermediate, response=turn_text, turn=turn+1, remaining=remaining)
+                    set_working(tid, "responding", thinking=_turn_thinking, intermediate=full_intermediate, response=turn_text, turn=turn+1, remaining=remaining)
                 elif et == "tool_call":
                     has_tool_calls = True
                     turn_tool_calls.append(event)
@@ -9012,7 +9348,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     full_intermediate = _append_intermediate(
                         full_intermediate,
                         "（上游要求回传思考内容（reasoning_content）→ 已自动补齐并重发）")
-                    set_working(tid, "thinking", thinking=full_thinking,
+                    set_working(tid, "thinking", thinking=_turn_thinking,
                                 intermediate=full_intermediate, response="",
                                 turn=turn + 1, remaining=remaining)
                     if _budget_hint_msg and msgs and msgs[-1].get("content") == _budget_hint_msg:
@@ -9027,7 +9363,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     full_intermediate = _append_intermediate(
                         full_intermediate,
                         f"（模型侧 {str(turn_error)[:100]} → {_wait}s 后重试 {_turn_retries}/{LLM_TURN_RETRY_MAX}）")
-                    set_working(tid, "thinking", thinking=full_thinking,
+                    set_working(tid, "thinking", thinking=_turn_thinking,
                                 intermediate=full_intermediate, response="",
                                 turn=turn + 1, remaining=remaining)
                     if _budget_hint_msg and msgs and msgs[-1].get("content") == _budget_hint_msg:
@@ -9061,7 +9397,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     full_intermediate = _append_intermediate(
                         full_intermediate,
                         f"（主模型 {_orig_model} 持续不可用 → 本轮已临时切到 {_fb_label} 继续）")
-                    set_working(tid, "thinking", thinking=full_thinking,
+                    set_working(tid, "thinking", thinking=_turn_thinking,
                                 intermediate=full_intermediate, response="",
                                 turn=turn + 1, remaining=remaining)
                     continue
@@ -9177,7 +9513,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 for _inj in _injs:
                     msgs.append({"role": "user", "content": _inj})
                 print(f"[agent] injected {len(_injs)} user message(s) at final-turn boundary, continuing")
-                set_working(tid, "thinking", thinking=full_thinking,
+                set_working(tid, "thinking", thinking=_turn_thinking,
                             intermediate=full_intermediate, response="",
                             turn=turn+1, remaining=remaining)
                 continue
@@ -9213,7 +9549,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     _resume_hint = ("[系统提示] 你上一轮的思考因网络中断被截断，还没产出正文。"
                                     "请跳过冗长推理，直接给出简洁的最终回答。")
                 msgs.append({"role": "user", "content": _resume_hint})
-                set_working(tid, "responding", thinking=full_thinking,
+                set_working(tid, "responding", thinking=_turn_thinking,
                             intermediate=full_intermediate, response=turn_text,
                             turn=turn+1, remaining=remaining)
                 time.sleep(_resume_retries * 2)
@@ -9243,6 +9579,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     else:
                         msgs.append({"role": "user", "content": "[系统提示] 你上一轮的思考输出被截断（token 预算耗尽），尚未产生任何正文。请跳过冗长推理，直接给出简洁的最终回答，不要再展开长思考。"})
                     continue
+                # ── 动作链对账（收尾轮）──
+                # 这里是把「思维链」变成「规范动作」的唯一生效点：
+                # 模型想收尾，账本说"还欠着"（声称完成却没验证 / 说了要改却没改），
+                # 就不许收尾 —— continue 让它补完或明说放弃。
+                # 上限 2 次；action_chain 内部另有每话题注入上限，双保险防死循环。
+                # 注意：本分支的 continue 不消耗 remaining（与 _dangling 同），
+                # 所以次数上限必须自己卡死，不能指望预算。
+                # ⚠「记下来」和「拦下来」要分开：record 每次都做（最终答案必须留步，
+                #   否则重试配额用完后那一次真实收尾在链上就消失了），
+                #   只有 audit 受 _audit_retries 限制（它才是会 continue 的那个）。
+                if _chain is not None:
+                    try:
+                        _cnode = _chain.record(turn + 1, said=turn_text, final=True,
+                                               reasoning=_turn_thinking)
+                        _cmsg = _chain.audit(_cnode) if _audit_retries < 2 else None
+                    except Exception as _ce:
+                        _cmsg = None
+                        print(f"[agent] action_chain skipped: {_ce}")
+                    if _cmsg:
+                        _audit_retries += 1
+                        _cli = _cmsg.splitlines()[1] if len(_cmsg.splitlines()) > 1 else _cmsg
+                        print(f"[agent] action_chain final alert "
+                              f"({_audit_retries}/2): {_cli[:60]}")
+                        if turn_text.strip():
+                            msgs.append({"role": "assistant", "content": turn_text})
+                        msgs.append({"role": "user", "content": _cmsg})
+                        set_working(tid, "thinking", thinking=_turn_thinking,
+                                    intermediate=full_intermediate, response="",
+                                    turn=turn + 1, remaining=remaining)
+                        continue
                 if turn_text.strip():
                     full_response = turn_text  # 最终答案（覆盖式，只此一轮）
                     msgs.append({"role": "assistant", "content": turn_text})
@@ -9262,7 +9628,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "[系统提示] 你上一轮既没有调用工具，也没有输出任何正文。"
                         "现在请直接用正文向用户汇报：这一轮做了什么、结论是什么、"
                         "还需要用户确认或决定什么。不要调用工具，不要重新开头。")})
-                    set_working(tid, "responding", thinking=full_thinking,
+                    set_working(tid, "responding", thinking=_turn_thinking,
                                 intermediate=full_intermediate, response="",
                                 turn=turn + 1, remaining=remaining)
                     continue
@@ -9300,9 +9666,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                             args={"tool_calls": tc_list, "turn": turn, "process": True},
                                             thinking=_turn_thinking, ts=time.time())
             assistant_msg["_db_id"] = ai_msg_id  # for in-memory update after tool result
+            # 思维链沉淀：**由动作链统一写**（下面 tool 结果落库之后那处 record）。
+            # 为什么挪走：ThoughtChain 的热层就是 Block 2.6 注进上下文的那份，
+            # 而「说了什么」和「做了什么」必须落在同一步里才有用。在这里写的话
+            # 工具还没执行，写出来的步只有旁白；动作链那条再写一次就是两条链。
+            # 只有动作链被关掉（BIGEYE_ACTION_CHAIN=0）时才退回这里兜底。
+            if _chain is None:
+                _auto_thought(tid, _turn_thinking, turn=turn + 1,
+                              tool_names=[tc["tool_name"] for tc in turn_tool_calls],
+                              narrative=turn_text)
+            # ── 轮收尾：把这一轮写进 live 时间线（思考跟着动作走，不再全部堆顶）──
+            # thinking 只存尾部 600 字：一轮 reasoning 动辄几千字，全量会让 /api/working
+            # 每 500ms 轮询背几十 KB；尾部是"最近在想什么"，也是人真正看的部分。
+            with _working_lock:
+                _w_tl = _current_working.get(tid)
+                if _w_tl is not None:
+                    _w_tl.setdefault("timeline", []).append({
+                        "thinking": (_turn_thinking or "")[-600:],
+                        "inter": turn_text or "",
+                        "tools": [tc["tool_name"] for tc in turn_tool_calls],
+                    })
             # Execute tools and append results
             print(f"[agent] turn {turn+1}: {[tc['tool_name'] for tc in turn_tool_calls]}")
-            set_working(tid, "executing", thinking=full_thinking, intermediate=full_intermediate, response="", turn=turn+1, remaining=remaining)
+            # 思考已在上面收尾时进 timeline；运行态清空 —— 否则实时泡 .w-think-cur
+            # 与时间线尾部是同一份思考，重复挂整个工具执行期（2026-10-29 探针实证 35 点全中）
+            set_working(tid, "executing", thinking="", intermediate=full_intermediate, response="", turn=turn+1, remaining=remaining)
 
             # Check cancel before tool execution
             if cancel_evt.is_set():
@@ -9337,9 +9725,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     _last_push_ts[0] = now
                     return
                 full_intermediate = _append_intermediate(full_intermediate, "\n".join(tail_chunks))
-                set_working(tid, "executing", thinking=full_thinking,
+                set_working(tid, "executing", thinking="",
                             intermediate=full_intermediate, response="",
                             turn=turn+1, remaining=remaining)
+                # 输出流同时挂到当前轮的时间线条目上（前端按轮渲染要用）
+                with _working_lock:
+                    _w_tl = _current_working.get(tid)
+                    _tl = (_w_tl.get("timeline") if _w_tl else None) or []
+                    if _tl:
+                        _tl[-1].setdefault("out", []).extend(tail_chunks)
                 _last_push_ts[0] = now
 
             def _on_tool_output(tool_id, stream_type, chunk):
@@ -9450,7 +9844,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if _sv_pending:
                 try:
                     _sv_content = build_multimodal_content(
-                        "[see_image 自视] 以下是你刚请求查看的图片："
+                        "[self_vision] 以下是你刚请求查看的图片："
                         + "、".join(os.path.basename(p) for _, p in _sv_pending),
                         [p for _, p in _sv_pending])
                     if _sv_content:
@@ -9473,6 +9867,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                           "name": tc["tool_name"],
                                           "turn": turn},
                                     ts=time.time())
+
+            # ── 动作链：记下这一轮（说了什么 + 做了什么）并对账 ──
+            # 放在工具结果**落库之后**：此时 result_json 已经过修剪/落盘，
+            # 判成功失败用的是模型真正看到的那份，而不是原始大输出。
+            # 告警直接进 msgs ⇒ 下一轮请求就带着它，无需额外往返。
+            # 同时这一步会写进思维链（ThoughtChain）—— 那是 Block 2.6 注进
+            # system prompt 的「最近执行足迹」，所以下一轮模型就看得到自己走过的路。
+            try:
+                if _chain is not None:
+                    _cnode = _chain.record(
+                        turn + 1, said=turn_text,
+                        tool_results=[(tc.get("tool_name"), tc.get("arguments"), rj)
+                                      for tc, rj in tool_results],
+                        reasoning=_turn_thinking)
+                    _cmsg = _chain.audit(_cnode)
+                    if _cmsg:
+                        msgs.append({"role": "user", "content": _cmsg})
+                        _cline = _cmsg.splitlines()[1] if len(_cmsg.splitlines()) > 1 else _cmsg
+                        print(f"[agent] action_chain alert: {_cline[:60]}")
+            except Exception as _ce:
+                print(f"[agent] action_chain skipped: {_ce}")
 
             # ── 插话注入（工具轮边界）：工具结果落库后、下一轮 LLM 调用前，
             # 把运行中收到的新用户消息插入上下文，模型下一轮即可看到并纳入思考 ──
@@ -9500,16 +9915,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if _removed2:
                         msgs[0] = {"role": "system", "content": _new_system}
                         # 降级重组会把动态段又塞回 system —— 重新拆一次，否则缓存当轮失效
+                        # 保留除首段（旧动态正文）以外的段（如【上下文状态】），只替换正文
+                        _tail_segs = list((_dyn_state.get("segs") or [])[1:])
                         msgs[0], _dyn_state["text"] = _split_system_dynamic(msgs[0])
+                        _dyn_state["segs"] = ([_dyn_state["text"]] if _dyn_state["text"] else []) + _tail_segs
                         _auto_downgraded = True
                         print(f"[context-wall] 自动降级 system → focus {_focus_level}, 移除: {_removed2}")
                         continue  # 重新估算
                     _focus_level += 2  # 降级无效（无 block 可裁），恢复原等级
                 # 第二优先：给 tools 留出预算，只对 messages 截断
                 msgs_budget = max(eff_limit - loop_tools_tokens, 5000)
+                # 🔴 缓存断点修复（2026-10-27 实测）：_trim_context_to_budget 内部会调
+                # _apply_context_wall，默认写回 system；于是每次裁剪都把「可见N条/已整理M条」
+                # 写进 system 前缀区 → 前面约 3 万 token 缓存整段作废（实测命中 95%→0%）。
+                # 已有末尾动态消息时，就把状态段挂在那条里（它本来就不入缓存）。
+                _wall_sink = (_dyn_state.get("segs") if _dyn_state.get("injected") else None)
                 msgs, trimmed = _trim_context_to_budget(
                     msgs, msgs_budget, store=store, topic_id=tid,
                     on_dropped=lambda _d: _schedule_organize_dropped(tid, _d),
+                    wall_sink=_wall_sink,
                 )
                 if trimmed:
                     print(f"[agent] context wall trimmed {trimmed} messages, "
@@ -9595,6 +10019,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if full_response:
             self.db.add_message(tid, "ai", full_response, args=_task_stats_args(),
                                 thinking=full_thinking, ts=time.time())
+            # 收尾这一轮也要留步 —— 但链在的时候已经由上面的 record(final=True) 写过了
+            # （它那一步同时带着收尾结论和最后几轮的动作），这里只做兜底。
+            if _chain is None:
+                _auto_thought(tid, _turn_thinking or full_thinking[-2000:], turn=turn + 1, force=True)
         # 正常收工 = 断点作废（续跑成功后卡片上的按钮必须消失，否则会二次续跑同一轮）
         try:
             self.db.delete_topic_meta(tid, "resume_ctx")
