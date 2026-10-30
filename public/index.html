@@ -1964,14 +1964,12 @@ html[data-boot] .hdr-pill-r, html[data-boot] .hdr-pill-r *{visibility:hidden !im
 #topicTitle{display:flex;align-items:center;gap:6px;min-width:0}
 #topicTitleText{display:block;flex:0 1 auto;width:fit-content;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .15s}
 /* 任务流程图入口：只有 AI 真给这个任务建过图才出现（.show），标题本身不再是入口 */
-#btnFlowChart{display:none;flex:0 0 auto;align-items:center;justify-content:center;width:24px;height:24px;padding:0;background:transparent;border:1px solid transparent;border-radius:var(--radius-sm);color:var(--accent);opacity:.85;cursor:pointer;transition:opacity .15s,background .15s,border-color .15s}
+/* 这里**只留 display** —— 尺寸 / 底色 / 描边 / 字色全归 §4（右岛那段），一处定义。
+   原来这段还写着 24px / --radius-sm / 1px 透明描边 / accent 悬停底，主体早被 §4 覆盖，
+   可白主题那两条 (1,1,1) 一直在偷偷生效（白底上把图标压到 opacity .7，跟 ☰ 对不上）。
+   同一个语义写两遍 = 迟早漂，整段删干净。 */
+#btnFlowChart{display:none;flex:0 0 auto;align-items:center;justify-content:center}
 #btnFlowChart.show{display:inline-flex}
-#btnFlowChart svg{width:16px;height:16px;display:block}
-#btnFlowChart:hover{opacity:1;background:rgba(var(--accent-rgb),.12);border-color:rgba(var(--accent-rgb),.35)}
-#btnFlowChart:active{transform:translateY(.5px)}
-/* 白主题：--accent 青(#2fe0c6) 压在白底上对比度不足，跟随 #btnDebug 的惯例改用正文色 */
-html[data-theme="white"] #btnFlowChart{color:var(--text);opacity:.7}
-html[data-theme="white"] #btnFlowChart:hover{opacity:1;background:rgba(var(--accent-rgb),.14);border-color:rgba(var(--accent-rgb),.4)}
 /* 移动端专属元素：桌面上隐藏，窄屏才显示 */
 .fc-mobile-only{display:none!important}
 @media(max-width:768px){ #flowChartModal .modal-box{width:100%!important;max-width:100%!important;height:100vh!important;max-height:100vh!important;border-radius:0} #flowChartBody{padding:8px!important;height:auto!important;min-height:0!important;flex:1 1 auto!important} .fc-mobile-only{display:flex!important} }
@@ -2798,7 +2796,14 @@ if (!_encKeyB64) { try { var _tk = localStorage.getItem('dg_token'); if (_tk) he
   window.__dayanCrypto = { key: _encKeyB64, canEncrypt: !!(_encKeyB64 && _cryptoCapable),
                          encrypt: _encrypt, decrypt: _decrypt };
 })();
-var chatBox, msgInput, btnSend, sDot, sText, uInfo, topicList, topicTitle, sidebar, overlay, workingDot, balanceBanner, balanceDisplay, balLbl, balText, costDisplay, tokenDisplay, sidebarTokens, workingPoll=null, hideBannerPref=true, balMode='full', wmMode='off', showTaskCostPref=true, showElapsedPref=true, showTokensPref=true, thinkGlowPref=true, procFadePref=true, procEdgePref=true, procBorderPref='dashed', procBgPref=true, runIndPref='spin', userAvatar='';
+// 🔴 「设置 → 界面」的默认配置（2026-10-30 用户按自己调好的界面定稿）：
+//    隐藏余额横幅 开 / 余额 精简 / 工作记忆 精简 / 运行状态 三点(spin) /
+//    显示任务金额·耗时·Token 全开 / 思考气泡光晕 关 / 思考气泡边缘渐隐 开 /
+//    思考框边缘渐隐 关 / 思考气泡背景 开 / 思考框描边 虚线。
+//    ⚠ 改这里的任何一项，必须同步改它自己的 init*Pref() 回落（loadTopbarModes /
+//      initGlowPref / initEdgePref 等）—— 同一套默认值不许两处各写一遍，否则
+//      刷新时按 A 值渲染、改一次设置又回到 B 值。
+var chatBox, msgInput, btnSend, sDot, sText, uInfo, topicList, topicTitle, sidebar, overlay, workingDot, balanceBanner, balanceDisplay, balLbl, balText, costDisplay, tokenDisplay, sidebarTokens, workingPoll=null, hideBannerPref=true, balMode='lean', wmMode='lean', showTaskCostPref=true, showElapsedPref=true, showTokensPref=true, thinkGlowPref=false, procFadePref=true, procEdgePref=false, procBorderPref='dashed', procBgPref=true, runIndPref='spin', userAvatar='';
 var messages=[], currentTopic=null, topics=[], cnyRate=7.0, appName='AI';
 var ATT_ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
 var LS_KEY='dayan_cache_v2';
@@ -3166,7 +3171,8 @@ function toggleBannerHidden(hidden) {
    余额：本地为真源，同时把「粗粒度布尔 + 完整档位」镜像回服务端。老后端只认
          show_balance，多发的 mode 字段会被忽略 → 所以这次不必重启服务。
    工作记忆：纯本地。
-   键名 bal_mode / wm_mode；旧键 wm_display + topbar_compact 只在首次迁移时读一次。 */
+   键名 bal_mode / wm_mode；没有本地键时默认 lean（精简），见 loadTopbarModes()。
+   旧键 wm_display='0' 代表用户当年显式关掉过，迁移成 off；topbar_compact 已退役。 */
 function normMode(v, dflt){ return (v==='off'||v==='lean'||v==='full') ? v : dflt; }
 
 function setBalMode(m){
@@ -3197,18 +3203,21 @@ function applyWmMode(){
   var rb=document.querySelector('input[name="wmMode"][value="'+wmMode+'"]');
   if(rb) rb.checked=true;
 }
-/* 首次迁移：新键优先；没有新键时从旧键推断。关键是 compact=1 的人要落到「精简」，
-   否则升级后余额和记忆会双双跳回「完整」，顶栏突然变宽。 */
+/* 档位来源：本地新键 bal_mode / wm_mode 优先；没有就当默认档位 lean（精简）——
+   这是 2026-10-30 用户定稿的默认界面。旧键在这里只用于"尊重当年的显式关闭"：
+   wm_display='0' → off。topbar_compact 已退役：默认就是 lean，没必要时隔三年再猜一次老键。 */
 function loadTopbarModes(srvShowBal){
-  var compact=false, oldWm=null, newBal=null, newWm=null;
+  var oldWm=null, newBal=null, newWm=null;
   try{
-    compact = localStorage.getItem('topbar_compact')==='1';
     oldWm   = localStorage.getItem('wm_display');
     newBal  = localStorage.getItem('bal_mode');
     newWm   = localStorage.getItem('wm_mode');
   }catch(e){}
-  balMode = normMode(newBal, compact ? 'lean' : (srvShowBal===false ? 'off' : 'full'));
-  wmMode  = normMode(newWm,  oldWm==='1' ? (compact ? 'lean' : 'full') : 'off');
+  // 默认档位 = 精简（2026-10-30 用户定稿）。显式关过的仍然尊重：
+  // 服务端 show_balance=false → off；旧键 wm_display='0' → off；其余一律 lean。
+  // 🔴 topbar_compact 不再参与判定 —— 默认已经是 lean，没必要再猜一次老键。
+  balMode = normMode(newBal, srvShowBal===false ? 'off' : 'lean');
+  wmMode  = normMode(newWm,  oldWm==='0' ? 'off' : 'lean');
 }
 function updateBalanceBanner(data){
   if(!balanceBanner) return;
@@ -6792,13 +6801,21 @@ function liveLogHTML(m){
   }
   var resp=String((m&&m.resp)||'');
   var hasAny=(hist.h!==''||last.h!=='');
-  var h='<div class="w-tl-hist" data-n="'+hist.n+'" data-tn="'+hist.tn+'">'+hist.h+'</div>'
+  /* 时间线/思考/打字全空（刚起轮）才占位 —— 有内容再加"等待"行反而误导。
+     🔴 占位行放在**结构末尾**，四段容器照旧留在原地（2026-10-30）。
+        以前是"整块结构替换成占位行"，代价有两个，都发生在每一次轮询里：
+          ① syncLiveProcBody 的守卫拿不到 .w-tl-hist/.w-tl-last ⇒ 每 500ms 把 body.innerHTML
+             整块重画一次，占位行那三点动画每 500ms 从 0 重播一次；
+          ② 重画完仍然没有 histEl ⇒ 下面 var haveHist=histEl._hl 抛 TypeError，
+             而 updateProcDom 的调用点在 try{}catch{} 里 ⇒ 静默失败：整个"等首字"阶段
+             滚动跟随 / 边缘渐隐 / 空态高度全部不生效。
+        拆分渲染的前提是"结构恒定"，空态也必须给出同样的四个槽位。 */
+  var wait=(!hasAny && !resp && !((m&&m.thinking)||''))?procWaitHTML(m):'';
+  return '<div class="w-tl-hist" data-n="'+hist.n+'" data-tn="'+hist.tn+'">'+hist.h+'</div>'
        +'<div class="w-tl-last" data-n="'+last.n+'" data-tn="'+last.tn+'">'+last.h+'</div>'
        +'<div class="w-think w-think-cur"></div>'
-       +(resp?'<div class="w-resp md"><span class="w-step-no">✎</span>'+fmt(resp)+'</div>':'');
-  // 时间线/思考/打字全空（刚起轮）才占位 —— 有内容再加"等待"行反而误导
-  if(!hasAny && !resp && !((m&&m.thinking)||'')) h=procWaitHTML(m);
-  return h;
+       +(resp?'<div class="w-resp md"><span class="w-step-no">✎</span>'+fmt(resp)+'</div>':'')
+       +wait;
 }
 // 思考框 body 渲染：live 态 = 实时思考(reasoning) + 过程日志(动作叙述/当前轮打字)；
 // 静态态按时间顺序平铺所有 steps（think/inter/tool 不分层）。
@@ -6941,6 +6958,13 @@ function syncLiveProcBody(body, w){
   if(fullText.length>rendered){
     thinkEl.appendChild(document.createTextNode(fullText.slice(rendered)));
     thinkEl._renderedLen=fullText.length;
+  }
+  // 占位行只是"一个字都没有"的表示：一旦有内容就摘掉 —— 结构现在是恒定的，
+  // 不会再被整块重建顺手带走（见 liveLogHTML 尾部的 wait）。判据与 _syncProcEmpty 同一套数据位。
+  if(logEl && (fullText || resp || (tl&&tl.length) || String(w.inter||'')) && !logEl._waitGone){
+    var _wt=logEl.querySelector('.w-live-wait');
+    if(_wt) _wt.remove();
+    logEl._waitGone=1;
   }
   // 内容一到就摘掉空态（height 会从 108 平滑长到 352），反之回缩
   _syncProcEmpty(body.parentNode, body, w);
@@ -10151,8 +10175,9 @@ function wsTabsLoad() {
       wsTabs.activePane = 0;
       wsTabsRender();
       if (typeof abApplyWidth === 'function') abApplyWidth();
-      // 有显式标签的任务：进入时自动展开工作区，否则移动端没有入口可再打开
-      // （#btnFiles 在 ≤768px 隐藏，只剩不可发现的右滑手势）。files 默认标签不算。
+      // 有显式标签的任务：进入时自动展开工作区，否则移动端没有入口可再打开。
+      // （手机端 #btnFiles 现已常显，但"有入口"和"知道自己有标签"是两件事，这里仍自动展开。）
+      // files 默认标签不算 —— 那是每个任务都有的空壳，展开它等于每次切任务都弹面板。
       if (typeof wsAutoOpenIfTabs === 'function') wsAutoOpenIfTabs();
 
     })
@@ -15285,9 +15310,10 @@ async function pollTopicTail(){
     // 上面那套 changed 判据一条都命中不了。而错误卡上的「继续 / 用备用源继续」全靠这个布尔值
     // —— 不问就等于永远不出现（2026-10-24 实测：卡在屏上、断点在库、按钮没有）。
     // 老后端不回这个字段（undefined）⇒ 保持原值，交给 loadConclusions / loadMessages 那条路。
+    var _resumeFlip=false;
     if(typeof d.resume_ok!=='undefined' && !!d.resume_ok!==_resumeOk){
       _resumeOk=!!d.resume_ok;
-      changed=true;
+      changed=true; _resumeFlip=true;
     }
     // AI 刚收工：不管 last_id 有没有变，都把文件列表对齐一次（产出文件正是这一轮干的活）
     if(_wasWorking&&!busy&&typeof fbArAfterTurn==='function') fbArAfterTurn();
@@ -15300,7 +15326,15 @@ async function pollTopicTail(){
       // 界面上挂着实时泡时交给既有实时链路，别把它冲掉
       var hasLive=messages.some(function(m){return m.working||(m.type==='proc'&&m.live);});
       if(!hasLive) await refreshCurrentTopic(tid);
-      else render();
+      /* 🔴 运行期**不整页重建**（2026-10-30 用户：模型运作时页面每隔一段就闪一下）。
+         跑一轮就往库里落几条消息 ⇒ last_id 每轮都变 ⇒ 这里每隔 3 秒对 chatBox 做一次
+         innerHTML='' + 全量重拼。实测 61 条消息已要 27~45ms，长任务（记录在案的 160 轮）
+         120ms —— 主线程被占住的那段时间画面是定住的，肉眼就是"闪一下 / 卡一下"。
+         而这一轮的内容 500ms 的 updateProcDom 早就画在屏上了（单次 0.26ms，见 syncLiveProcBody），
+         重建一遍拿不到任何新东西：落库的正是屏幕上已经显示的那几轮。
+         收工（busy=false）时再重建一次对齐最终态；断点翻转（_resumeFlip）也必须重建，
+         因为错误卡的画法只由 render 改。 */
+      else if(!busy || _resumeFlip) render();
     }
   }catch(e){
     // ⚠️ 同样必须留痕：这是"界面自己会动"的**唯一**刷新源，静默失败 = 界面死住且零线索。
@@ -18411,7 +18445,8 @@ function applyGlowPref(){
   document.body.classList.toggle('think-glow-off', thinkGlowPref === false);
 }
 function initGlowPref(){
-  try { thinkGlowPref = localStorage.getItem('think_glow') !== '0'; } catch(e){ thinkGlowPref = true; }
+  // 默认关（2026-10-30 定稿）：只有显式存过 '1' 才开。'0'/=null 都是关。
+  try { thinkGlowPref = localStorage.getItem('think_glow') === '1'; } catch(e){ thinkGlowPref = false; }
   applyGlowPref();
 }
 function toggleThinkGlow(on){
@@ -18455,7 +18490,8 @@ function applyEdgePref(){
   document.body.classList.toggle('proc-edge-on', procEdgePref !== false);
 }
 function initEdgePref(){
-  try { procEdgePref = localStorage.getItem('proc_edge') !== '0'; } catch(e){ procEdgePref = true; }
+  // 默认关（2026-10-30 定稿）：边缘渐隐是"开起来才改变观感"，未设置即不羽化。
+  try { procEdgePref = localStorage.getItem('proc_edge') === '1'; } catch(e){ procEdgePref = false; }
   applyEdgePref();
 }
 function toggleProcEdge(on){
@@ -22368,10 +22404,12 @@ header h1{font-size:17px;font-weight:600;line-height:1.15;letter-spacing:-.018em
 
 /* —— 4. 右岛：流程图 / 文件 / 调试，同一套圆钮，只靠字形色分主次 ——
    23px 纹样落在 32px 圆里 ≈ 72%，与 iOS 的 ••• / 返回键同比例。
-   #btnFlowChart 独占 --accent（唯一的"跳转"入口），另外两个是就地操作，用正文色 / 次要色。 */
+   ⚠ 第 66 轮：字色从 --accent（薄荷绿）改成 --text —— 手机上它是右端**唯一**一枚圆钮，
+     与左端 ☰ 成对；一绿一白等于两个体系。绿只留给"正在跑"的状态色，不拿来染按钮。
+     另外两个是就地操作，用次要色 --tdim。 */
 #btnFlowChart,#btnFiles,#btnDebug{width:32px;height:32px;padding:0;border:0;
   border-radius:999px;background:transparent;box-shadow:none;flex:0 0 auto;margin:0}
-#btnFlowChart{color:var(--accent);opacity:1;
+#btnFlowChart{color:var(--text);opacity:1;
   transition:background .15s ease,transform .1s ease}
 #btnFlowChart svg{width:23px;height:23px;display:block}
 #btnFlowChart:hover,#btnFlowChart:focus-visible{background:var(--hover)}
@@ -22384,8 +22422,6 @@ header h1{font-size:17px;font-weight:600;line-height:1.15;letter-spacing:-.018em
 #btnFiles:hover{background:var(--hover);color:var(--text)}
 #btnFiles:active,#btnDebug:active{transform:scale(.94)}
 #btnFiles.on{background:rgba(var(--accent-rgb),.18);color:var(--accent);opacity:1}
-/* 白主题：--accent(#2fe0c6) 压在白面上对比不足，跟 #btnDebug 的既有惯例改用 accent2 */
-html[data-theme="white"] #btnFlowChart{color:var(--accent2)}
 #btnDebug{color:var(--tdim);
   transition:background .15s ease,color .15s ease,transform .1s ease}
 #btnDebug:hover,#btnDebug.active{background:var(--hover);color:var(--text)}
@@ -22517,21 +22553,63 @@ html[data-theme="white"] .win-ctrls button:hover{background:rgba(0,0,0,.07)}
   #btnMenu svg,#btnFiles svg,#btnDebug svg{width:17px;height:17px}
   header h1{font-size:16px}
   /* padding-top 统一走 --hdr-band（§8d），不再按断点各写一个数 */
-  /* 手机的右岛里只有 流程图 / 调试 两个键，而两者默认都不显示（.show / .active 才出来）。
-     不兜底的话，"没有流程图的任务"右上角会留一个 12px 的空圆壳 —— 比没有更脏。
-     桌面端不用管：#btnFiles 在 ≥769px 常显，右岛永远有内容。 */
+  /* 手机的右岛里三枚键，资格各不相同（§118：容器放行 ≠ 里面的按钮都该出来）：
+       #btnFiles      常显 —— 手机上唯一一眼能找到的工作区入口。以前它被藏掉，
+                      只剩"从右往左滑"这个没有提示的手势，等于没有入口。
+       #btnFlowChart  任务真建过流程图才出现（.show，_flowProbe 异步补）
+       #btnDebug      调试面板必须自己开着（.active），dev_mode 的内联 display 不算数
+     三枚都不在时整岛 display:none —— 否则右上角会留一个 12px 的空圆壳，比没有更脏。 */
   .hdr-pill-r{display:none}
+  .hdr-pill-r:has(> #btnFiles),
   .hdr-pill-r:has(> #btnFlowChart.show),
   .hdr-pill-r:has(> #btnDebug.active){display:flex}
   /* 🔴 容器放行 ≠ 里面的按钮都该出来（§118）。
-     上面那两条 :has() 只回答"右岛里有没有内容"，一旦 display:flex，同样住在里面的
-     #btnFiles 和**没开过**的 #btnDebug 就一起冒出来 —— 用户截图里"加载时多出来的
-     那两个图标"正是这么来的（#btnFlowChart 的 .show 由 _flowProbe 异步补，
-     切任务那一下还带着上一个任务的值，于是图标先出现、再消失）。
-     ⇒ 手机档按按钮各自的资格单独判：文件浏览器在窄屏没有可用形态；
-        调试面板必须自己开着（.active）才认，dev_mode 的内联 display 不再等于"可以出现"。 */
-  #btnFiles{display:none}
+     上面那几条 :has() 只回答"右岛里有没有内容"，一旦 display:flex，**没开过**的
+     #btnDebug 也会冒出来 —— 用户截图里"加载时多出来的那个图标"正是这么来的
+     （#btnFlowChart 的 .show 由 _flowProbe 异步补，切任务那一下还带着上一个任务的值，
+     于是图标先出现、再消失）。
+     ⇒ 手机档按按钮各自的资格单独判：
+        #btnFiles  常显。窄屏面板是全屏覆盖层（updateFbLayout 走 innerWidth<=768 分支，
+                   靠 mainPanel translateX 滑出），形态完整、顶栏那枚 ✕ 可点 ⇒ 有可用形态。
+        #btnDebug  必须自己开着（.active）才认，dev_mode 的内联 display 不再等于"可以出现"。 */
+  #btnFiles{display:inline-flex}
   #btnDebug:not(.active){display:none}
+
+  /* —— 9. 右岛只剩一枚键时：玻璃归按钮自己（第 66 轮建 · 第 69 轮扩到文件键）——
+     旧形态：岛自带玻璃 + padding 0 5px ⇒ 实测 **42×38**，圆角 999 落在 42×38 上
+     就是个**椭圆**，里面再摆一枚 30×30 的透明按钮 ⇒ 用户原话"太奇怪了，
+     而且还不是圆的按钮"。点击区 30、看得见的壳 42，两边还各空 6px。
+     现在单枚时岛退成裸容器（不画底 / 不留 pad / 不画边），玻璃搬到按钮身上：
+     38×38 正圆 + 圆角 999 + 同一套 --mat-* —— 与左侧 ☰ 同规格；右缘 378 = 390 - 12，
+     与 ☰ 左缘 12 左右对称。
+     🔴 文件键常显 ⇒ 手机端"只剩一枚"的实际情形只有一种：流程图没建过图 + 调试面板没开，
+        也就是只剩 #btnFiles。两枚或三枚同时可见仍走"一条胶囊"（§8d：多条合成一条胶囊），
+        所以上面那条胶囊规则不许删，只在单枚时让位。
+        若将来 #btnFiles 也改成条件显示，"只剩流程图 / 只剩调试"要一并补进来。
+     🔴 选择器靠 :has() 表达"谁还活着"，不要用 JS 补 class —— .show / .active
+        是异步补的，JS 补 class 会漏掉首帧。 */
+  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)){
+    padding:0;gap:0;background:none;border:0;box-shadow:none;
+    -webkit-backdrop-filter:none;backdrop-filter:none}
+  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)) > #btnFiles{
+    width:var(--hdr-glass-h);height:var(--hdr-glass-h);
+    border:1px solid var(--border2);border-radius:999px;
+    background:var(--mat-fill);
+    -webkit-backdrop-filter:var(--mat-blur);backdrop-filter:var(--mat-blur);
+    box-shadow:inset 0 1px 0 var(--mat-top),var(--mat-lift)}
+  /* 字色：单枚时它是与 ☰ 成对的唯一一枚 ⇒ 正文色（与 ☰ 同一条结论，见 §4 注释）；
+     面板开着（.on）仍留给 accent —— 那是"状态"，不是"体系"。 */
+  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)) > #btnFiles:not(.on){
+    color:var(--text)}
+  /* 图标 17px 是胶囊里的尺寸。文件夹图形在 24 格 viewBox 里占 20/24 ⇒ 17px 只剩 14px 墨迹，
+     放进 38 圆只有 37%，比 ☰ 的 18px 三横线轻一档；涨到 20px（墨迹 ~16.7）才等重。 */
+  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)) > #btnFiles svg{
+    width:20px;height:20px}
+  /* 有了实底，hover 不能再整块换 --hover（会把底换没、变透明）—— 叠一层背景图，
+     和 #btnMenu:hover 同一条教训、同一种写法。 */
+  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)) > #btnFiles:hover,
+  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)) > #btnFiles:focus-visible{
+    background-image:linear-gradient(var(--hover),var(--hover))}
 }
 
 /* —— 8b. 【已作废 · 第 7 轮】手机：右岛并进左岛 ——
