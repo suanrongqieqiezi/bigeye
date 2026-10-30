@@ -8826,8 +8826,12 @@ function openFileBrowser(){
   fbOpen=true;
   syncFbBtn();
   if(window.innerWidth>768) updateFbLayout();
+  // 内容跟着激活标签跑（2026-10-30）：原来这里无条件 loadWorkspaceFiles('') 按工作区根加载，
+  // 激活的是 explorer/outdir 标签时，这条请求会和 wsTabsLoad→wsTabBody 按标签发的加载赛跑，
+  // 工作区根的回包后到就把标签内容盖掉（现象：开着「鱼缸」标签看到的却是工作区，
+  // 要点一下别的标签再按回来才对）。改成统一走 wsTabBody 按激活标签分发。
   fbCurrentPath='';
-  loadWorkspaceFiles('');
+  if(typeof wsTabBody==='function'){ wsTabBody(); } else { loadWorkspaceFiles(''); }
 }
 function closeFileBrowser(){
   fbScopeUse('main');
@@ -8934,8 +8938,9 @@ function loadWorkspaceFiles(subdir, mode){
   if(typeof fbCloseMenu==='function') fbCloseMenu();   // 切目录时收起排序/分类菜单
   if(mode===undefined){
     // 老调用点（navigateToDir/back等）按当前激活标签类型分流
+    // outdir 也是 explorer 渲染器（绝对路径），漏判会把产出标签当成工作区
     var at = wsPaneActive ? wsPaneActive(0) : null;
-    mode = (at && at.type === 'explorer') ? 'explorer' : 'workspace';
+    mode = (at && (at.type==='explorer'||at.type==='outdir')) ? 'explorer' : 'workspace';
   }
   if(mode==='explorer'){
     if(subdir===undefined || subdir===null) subdir=fbExplorerPath||'';
@@ -8956,10 +8961,15 @@ function loadWorkspaceFiles(subdir, mode){
   var effDir = (mode==='explorer') ? fbExplorerPath : subdir;
   if(effDir) url+='&subdir='+encodeURIComponent(effDir);
   var sc=fbScope;   // 钉住发起时的作用域：两个作用域的请求可能同时在飞
+  // 回包乱序守卫（2026-10-30）：打开面板/切标签时会连发两次列表请求（先兜底、后按标签），
+  // 手机走公网隧道时先发的回包可能后到，把正确内容盖掉。按作用域记序号，只有最新一次能画。
+  var _seqK='_seq_'+sc;
+  loadWorkspaceFiles[_seqK]=(loadWorkspaceFiles[_seqK]||0)+1;
+  var _seq=loadWorkspaceFiles[_seqK];
   fetch(url)
     .then(function(r){return r.json();})
-    .then(function(d){ fbScopeRun(sc, function(){ renderFileBrowser(d, mode); }); })
-    .catch(function(e){ if(grid) grid.innerHTML='<div class="fb-empty">加载失败: '+esc(e.message)+'</div>'; });
+    .then(function(d){ if(_seq!==loadWorkspaceFiles[_seqK]) return; fbScopeRun(sc, function(){ renderFileBrowser(d, mode); }); })
+    .catch(function(e){ if(_seq!==loadWorkspaceFiles[_seqK]) return; if(grid) grid.innerHTML='<div class="fb-empty">加载失败: '+esc(e.message)+'</div>'; });
 }
 
 function renderFileBrowser(data, mode){
