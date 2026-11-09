@@ -111,22 +111,99 @@ html[data-theme="white"] .task-outside-btn[data-val="1"]:hover{color:#6f4200;bac
 /* 分组 */
 .tm-group{margin-top:2px}
 .tm-gh{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:6px;
-  padding:7px 8px 5px;background:var(--surface2);font-size:11px;color:var(--tdim)}
+  padding:7px 10px 5px;background:var(--surface2);font-size:11px;color:var(--tdim)}
 .tm-gl{font-weight:600;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tm-gc{margin-left:auto;font-size:10px;opacity:.75}
 /* 条目 */
-.tm-item{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;border:0;
-  border-radius:9px;background:transparent;color:var(--text);text-align:left;
+/* 一行 = 一个按钮，只有这一个点击目标：点它 = 选这个模型 + 就地展开强度档位。
+   三列栅格：模型名（含「当前」）｜ 来源 ｜ 思考强度。
+   🔴 右两列必须是**定宽**。此前它们跟着内容浮动（.tm-src 是 max-width，
+   .tm-rs-stat 是 auto），于是「思考强度」的起点每行都在挪（实测 x=590/632/596/596），
+   十几行错位的重复文字，是这张表显得乱的主因 —— 重复不可怕，错位才刺眼。 */
+.tm-item{display:grid;grid-template-columns:minmax(0,1fr) 86px 92px;
+  align-items:center;column-gap:14px;width:100%;box-sizing:border-box;
+  border:0;border-radius:9px;background:transparent;color:var(--text);text-align:left;
   font:inherit;font-size:13px;padding:9px 10px;cursor:pointer}
 .tm-item:hover{background:var(--hover)}
-.tm-item:disabled{opacity:.4;cursor:not-allowed}
-.tm-item.on{background:rgba(var(--accent-rgb),.13);box-shadow:inset 0 0 0 1px rgba(var(--accent-rgb),.5)}
-.tm-item.on .tm-nm{font-weight:600}
-.tm-nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tm-src{flex:0 0 auto;font-size:10px;color:var(--tdim);max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tm-tag{flex:0 0 auto;font-size:10px;padding:1px 6px;border-radius:6px;
-  border:1px solid rgba(var(--accent-rgb),.5);color:var(--accent)}
+.tm-item.na{opacity:.4;pointer-events:none}
+/* 选中行只铺淡底 + 名字加粗。不再加描边：那圈线会被读成"可点的标签"（踩过），
+   而「当前」已经有自己的文字标记，同一个意思不需要强调两遍。 */
+.tm-item.on{background:rgba(var(--accent-rgb),.13)}
+.tm-item.on .tm-nm-t{font-weight:600}
+/* 「当前」是名字的修饰语，不是独立控件：无边框、无底色、紧跟名字。
+   名字可缩、标记不缩 —— 否则长模型名会把「当前」顶出可视区。 */
+.tm-nm{display:flex;align-items:center;gap:7px;min-width:0;overflow:hidden}
+.tm-nm-t{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tm-tag{flex:0 0 auto;font-size:10px;letter-spacing:.02em;color:var(--accent);opacity:.92}
+/* 来源右对齐 + 定宽：右边界成一条竖线，左边留白由内容长短自然形成 */
+.tm-src{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  text-align:right;font-size:10.5px;color:var(--tdim)}
 .tm-item.tm-busy{opacity:.5;pointer-events:none}
+
+/* 右侧：只是状态。不是按钮，所以不铺底色、不给 hover、不加描边 ——
+   任何"可点"的视觉暗示都会把用户引回"嵌套按钮"那个误会。
+   列内**左对齐**（不是右对齐）：档位名长短不一（默认/极致/关/低），右对齐会让
+   「思考强度」这个主语每行都在挪；主语站住了，这一列才成得了列。 */
+.tm-rs-stat{display:flex;align-items:center;justify-content:flex-end;gap:4px;min-width:0;
+  font-size:10.5px;line-height:1;color:var(--tdim);white-space:nowrap;opacity:.72}
+/* 标签是这句话的主语，不能省：只写「默认」，用户不知道默认的是什么。
+   窄屏换成两字的「强度」——那行还要塞模型名、来源、「当前」，四个字放不下。 */
+.tm-rs-stat-k{flex:0 0 auto;font-size:10px;letter-spacing:.02em}
+.tm-rs-stat-k2{display:none;flex:0 0 auto;font-size:10px;letter-spacing:.02em}
+/* 中点不叠透明度：父级已经压暗到 .7，再乘一次会淡到看不见 —— 那时它等于不存在 */
+.tm-rs-stat-s{flex:0 0 auto;margin:0 -1px}
+/* 档位名比标签亮一档：同色同重会连读成一句话「思考强度默认」 */
+.tm-rs-stat-t{flex:0 1 auto;min-width:2.1em;overflow:hidden;text-overflow:ellipsis;
+  color:var(--text);font-weight:500}
+/* 设过的行：整块染强调色 + 档位加粗。不给淡底 —— 定宽列里底色会变成一条
+   长度固定的色块，看起来像"这一块是可以点的"。一列灰里唯一一个彩色已经够跳。
+   🔴 展开态不参与染色：展开本身有档位条贴在下面，再染一次就和"设过了"分不清。 */
+.tm-rs-stat.on{color:var(--accent);opacity:1}
+.tm-rs-stat.on .tm-rs-stat-t{color:inherit;font-weight:600}
+
+/* 档位条：贴在这一行下面（就地在哪行展开，用户看得见"改的是哪个模型"）。
+   胶囊换行而不是横滑 —— 手机上 7 个档一排放不下，横滑会让人以为只有前两个。 */
+.tm-rs{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 10px 12px}
+/* 展开 = 这个模型被选中（点行就是选它），所以行必然带 .on 的淡底。
+   🔴 档位条必须**接着这块底**：给它同一底色 + 下圆角，行改成上圆角，
+   否则档位条会像浮在列表上的另一件东西，和它描述的那一行看不出归属。
+   选中的是行，展开的是同一件事，视觉上不能断。 */
+.tm-item[aria-expanded="true"]{border-radius:9px 9px 0 0;background:rgba(var(--accent-rgb),.13)}
+.tm-item[aria-expanded="true"]+.tm-rs{background:rgba(var(--accent-rgb),.13);
+  border-radius:0 0 9px 9px;margin-bottom:3px}
+.tm-item[aria-expanded="true"] .tm-rs-stat{opacity:.88}
+/* 选中的胶囊本来只比面板底色深一点就够了；一旦垫上整块淡绿底，
+   这层淡底就和背景同色，选中的那个反而看不出来 —— 块内加深一档。 */
+.tm-item[aria-expanded="true"]+.tm-rs .tm-lv.on{background:rgba(var(--accent-rgb),.26);
+  border-color:rgba(var(--accent-rgb),.75)}
+.tm-rs-h{flex:0 0 100%;font-size:10.5px;color:var(--tdim);line-height:1.5;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tm-rs-wait{font-size:11px;color:var(--tdim);line-height:1.7}
+.tm-rs-err{flex:0 0 100%;font-size:11px;color:var(--warn);line-height:1.55;
+  word-break:break-word;overflow-wrap:anywhere}
+html[data-theme="white"] .tm-rs-err{color:#8a5200}
+.tm-lv{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  min-height:26px;padding:0 11px;border:1px solid var(--border2);border-radius:999px;
+  background:transparent;color:var(--text);font:inherit;font-size:12px;line-height:1;
+  cursor:pointer;white-space:nowrap}
+.tm-lv:hover{border-color:var(--accent);color:var(--accent)}
+.tm-lv.on{background:rgba(var(--accent-rgb),.16);border-color:rgba(var(--accent-rgb),.6);
+  color:var(--accent);font-weight:600}
+.tm-lv:disabled{opacity:.5;cursor:progress}
+.tm-rs-tip{flex:0 0 100%;font-size:10px;color:var(--tdim);line-height:1.55;margin-top:1px;
+  word-break:break-word;overflow-wrap:anywhere}
+
+/* 手机上名字要优先，来源标签让位（档位文字不能省 —— 那正是这行要看的信息） */
+@media (max-width:520px){
+  .tm-item{grid-template-columns:minmax(0,1fr) 66px 64px;column-gap:10px;padding:9px 8px}
+  .tm-gh{padding-left:8px}
+  .tm-nm{gap:6px}
+  .tm-rs-stat{gap:3px}
+  .tm-rs-stat-k{display:none}
+  .tm-rs-stat-k2{display:inline}
+  .tm-lv{min-height:28px;padding:0 10px;font-size:11.5px}
+  .tm-rs{gap:5px;padding-right:8px;padding-left:8px}
+}
 .tm-empty{padding:28px 16px;text-align:center;color:var(--tdim);font-size:12px;line-height:2}
 .tm-retry{border:1px solid var(--border2);background:var(--surface3);color:var(--text);
   border-radius:8px;padding:5px 14px;font:inherit;font-size:12px;cursor:pointer}
@@ -780,6 +857,31 @@ html[data-theme="white"] .dp-err{color:#8a5200}
     return p||'其他';
   }
 
+  /* 一行模型。recent 和按源分组两处都必须走这里 —— 各写一份的话，
+     改交互必然只改一处，另一边看起来像"这个模型不支持"。
+     🔴 整行就是一个 <button>：点它 = 选模型 + 展开强度档位。
+     右侧状态是纯文本，行内不许再有第二个按钮（嵌套按钮的语义怎么调都会误导）。 */
+  function rowHTML(m, srcLabel){
+    var rs=m.reasoning||{}, na=(m.available===false), lbl=rs.label||'默认';
+    return '<button type="button" class="tm-item'
+         + (m.current?' on':'')+(na?' na':'')+'"'
+         + ' data-p="'+esc(m.provider)+'" data-m="'+esc(m.id)+'"'
+         + ' aria-expanded="false">'
+         + '<span class="tm-nm">'
+         +   '<span class="tm-nm-t">'+esc(m.name||m.id)+'</span>'
+         +   (m.current?'<span class="tm-tag">当前</span>':'')
+         + '</span>'
+         + '<span class="tm-src">'+esc(srcLabel||'')+'</span>'
+         + '<span class="tm-rs-stat'+(rs.set?' on':'')+'"'
+         +   ' title="思考强度：'+esc(lbl)+'">'
+         +   '<span class="tm-rs-stat-k">思考强度</span>'
+         +   '<span class="tm-rs-stat-k2">强度</span>'
+         +   '<span class="tm-rs-stat-s">·</span>'
+         +   '<span class="tm-rs-stat-t">'+esc(lbl)+'</span>'
+         + '</span>'
+         + '</button>';
+  }
+
   function buildList(d,q){
     var models=(d&&d.models)||[];
     if(!models.length) return '<div class="tm-empty">暂无模型</div>';
@@ -811,12 +913,7 @@ html[data-theme="white"] .dp-err{color:#8a5200}
             +'<span class="tm-gl">最近使用</span><span class="tm-gc">'+rh.length+'</span></div>';
         for(var rj=0;rj<rh.length;rj++){
           var rn=rh[rj];
-          html+='<button type="button" class="tm-item'+(rn.current?' on':'')+'"'+(rn.available===false?' disabled':'')
-               +' data-p="'+esc(rn.provider)+'" data-m="'+esc(rn.id)+'">'
-               +'<span class="tm-nm">'+esc(rn.name||rn.id)+'</span>'
-               +'<span class="tm-src">'+esc(groupLabel(rn.provider||'unknown',rn))+'</span>'
-               +(rn.current?'<span class="tm-tag">当前</span>':'')
-               +'</button>';
+          html+=rowHTML(rn, groupLabel(rn.provider||'unknown', rn));
         }
         html+='</div>';
       }
@@ -833,11 +930,7 @@ html[data-theme="white"] .dp-err{color:#8a5200}
       html+='<div class="tm-group"><div class="tm-gh"><span class="tm-gl">'+esc(grp.label)+'</span><span class="tm-gc">'+hit.length+'</span></div>';
       for(var h=0;h<hit.length;h++){
         var mm=hit[h];
-        html+='<button type="button" class="tm-item'+(mm.current?' on':'')+'"'+(mm.available===false?' disabled':'')
-             +' data-p="'+esc(mm.provider)+'" data-m="'+esc(mm.id)+'">'
-             +'<span class="tm-nm">'+esc(mm.name||mm.id)+'</span>'
-             +(mm.current?'<span class="tm-tag">当前</span>':'')
-             +'</button>';
+        html+=rowHTML(mm, '');
       }
       html+='</div>';
     }
@@ -869,6 +962,7 @@ html[data-theme="white"] .dp-err{color:#8a5200}
     live=self;
 
     function repaint(q){
+      closeRs();                                   // 列表要重建，展开的那条先收掉
       var query=(q==null)?input.value:q;
       if(self.data){
         scroll.innerHTML=buildList(self.data,query);
@@ -878,6 +972,173 @@ html[data-theme="white"] .dp-err{color:#8a5200}
         sub.textContent='加载中…';
       }
     }
+    /* ── 思考强度：行内展开 / 选择 / 回写 ───────────────────────
+       状态判定一律以后端 badge 为准（{set,off,level,label}）——
+       前端再算一遍"是不是默认"必然和后端算得不一样，那种错最难查。 */
+    var openRow=null;
+
+    function closeRs(){
+      if(!openRow) return;
+      var bar=openRow.__bar;
+      if(bar && bar.parentNode) bar.parentNode.removeChild(bar);
+      openRow.setAttribute('aria-expanded','false');   // 展开标记挂在行上（整行才是按钮）
+      openRow.__bar=null;
+      openRow=null;
+    }
+
+    function tipOf(b){
+      if(b.off) return '关：显式要求不思考。有的站点不认这个开关，会照旧思考。';
+      if(b.set && b.level) return '已指定档位。部分站点会把相近的档做映射（比如只有低/高/极致三档）。';
+      if(b.set) return '只开关、不分档：这个形态由站点自己决定强度。';
+      return '默认：不发送强度字段，按站点自己的默认跑。';
+    }
+
+    function rsBarsHTML(d){
+      var eff=d.effective||{}, b=d.badge||{}, lvs=eff.levels||[],
+          labels=d.level_labels||{}, styles=d.styles||[], spec=null;
+      for(var i=0;i<styles.length;i++){ if(styles[i].id===eff.style){ spec=styles[i]; break; } }
+      // 按钮那边已经写了「思考强度」，这里再写一遍是重复；这一行要说的是
+      // "下面这几个档会用哪种字段发出去"（= 参数形态，和设置页同一个词）
+      var h='<div class="tm-rs-h">参数形态 · 发 '+esc(eff.style||'—')+'</div>'
+          + '<button type="button" class="tm-lv'+(!b.set?' on':'')+'" data-lv="__default">默认</button>';
+      if(lvs.length){
+        for(var j=0;j<lvs.length;j++){
+          var k=lvs[j];
+          h+='<button type="button" class="tm-lv'
+           + ((b.set && !b.off && b.level===k)?' on':'')+'" data-lv="'+esc(k)+'">'
+           + esc(labels[k]||k)+'</button>';
+        }
+      }else{
+        // 只有开关的形态：没有档位可挑，「开」是显式打开（与「默认=不发字段」不是一回事）
+        h+='<button type="button" class="tm-lv'+((b.set&&!b.off)?' on':'')+'" data-lv="__on">开</button>';
+      }
+      if(spec && spec.can_off){
+        h+='<button type="button" class="tm-lv'+(b.off?' on':'')+'" data-lv="__off">关</button>';
+      }
+      return h + '<div class="tm-rs-tip">'+esc(tipOf(b))+'</div>';
+    }
+
+    function applyBadge(row,badge){
+      var st=row.querySelector('.tm-rs-stat'); if(!st) return;
+      var lbl=(badge&&badge.label)||'默认';
+      st.classList.toggle('on', !!(badge&&badge.set));
+      var tx=st.querySelector('.tm-rs-stat-t'); if(tx) tx.textContent=lbl;
+      st.title='思考强度：'+lbl;
+    }
+
+    /* 切完模型只搬「当前」标记，不整体重绘 —— 重绘会把刚展开的档位条一起丢掉 */
+    function markCurrent(p,mid){
+      var arrs=self.data?[self.data.models||[], self.data.recent||[]]:[];
+      for(var a=0;a<arrs.length;a++){
+        for(var i=0;i<arrs[a].length;i++){
+          var m=arrs[a][i];
+          if(m) m.current=(m.provider===p && m.id===mid);
+        }
+      }
+      var rows=scroll.querySelectorAll('.tm-item');
+      for(var j=0;j<rows.length;j++){
+        var r=rows[j];
+        var hit=(r.getAttribute('data-p')===p && r.getAttribute('data-m')===mid);
+        r.classList.toggle('on',hit);
+        var tag=r.querySelector('.tm-tag');
+        if(hit && !tag){
+          var s=document.createElement('span'); s.className='tm-tag'; s.textContent='当前';
+          var nm=r.querySelector('.tm-nm'); if(nm) nm.appendChild(s);
+        }else if(!hit && tag){ tag.parentNode.removeChild(tag); }
+      }
+    }
+
+    /* 把新状态写回本地数据：不打这一步，用户一按搜索/重绘，刚设的档就"变回去"了
+       （列表是从 self.data 重新拼的，不是从 DOM 读的）。 */
+    function syncData(p,mid,badge){
+      if(!self.data) return;
+      var arrs=[self.data.models||[], self.data.recent||[]];
+      for(var a=0;a<arrs.length;a++){
+        for(var i=0;i<arrs[a].length;i++){
+          var m=arrs[a][i];
+          if(m && m.provider===p && m.id===mid) m.reasoning=badge;
+        }
+      }
+    }
+
+    /* 展开这一行的档位条。只管展开 —— 点行的语义已经变成"选中并展开"，
+       不再是开关，所以"再点一次收起"交给调用方判 openRow。 */
+    function openRs(row){
+      closeRs();
+      row.setAttribute('aria-expanded','true');
+      openRow=row;
+      var bar=document.createElement('div');
+      bar.className='tm-rs';
+      bar.innerHTML='<span class="tm-rs-wait">读取可用的档位…</span>';
+      row.parentNode.insertBefore(bar, row.nextSibling);
+      row.__bar=bar;
+      var p=row.getAttribute('data-p'), mid=row.getAttribute('data-m');
+      fetch('/api/reasoning?provider='+encodeURIComponent(p)+'&model='+encodeURIComponent(mid))
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if(openRow!==row || !bar.parentNode) return;
+          bar.__data=d;
+          bar.innerHTML=rsBarsHTML(d);
+          // 顺手用服务端的权威值校正按钮文字：列表可能有 30s 缓存，
+          // 而这里读的是实时值 —— 在设置页改过档的用户点开就能对上，不会一直显示旧的。
+          if(d.badge){ applyBadge(row,d.badge); syncData(p,mid,d.badge); }
+          if(bar.scrollIntoView) bar.scrollIntoView({block:'nearest'});
+        })
+        .catch(function(e){
+          if(!bar.parentNode) return;
+          bar.innerHTML='<span class="tm-rs-err">读不到这个模型的档位：'+esc(e.message)+'</span>';
+        });
+    }
+
+    function pickRs(btn){
+      var bar=btn.parentNode;
+      while(bar && !(bar.classList && bar.classList.contains('tm-rs'))) bar=bar.parentNode;
+      if(!bar) return;
+      var row=bar.previousElementSibling;
+      if(!row || !bar.__data) return;
+      var d=bar.__data, eff=d.effective||{}, v=btn.getAttribute('data-lv');
+      var body={provider:row.getAttribute('data-p'), model:row.getAttribute('data-m')};
+      if(v==='__default'){
+        // 「默认」= 把这个模型的记录整条删掉，回到"按站点建议"。只是不传字段不够 ——
+        // 旧档位还留在文件里，会继续生效。
+        body.level='';
+        body.enabled=true;
+      }else if(v==='__off'){
+        body.level=eff.level||'';
+        body.enabled=false;
+        body.style=eff.style||'';
+      }else if(v==='__on'){
+        body.enabled=true;
+        body.style=eff.style||'';
+      }else{
+        body.level=v;
+        body.enabled=true;
+        body.style=eff.style||'';       // 锁住在这一行看到的形态，别让它悄悄换一套
+      }
+      var all=bar.querySelectorAll('.tm-lv');
+      for(var i=0;i<all.length;i++) all[i].disabled=true;
+      fetch('/api/reasoning',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(body)})
+        .then(function(r){ return r.json().then(function(x){ return {ok:r.ok,d:x}; }); })
+        .then(function(res){
+          if(!res.ok || !res.d || !res.d.success) throw Error((res.d&&res.d.error)||'保存失败');
+          var badge=res.d.badge||{set:false,off:false,level:'',label:'默认'};
+          applyBadge(row,badge);
+          syncData(body.provider,body.model,badge);
+          // 就地刷新胶囊，让用户看到"确实换了"，而不是以为没点上
+          d.effective=res.d.effective||d.effective;
+          d.badge=badge;
+          d.pref=res.d.pref||{};
+          bar.innerHTML=rsBarsHTML(d);
+        })
+        .catch(function(e){
+          for(var i2=0;i2<all.length;i2++) all[i2].disabled=false;
+          var tip=bar.querySelector('.tm-rs-tip');
+          if(tip) tip.textContent='保存失败：'+e.message;
+          else bar.innerHTML+='<div class="tm-rs-err">保存失败：'+esc(e.message)+'</div>';
+        });
+    }
+
     function focusCurrent(){
       if(input.value || !self.data) return;
       var cur=scroll.querySelector('.tm-item.on'); if(!cur) return;
@@ -900,27 +1161,55 @@ html[data-theme="white"] .dp-err{color:#8a5200}
     });
     clr.addEventListener('click',function(){ input.value=''; clr.hidden=true; repaint(''); input.focus(); });
 
-    scroll.addEventListener('click',function(ev){
-      var b=ev.target && ev.target.closest ? ev.target.closest('.tm-item') : null;
-      if(!b || b.disabled || b.__busy) return;
-      b.__busy=true; b.classList.add('tm-busy');
-      var p=b.getAttribute('data-p'), mid=b.getAttribute('data-m');
+    /* 选模型：**不关面板**。点完行紧接着就是调强度，关了它还得再点开一次。 */
+    function switchModel(row){
+      row.__busy=true; row.classList.add('tm-busy');
+      var p=row.getAttribute('data-p'), mid=row.getAttribute('data-m');
       fetch('/api/task-model',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({topic_id:id,provider:p,model:mid})})
         .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
         .then(function(res){
           if(!res.ok || !res.d || !res.d.success) throw Error((res.d&&res.d.error)||'选择失败');
+          row.__busy=false; row.classList.remove('tm-busy');
           delete cacheMap[id]; shown='';                        // 失效：下次重取，保证"当前"标记正确
-          closeSheet();
+          markCurrent(p,mid);
           if(tid()===id) load(true);
           // 换了模型＝可能换了供应商：顶栏余额要立刻跟到这个任务新源的数
           // （force 跳过服务端 60s 任务级缓存，否则会继续显示旧源的数）
           if(tid()===id && typeof window.refreshBalance==='function') window.refreshBalance(id,true);
         })
         .catch(function(err){
-          b.__busy=false; b.classList.remove('tm-busy');
-          alert('切换失败：'+err.message);
+          row.__busy=false; row.classList.remove('tm-busy');
+          // 行还在、档位条大概也开着：就地报错，别用 alert 把人从面板里踢出去
+          var bar=row.__bar;
+          if(bar && bar.parentNode){
+            var e2=document.createElement('div');
+            e2.className='tm-rs-err'; e2.textContent='切换失败：'+err.message;
+            bar.insertBefore(e2, bar.firstChild);
+          }else{
+            alert('切换失败：'+err.message);
+          }
         });
+    }
+
+    scroll.addEventListener('click',function(ev){
+      var tg=ev.target;
+      // 档位胶囊在展开条里（是行的兄弟节点，不在行内）—— 先拦，否则会被
+      // closest('.tm-item') 当成"又点了一次模型"。
+      var lv=tg && tg.closest ? tg.closest('.tm-lv') : null;
+      if(lv){ ev.preventDefault(); ev.stopPropagation(); pickRs(lv); return; }
+      var b=tg && tg.closest ? tg.closest('.tm-item') : null;
+      if(!b){
+        if(!(tg && tg.closest && tg.closest('.tm-rs'))) closeRs();   // 点别处收起
+        return;
+      }
+      if(b.classList.contains('na') || b.__busy) return;
+      ev.preventDefault();
+      // 点行 = 选中这个模型 + 就地展开它的强度档位
+      if(openRow===b){ closeRs(); return; }                          // 再点同一行 = 收起
+      var wasCurrent=b.classList.contains('on');
+      openRs(b);
+      if(!wasCurrent) switchModel(b);
     });
 
     repaint();

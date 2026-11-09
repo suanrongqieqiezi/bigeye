@@ -27,9 +27,19 @@ CREATE TABLE IF NOT EXISTS topics (
     session_path TEXT NOT NULL DEFAULT '',
     mission_path TEXT DEFAULT NULL,
     total_cost  REAL NOT NULL DEFAULT 0,
+    cat_id      TEXT NOT NULL DEFAULT '',
     created_at  REAL NOT NULL,
     updated_at  REAL NOT NULL,
     last_message TEXT DEFAULT ''
+);
+
+-- 侧栏任务分类（文件夹）。cat_id='' 恒表示「未分类」，不建实体行 ——
+-- 否则删掉分类时得先造一个兜底分类，且「未分类」会被用户重命名/删除。
+CREATE TABLE IF NOT EXISTS topic_categories (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    sort        INTEGER NOT NULL DEFAULT 0,
+    created_at  REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -295,6 +305,19 @@ class Database:
         except sqlite3.OperationalError:
             conn.execute("ALTER TABLE topics ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0")
             conn.commit()
+        # ── Migration: add cat_id column if missing（侧栏分类，'' = 未分类）──
+        try:
+            conn.execute("SELECT cat_id FROM topics LIMIT 0")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE topics ADD COLUMN cat_id TEXT NOT NULL DEFAULT ''")
+            conn.commit()
+        # 老库没有分类表时 SCHEMA 里那句 CREATE IF NOT EXISTS 已经建好了；
+        # 这里只补一个按 sort 的索引，列表查询就一条 ORDER BY，够用。
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_topic_categories_sort ON topic_categories(sort, created_at)")
+            conn.commit()
+        except Exception:
+            pass
 
     @property
     def conn(self):
@@ -528,6 +551,68 @@ class Database:
             "UPDATE topics SET title=?, updated_at=? WHERE id=?",
             (title, time.time(), tid)
         )
+        self._commit()
+
+    # ── 侧栏任务分类（文件夹）──────────────────────────────────
+    # 🔴 cat_id='' 恒为「未分类」，不建实体行。前端分组时把 cat_id 为空、
+    #    或指向已不存在的分类的任务一律归到「未分类」—— 这样删分类不必写补偿逻辑
+    #    （delete_category 里顺手清一次只是不留脏值，不是正确性的依赖）。
+    def list_categories(self):
+        rows = self._fetchall("SELECT * FROM topic_categories ORDER BY sort ASC, created_at ASC")
+        return [dict(r) for r in rows]
+
+    def get_category(self, cid):
+        row = self._fetchone("SELECT * FROM topic_categories WHERE id=?", (cid,))
+        return dict(row) if row else None
+
+    def category_counts(self):
+        rows = self._fetchall(
+            "SELECT cat_id, COUNT(*) AS n FROM topics "
+            "WHERE cat_id IS NOT NULL AND cat_id!='' GROUP BY cat_id")
+        return {r["cat_id"]: r["n"] for r in rows}
+
+    def categories_with_counts(self):
+        cnt = self.category_counts()
+        out = self.list_categories()
+        for c in out:
+            c["count"] = cnt.get(c["id"], 0)
+        return out
+
+    def create_category(self, name):
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("分类名称不能为空")
+        # 同名分类必须挡住：前端「移动到分类 → 新建」是拿名字回查 id 的，
+        # 允许重名就会把任务塞进两个「工作」里分不清哪个。
+        if self._fetchone("SELECT 1 FROM topic_categories WHERE name=?", (name,)):
+            raise ValueError("已存在同名分类")
+        row = self._fetchone("SELECT COALESCE(MAX(sort),0)+1 AS s FROM topic_categories")
+        sort = int(row["s"]) if (row and row["s"] is not None) else 1
+        cid = "cat_" + uuid.uuid4().hex[:10]
+        self._execute(
+            "INSERT INTO topic_categories (id,name,sort,created_at) VALUES (?,?,?,?)",
+            (cid, name, sort, time.time()))
+        self._commit()
+        return self.get_category(cid)
+
+    def rename_category(self, cid, name):
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("分类名称不能为空")
+        if self._fetchone("SELECT 1 FROM topic_categories WHERE name=? AND id<>?", (name, cid)):
+            raise ValueError("已存在同名分类")
+        self._execute("UPDATE topic_categories SET name=? WHERE id=?", (name, cid))
+        self._commit()
+
+    def delete_category(self, cid):
+        """删分类：里面的任务回「未分类」，任务本身一条不删。"""
+        self._execute("UPDATE topics SET cat_id='' WHERE cat_id=?", (cid,))
+        self._execute("DELETE FROM topic_categories WHERE id=?", (cid,))
+        self._commit()
+
+    def set_topic_category(self, tid, cid):
+        """把任务移进分类。🔴 不动 updated_at —— 整理分类不该把任务顶到列表顶部。"""
+        self._execute("UPDATE topics SET cat_id=? WHERE id=?", (cid or "", tid))
         self._commit()
 
 

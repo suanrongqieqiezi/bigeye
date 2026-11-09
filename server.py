@@ -139,6 +139,7 @@ import tools.perspective
 import tools.asset_lib  # 资产索引层：库=索引登记制（data/assets/index.json，不搬文件）
 import tools.tts_manager  # 语音朗读：StreamVox TTS 子进程管理 + 代理（手机走主服务转发）
 import tools.tts_lite  # 轻量朗读：系统 OneCore/SAPI5（零模型零显存，实测 100~400ms 出整段）
+import tools.tts_hist  # 语音库：朗读音频落盘保存（200 条滚动，收藏/快捷键在 tools/tts_hist.py）
 import tools.asset_v3   # 资产库 v3：混合仓（笔记/速记/链接实体入库，文件≤10MB拷入，大文件记引用）
 import tools.canvas  # 工作区画布布局：画布+窗口（data/missions/{tid}/canvas.json）
 import tools.canvas_tools  # AI 画布工具（读布局/摆窗口/收窗口/导图节点）
@@ -157,6 +158,7 @@ import tools.advantage_recall  # JitRL 检索端（advantage_recall：按分捞�
 import tools.tool_output  # 有界结果引用：read_tool_output（翻页读超限输出）/ tool_output_stats
 import tools.see_image  # 看图：磁盘图片/视频帧 → 多模态模型（折叠分组 vision）。2026-10-16：漏登记导致重启后工具消失
 import tools.verify_ui  # 改完界面自己看一眼：无头浏览器截图 + 取像素 + 主模型读图（verify_ui）。2026-10-29：漏这行 = 文件在、_tools 里没有，模型永远看不到
+import tools.mcp_admin  # MCP 装载/卸载（reload_mcp_servers）。2026-11-05：漏这行 = 冷启动后工具消失，只有 hot_reload 扫目录才临时有
 
 try:
     import tool_outputs as _tool_output_store  # 超限工具输出落盘（改造②）
@@ -739,6 +741,14 @@ def _get_enabled_tool_defs(tid=None):
     # 元工具定义（discover_tools + execute_advanced_tool）
     meta_defs = [t["definition"] for name, t in _tools.items() if name in META_TOOLS]
     all_defs = defs + meta_defs
+    # MCP 工具（外部 server 提供）——它们不在 _tools 里，前面几段永远取不到，
+    # 必须单独追加。格式与内置工具一致（扁平的 name/description/parameters），
+    # 已在 mcp_client.get_mcp_tool_defs 里统一成扁平。
+    try:
+        from mcp_client import get_mcp_tool_defs
+        all_defs = all_defs + get_mcp_tool_defs()
+    except Exception as _e:
+        print(f"[mcp] 取工具定义失败: {type(_e).__name__}: {_e}")
     # 去重（场景/检索/元工具可能有交集，如 start_node 同时在 SCENE 和折叠组）
     seen, unique = set(), []
     for d in all_defs:
@@ -750,10 +760,13 @@ def _get_enabled_tool_defs(tid=None):
 
     enabled = _get_enabled_tool_names()
     if enabled is None:
-        # 默认：返回常驻 + 场景 + 元工具（折叠模式）
+        # 默认：返回常驻 + 场景 + 元工具（折叠模式）+ MCP
         return all_defs
-    # 用户自定义白名单：按白名单过滤，但元工具强制保留
-    enabled_with_meta = set(enabled) | META_TOOLS
+    # 用户自定义白名单：按白名单过滤，但元工具强制保留。
+    # MCP 外部工具同样强制保留——它们是"新装上的能力"，用户保存白名单时
+    # 还不知道有这些名字，不保留的话刚装完就永远进不来（与元工具同理）。
+    mcp_names = {d.get("name") for d in all_defs if str(d.get("name", "")).startswith("mcp_")}
+    enabled_with_meta = set(enabled) | META_TOOLS | mcp_names
     return [d for d in all_defs if d.get("name") in enabled_with_meta]
 
 
@@ -1778,6 +1791,36 @@ def _is_hanging_announcement(text):
     return False
 
 
+def _normalize_roles(msgs):
+    """发送前合并连续同角色消息（只作用于副本，不动 _send_view 的动态状态引用）。
+
+    2026-11-08 第 84 轮：空正文截断分支历史上只 append 一条 user 提示、不 append
+    assistant，4 次重试后出现连续 5 条 user 消息 —— 部分 provider 直接拒收这种
+    malformed history，且模型看不到自己上一轮说过什么，"接着写"无从谈起。
+    system 前缀、tool 连续段都不在此处理（tool 允许连续）。
+    """
+    out = []
+    for m in msgs:
+        role = m.get("role")
+        if out and role in ("user", "assistant") and out[-1].get("role") == role:
+            prev = out[-1]
+            prev["content"] = ((prev.get("content") or "") + "\n\n"
+                               + (m.get("content") or "")).strip()
+            if m.get("reasoning_content") and not prev.get("reasoning_content"):
+                prev["reasoning_content"] = m["reasoning_content"]
+            continue
+        out.append(dict(m))
+    return out
+
+
+# 固定、模型无关的续写指令（Hermes 同款：从断点接，不重来、不重复）
+_CONTINUE_HINT = (
+    "[系统提示] 你上一轮的回复撞到输出长度上限，还没有产出正文。"
+    "请从断点接着写：不要重新开头、不要重复已经推导过的内容、不要解释截断原因。"
+    "直接给结论，或立即调用工具把产物落到文件；写大文件时分多次写入，别一次塞满。"
+)
+
+
 _DYN_PREFIX = ("【系统注入·非用户发言】以下是本轮的环境与状态快照"
                 "（时间 / 任务图 / 记忆 / 上下文用量），照它判断处境；"
                 "不要当成用户说的话，也不要直接复述它。")
@@ -1967,6 +2010,22 @@ class TopicManager:
             return topic
         return self.create_topic()
 
+    # ── 侧栏分类（文件夹）：TopicManager 只是一层壳，实现全在 db.py ──
+    def list_categories(self):
+        return self.db.categories_with_counts()
+
+    def create_category(self, name):
+        return self.db.create_category(name)
+
+    def rename_category(self, cid, name):
+        return self.db.rename_category(cid, name)
+
+    def delete_category(self, cid):
+        return self.db.delete_category(cid)
+
+    def set_topic_category(self, tid, cid):
+        return self.db.set_topic_category(tid, cid)
+
 
 # ── Bootstrap: seed models/config from _internal to ROOT_DIR ──
 def _bootstrap_data():
@@ -2049,6 +2108,19 @@ def get_model_config():
     return _model_config
 
 
+def _model_max_tokens(provider, model, default):
+    """按 provider::model 取输出预算分档；缺省/非法值回落 default。"""
+    try:
+        with open(os.path.join(ROOT_DIR, 'model_config.json'), encoding='utf-8') as f:
+            _by = (json.load(f).get("max_tokens_by_model") or {})
+        _v = int(_by.get("%s::%s" % (provider, model)))
+        if _v > 0:
+            return _v
+    except (TypeError, ValueError, KeyError, OSError):
+        pass
+    return default
+
+
 def _resolve_model_target(provider, model, old):
     """把 (provider, model) 解析成完整连接参数。
 
@@ -2068,12 +2140,17 @@ def _resolve_model_target(provider, model, old):
         target = next(p for p in cfg.get('profiles', []) if p.get('name') == profile)
         return dict(provider=provider, model=model,
                     base_url=f"http://127.0.0.1:{int(target.get('port') or cfg.get('port') or 8080)}/v1",
-                    api_key='', protocol='openai')
+                    api_key='', protocol='openai',
+                    # 本地模型同样按模型记档位（换槽位不串档）
+                    max_tokens=_model_max_tokens(provider, model, old.max_tokens),
+                    reasoning=_reasoning_pref_for(provider, model))
     cp = _custom_provider(provider)
     if cp:
         return dict(provider=provider, model=model, base_url=cp['base_url'],
                     api_key=cp.get('api_key', ''), protocol=cp.get('protocol', ''),
-                    extra_headers=cp.get('extra_headers', {}))
+                    extra_headers=cp.get('extra_headers', {}),
+                    max_tokens=_model_max_tokens(provider, model, old.max_tokens),
+                    reasoning=_reasoning_pref_for(provider, model))
     # Registered fallback configs retain their own credentials and protocol.
     with open(os.path.join(ROOT_DIR, 'model_config.json'), encoding='utf-8') as f:
         _raw = json.load(f)
@@ -2082,12 +2159,123 @@ def _resolve_model_target(provider, model, old):
             return dict(provider=provider, model=model,
                         base_url=item.get('base_url') or urls.get(provider, ''),
                         api_key=item.get('api_key') or _get_provider_key(old, provider),
-                        protocol=item.get('protocol', ''), extra_headers=item.get('extra_headers', {}))
+                        protocol=item.get('protocol', ''), extra_headers=item.get('extra_headers', {}),
+                        max_tokens=_model_max_tokens(provider, model, old.max_tokens),
+                        reasoning=_reasoning_pref_for(provider, model))
     if provider not in urls and provider != old.provider:
         raise ValueError('Unknown model provider')
     return dict(provider=provider, model=model,
                 base_url=old.base_url if provider == old.provider else urls.get(provider, ''),
-                api_key=_get_provider_key(old, provider))
+                api_key=_get_provider_key(old, provider),
+                max_tokens=_model_max_tokens(provider, model, old.max_tokens),
+                reasoning=_reasoning_pref_for(provider, model))
+
+
+# ── 思考强度偏好（按「源::模型」记忆）────────────────────────────
+# 为什么要按模型存而不是只存一份全局：同一个用户会在 "能思考的贵模型" 和
+# "不思考的快模型" 之间来回切，全局一份档位必然串档 —— 切到 fast 模型还带着
+# max，切回来又变回 low，两种都不对。
+# 存储位置故意选 model_config.json 而不是新开文件：它已经是"模型相关配置"的
+# 单一落点，用户手改也只需开一个文件。
+def _reasoning_pref_key(provider, model):
+    return "%s::%s" % (provider or "", model or "")
+
+
+_reasoning_prefs_cache = {"mtime": None, "data": {}}
+
+
+def _load_reasoning_prefs():
+    """读全量档位记录。
+
+    走 mtime 缓存：模型弹层每一行都要判「这个模型现在是什么档」，
+    逐行读盘会把一个纯内存的列表接口变成十几次文件 IO。
+    mtime 一变（本进程保存 / 用户手改）立刻重读 —— 比 TTL 准，也不用等过期。
+    """
+    path = os.path.join(ROOT_DIR, "model_config.json")
+    try:
+        mt = os.stat(path).st_mtime_ns
+    except OSError:
+        return {}
+    c = _reasoning_prefs_cache
+    if c["mtime"] == mt:
+        return c["data"]
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        prefs = raw.get("reasoning_prefs")
+        prefs = prefs if isinstance(prefs, dict) else {}
+        c["mtime"], c["data"] = mt, prefs
+        return prefs
+    except Exception as e:
+        print(f"[reasoning] 读取 reasoning_prefs 失败: {e}")
+        return {}
+
+
+def _reasoning_badge(pref):
+    """一行模型右侧要显示的状态词（不含档位清单，点开时再取）。
+
+    为什么单独一个函数：模型弹层和「当前模型」卡片是两个入口，状态口径必须一致；
+    各写一份的结果必然一边显示「高」一边显示「默认」，用户没法对账。
+    """
+    p = pref if isinstance(pref, dict) else {}
+    if not p:
+        return {"set": False, "off": False, "level": "", "label": "默认"}
+    if p.get("enabled") is False:
+        return {"set": True, "off": True, "level": "", "label": "关"}
+    lv = str(p.get("level") or "")
+    if lv:
+        try:
+            import reasoning as _rs
+            return {"set": True, "off": False, "level": lv,
+                    "label": _rs.LEVEL_LABELS.get(lv, lv)}
+        except Exception:
+            return {"set": True, "off": False, "level": lv, "label": lv}
+    # 没有档位：可能是「只有开关」的形态（显式开），也可能只存了形态没定档
+    try:
+        import reasoning as _rs
+        if p.get("style") and not _rs.levels_for(p["style"]):
+            return {"set": True, "off": False, "level": "", "label": "开"}
+    except Exception:
+        pass
+    return {"set": False, "off": False, "level": "", "label": "默认"}
+
+
+def _reasoning_pref_for(provider, model):
+    """取某个模型记住的档位。没有记录 = 空 dict（走建议规则）。"""
+    try:
+        return _load_reasoning_prefs().get(_reasoning_pref_key(provider, model)) or {}
+    except Exception:
+        return {}
+
+
+def _save_reasoning_pref(provider, model, pref):
+    """写某个模型的档位（只动 reasoning_prefs 这一个键，其余字段原样保留）。"""
+    path = os.path.join(ROOT_DIR, "model_config.json")
+    try:
+        cfg = {}
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        prefs = cfg.get("reasoning_prefs")
+        if not isinstance(prefs, dict):
+            prefs = {}
+        key = _reasoning_pref_key(provider, model)
+        if pref:
+            prefs[key] = pref
+        else:
+            prefs.pop(key, None)
+        cfg["reasoning_prefs"] = prefs
+        # 顶层 reasoning 跟着当前模型走，方便用户直接手改这一个键就生效
+        if _model_config and _model_config.provider == provider and _model_config.model == model:
+            cfg["reasoning"] = pref or {}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=4)
+        # 主动作废读缓存：同一进程里紧接着读列表，不能靠 mtime 去赌文件系统精度
+        _reasoning_prefs_cache["mtime"] = None
+    except Exception as e:
+        print(f"[reasoning] 写入 reasoning_prefs 失败: {e}")
+        return False
+    return True
 
 
 def get_task_model_config(tid):
@@ -2127,6 +2315,16 @@ def _save_model_config():
             # 重启后对话会退回 OpenAI 协议打同一地址，直接 404
             cfg["protocol"] = getattr(_model_config, "protocol", "openai")
             cfg["extra_headers"] = getattr(_model_config, "extra_headers", {}) or {}
+            # 思考强度：顶层存当前模型的（用户手改这一个键即可），
+            # prefs 里按模型各存一份（切模型不串档）。
+            _rs = dict(getattr(_model_config, "reasoning", None) or {})
+            cfg["reasoning"] = _rs
+            if _rs:
+                _prefs = cfg.get("reasoning_prefs")
+                if not isinstance(_prefs, dict):
+                    _prefs = {}
+                _prefs[_reasoning_pref_key(_model_config.provider, _model_config.model)] = _rs
+                cfg["reasoning_prefs"] = _prefs
             # 保存 fallback_chain（含每个 provider 的 api_key），否则前端输入的 key 不持久化
             cfg["fallback_chain"] = _model_config.fallback_chain
         with open(path, "w", encoding="utf-8") as f:
@@ -2390,7 +2588,7 @@ def _vision_fallback_enabled() -> bool:
 # ── 主模型故障处理：同源重试 + 可选自动换源 ──────────────
 # 同源重试仅在本轮无任何输出/工具调用时安全；按总恢复窗口限制。
 LLM_TURN_RETRY_MAX = 100
-LLM_TURN_RETRY_WINDOW = 120  # 从首次可重试故障起，最多恢复 2 分钟
+LLM_TURN_RETRY_WINDOW = 600  # 从首次可重试故障起，最多恢复 10 分钟（用户 2026-11-03 要求）
 
 # 需要回传 reasoning_content 的源：{(base_url, model)}。
 # 思考模型（LiteLLM 代理的 deepseek-v4.1-flash-1017 等）要求带 tool_calls 的
@@ -2687,6 +2885,13 @@ def _build_model_list(cfg) -> list[dict]:
     except Exception as e:
         print(f"[models] custom providers failed: {e}")
 
+    # 每行的思考强度状态：界面右侧那个按钮要显示「这个模型现在是什么档」。
+    # 统一在出口补一次 —— 上面十几个 append 分支，逐个补必然漏（漏掉的那条
+    # 在界面上就是「默认」，用户会以为自己的设置丢了）。一次读盘，按 key 查表。
+    _rp = _load_reasoning_prefs()
+    for _it in result:
+        _it["reasoning"] = _reasoning_badge(
+            _rp.get(_reasoning_pref_key(_it.get("provider"), _it.get("id"))) or {})
     return result
 def get_ips(port):
     ips = []
@@ -2771,6 +2976,119 @@ def _peek_injection(tid):
         return bool(_inject_queues.get(tid))
 
 
+def _tl_split(tid, injs):
+    """插话界碑：过程时间线在插话点切开（2026-11-04）。
+
+    插话之前的思考/工具和插话之后的是两段事 —— 没有界碑，前后两段在
+    过程泡里连成一片，用户看不出"它已经听到我那句话了"。
+    timeline 为空（起跑窗口插话，模型还没说过任何东西）就不立 ——
+    开头一条界碑前面什么都没有，反而让人疑惑。
+    """
+    if not injs:
+        return
+    with _working_lock:
+        _w_tl = _current_working.get(tid)
+        if _w_tl is not None and _w_tl.get("timeline"):
+            _w_tl.setdefault("timeline", []).append(
+                {"split": True, "inj": "\n".join(injs)})
+
+
+# ── 插话软停通道（2026-11-03）────────────────────────────────────────
+# 队列（_inject_queues）解决的是「收得到」，这里解决的是「什么时候生效」。
+# 模型正在流式输出时，队列要等**本轮收尾**才被 drain：一段 30 秒的回答、或者一轮
+# 正在跑的工具调用，插话就得干等 —— 用户视角是「我插了话，它还在自顾自说」。
+# 这里给每个在跑的话题一枚事件：插话一入队就置位，llm 层每读到一个 chunk 查一次，
+# 置位即软停（已产出的正文照常交回，finish_reason='interjected'），循环紧接着
+# 把用户那句话插进上下文继续 —— 与 cancel（整轮作废、落 [用户已停止]）完全不同。
+_soft_stop_events = {}
+_soft_stop_lock = threading.Lock()
+
+
+def _softstop_set(tid):
+    """插话入队后立刻置位：让正在读的流当场收口（没在跑的循环 = 无操作）。"""
+    if not tid:
+        return
+    with _soft_stop_lock:
+        evt = _soft_stop_events.get(tid)
+    if evt is not None:
+        evt.set()
+
+
+def _softstop_drop(tid):
+    """循环收工/异常时摘掉事件 —— 留给下一轮就是「刚开跑就被秒停」。"""
+    if not tid:
+        return
+    with _soft_stop_lock:
+        _soft_stop_events.pop(tid, None)
+
+
+# ── 「正在起跑」记账（2026-11-03，插话的配套）──────────────────────────
+# 一条消息从被受理到循环登记进 _cancel_events，中间要组装系统提示/历史/工作区
+# （实测 2~5s）。这段时间里到达的第二条消息，按老逻辑会**起第二个并行循环**：
+# 探针实测出现过两条 [agent] task started、界面上两条过程泡永远转下去。
+# 而「刚发完就补一句」恰恰是最常见的插话时机，所以必须把这段窗口补上。
+# tid -> (线程号, 起跑时刻)：谁先在跑谁记账，后来者等它登记，等不到（>20s）自己接管。
+_loop_starting = {}
+_setup_lock = threading.Lock()
+
+
+def _setup_claim(tid):
+    """抢占"我要起跑"的记账；已经被别人占着就返回 False。"""
+    if not tid:
+        return True
+    with _setup_lock:
+        cur = _loop_starting.get(tid)
+        if cur is not None and (time.time() - cur[1]) <= 20.0:
+            return False
+        _loop_starting[tid] = (threading.get_ident(), time.time())
+        return True
+
+
+def _setup_release(tid):
+    """放掉自己的记账（只放自己那条：别人的账不许动）。"""
+    if not tid:
+        return
+    with _setup_lock:
+        cur = _loop_starting.get(tid)
+        if cur is not None and cur[0] == threading.get_ident():
+            _loop_starting.pop(tid, None)
+
+
+# ── 思考泡底部统计的数据源（2026-11-01）────────────────────────────────
+# 三段数字：耗时 / 消耗 / token 速度。数据必须在服务端凑齐 ——
+#   耗时：本轮真实起点（续跑要接回原轮起点，否则"中断再继续"会显示得比最终回复短）；
+#   消耗：输入+输出。输入 token 每轮把整个上下文重算一遍，是真正的**大头**，
+#         前端只有"吐出来的字符数"，一个 input token 都看不到，估算必然对不上最终回复。
+# 起点由 chat handler 在开跑时烙一次（_mark_working_start），
+# token 由每轮 LLM 的 usage 累加后写回（_set_working_usage）。
+_working_t0 = {}
+
+
+def _mark_working_start(tid, t0):
+    """把本轮起点交给 set_working（下一次 set_working 消费它）。
+
+    条目已存在（续跑 / 上一轮终态还挂着）就直接改写；不存在就暂存 ——
+    不能在这里凭空建条目：那会让 /api/working 在"还没真正开始跑"时就报在跑，
+    界面会冒出一个永远转下去、没有任何后续的幽灵泡。
+    """
+    with _working_lock:
+        w = _current_working.get(tid)
+        if w is not None:
+            w["started_at"] = t0
+            _working_t0.pop(tid, None)
+        else:
+            _working_t0[tid] = t0
+
+
+def _set_working_usage(tid, tokens_in, tokens_out):
+    """本轮累计 token 写回 working state（/api/working 原样透出）。"""
+    with _working_lock:
+        w = _current_working.get(tid)
+        if w is not None:
+            w["tokens_in"] = int(tokens_in)
+            w["tokens_out"] = int(tokens_out)
+
+
 def set_working(tid, status, thinking="", intermediate="", response="", tool_calls=None, turn=0, remaining=None, timeline=None):
     # timeline = 按轮交织的过程时间线（每轮收尾 append：思考截尾+动作叙述+工具名+输出流）。
     # None = 保留旧值（引用传递：收尾处 append 的是同一个 list，/api/working 实时可见）。
@@ -2786,6 +3104,13 @@ def set_working(tid, status, thinking="", intermediate="", response="", tool_cal
             "turn": turn,
             "remaining": remaining,
             "timeline": _prev.get("timeline") if timeline is None else timeline,
+            # 思考泡底部统计：跨 set_working 继承（这个 dict 每次调用都重建，
+            # 不继承就等于每来一个 delta 把耗时清零一次）。
+            # 🔴 started_at 只能"首个值赢"：_working_t0 里是本轮真实起点（续跑=原轮起点），
+            #    没有才取当前时刻 —— 若写成 time.time()，耗时永远停在几秒。
+            "started_at": _prev.get("started_at") or _working_t0.pop(tid, None) or time.time(),
+            "tokens_in": _prev.get("tokens_in", 0),
+            "tokens_out": _prev.get("tokens_out", 0),
         }
 
 
@@ -2845,6 +3170,7 @@ def finish_working(tid, status="done"):
             "tool_calls": [], "turn": prev.get("turn", 0),
             "remaining": None, "ts": time.time(),
         }
+        _working_t0.pop(tid, None)   # 本轮结束：暂存起点作废（下轮重新烙）
     # 终态同样解绑线程上下文，避免 keep-alive 复用线程时残留归属
     try:
         from tools.task_context import clear_if_matches
@@ -2987,6 +3313,12 @@ def get_working(tid):
         w = _current_working.get(tid)
         if w and w.get("status") not in _TERMINAL_STATUS:
             w["loop_active"] = _la
+            if w.get("started_at"):
+                # 已耗时由**服务端**减出来，前端拿到这个数之后只按本地时钟往后走 ——
+                # 手机走公网隧道时本地时钟可能差几秒，两边各减一次才能对上账。
+                # 浅拷贝：不能把 elapsed 写进共享条目，多端轮询会互相覆盖。
+                w = dict(w)
+                w["elapsed"] = round(max(0.0, now - w["started_at"]), 1)
             return w
     return {"status": "idle", "thinking": "", "intermediate": "", "response": "", "tool_calls": [], "turn": 0, "remaining": None, "loop_active": _la}
 
@@ -3046,6 +3378,7 @@ def _topic_has_dag(tid):
 def clear_working(tid):
     with _working_lock:
         _current_working.pop(tid, None)
+        _working_t0.pop(tid, None)
     # 任务生命周期结束：解绑线程上下文，避免 keep-alive 复用线程时残留归属
     try:
         from tools.task_context import clear_if_matches
@@ -3919,7 +4252,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 attach_display_title(topics, self.db)
                 # 「需要你动作」同步：AI 正在阻塞提问等回答的任务 → 侧栏右上角黄底黑字标签
                 attach_action_needed(topics)
-                self._json(200, {"topics": topics or [], "active": active})
+                # 分类跟列表一起下发：省一次请求，也不会出现「列表已刷新、分类还是旧的」半拍状态
+                try:
+                    _cats = self.topics.list_categories()
+                except Exception:
+                    _cats = []
+                self._json(200, {"topics": topics or [], "active": active, "categories": _cats})
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+
+        # ── 侧栏分类列表（不含任务，只有分类与各自条数）──
+        elif path == "/api/categories":
+            try:
+                self._json(200, {"categories": self.topics.list_categories()})
             except Exception as e:
                 self._json(500, {"error": str(e)})
 
@@ -4149,6 +4494,60 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # 前端设置页用：主模型持续不可用时是否自动换源
                 "auto_fallback": _auto_fallback_enabled(),
             })
+        # ── 思考强度：当前模型读到什么、能选什么 ──
+        # 一个接口把「界面要画什么」全部给齐：生效形态 / 可选档位 / 建议依据 /
+        # 以及会不会被源级 extra_body 盖掉（那种情况选了不生效，必须提前说）。
+        elif path == "/api/reasoning":
+            try:
+                import reasoning as _rs
+                cfg = get_model_config()
+                # 默认看「当前主模型」。带 provider/model 就问指定的那一行 ——
+                # 模型弹层里每行都能单独调档，而不同源的协议不同（anthropic / openai），
+                # 拿主模型的 protocol 去算别人的档位，会把形态判错、档位清单也就跟着错。
+                _tp = str((params.get("provider") or [""])[0] or "").strip()
+                _tm = str((params.get("model") or [""])[0] or "").strip()
+                provider, model = cfg.provider, cfg.model
+                base_url, protocol, max_tokens = cfg.base_url, cfg.protocol, cfg.max_tokens
+                if _tp and _tm and (_tp, _tm) != (cfg.provider, cfg.model):
+                    _tgt = _resolve_model_target(_tp, _tm, cfg)
+                    provider, model = _tp, _tm
+                    base_url = _tgt.get("base_url") or cfg.base_url
+                    protocol = _tgt.get("protocol") or cfg.protocol
+                pref = _reasoning_pref_for(provider, model)
+                eff = _rs.resolve(pref, base_url, protocol, model, max_tokens)
+                sug_style, sug_why = _rs.suggest_style(base_url, protocol, model)
+                # 源级 extra_body 里显式写死同名字段 = 界面选什么都不生效，
+                # 得把这个事实直接摆出来，而不是让用户以为档位坏了
+                body_keys = set()
+                try:
+                    _cp = custom_providers.runtime_config(ROOT_DIR, provider)
+                    body_keys = set(((_cp or {}).get("extra_body") or {}).keys())
+                except Exception:
+                    pass
+                style_spec = _rs.STYLES.get(eff["style"]) or {}
+                clash = []
+                if "reasoning_effort" in body_keys:
+                    clash.append("reasoning_effort")
+                if "thinking" in body_keys and "thinking" in (style_spec.get("build")("high") or {}):
+                    clash.append("thinking")
+                if "enable_thinking" in body_keys and "enable_thinking" in (style_spec.get("build")("high") or {}):
+                    clash.append("enable_thinking")
+                self._json(200, {
+                    "provider": provider, "model": model,
+                    "protocol": protocol,
+                    "effective": eff,
+                    "pref": pref,
+                    "badge": _reasoning_badge(pref),
+                    "styles": _rs.style_view(),
+                    "levels": eff["levels"],
+                    "level_labels": _rs.LEVEL_LABELS,
+                    "suggest": {"style": sug_style, "why": sug_why},
+                    "extra_body_keys": sorted(body_keys),
+                    "conflict": clash,
+                })
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+
         # ── 自我思绪整理（把反思碎片收敛成常驻纪律，过程可见）──
         # GET 走轻量状态：前端 1.5s 轮询，live 读的是进程内存，不碰 DB。
         # 模型列表单独一个 /api/mind/models —— 那个要联网拉 provider 清单，
@@ -5281,6 +5680,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/tts/stop":
             self._json(200, tools.tts_manager.stop())
 
+        # ── 语音库：朗读历史（保存 200 条滚动，收藏永久保留）──
+        elif path == "/api/tts/hist":
+            self._json(200, {"items": tools.tts_hist.list_items()})
+        elif path.startswith("/api/tts/hist/file/"):
+            # id 白名单校验在 audio_path 里（防目录穿越）
+            _fp = tools.tts_hist.audio_path(path[len("/api/tts/hist/file/"):])
+            if not _fp:
+                self._json(404, {"error": "not found"})
+            else:
+                try:
+                    with open(_fp, "rb") as _f:
+                        _wav = _f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "audio/wav")
+                    self.send_header("Content-Length", str(len(_wav)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    self.wfile.write(_wav)
+                except Exception as e:
+                    self._json(500, {"error": str(e)})
+
         # ── 轻量朗读：系统 OneCore / SAPI5，零模型零显存 ──
         # 为什么单独一条：StreamVox 留着以后做实时语音对话（低延迟+音色克隆是它强项），
         # 日常“点一下把这段念出来”用系统语音足够，且不吃显存、不冷启动。
@@ -5357,8 +5777,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.send_header("Cache-Control", "no-store")
                     self.send_header("X-Accel-Buffering", "no")
                     self.end_headers()
+                    _tee = []   # 语音库：顺手收一份完整字节流（含 44B WAV 头），播完落盘
                     try:
                         for chunk in gen:
+                            if len(_tee) < 4096 and sum(len(c) for c in _tee) < 33554432:
+                                _tee.append(chunk)   # 硬顶 ~32MB（≈11 分钟语音）
                             self.wfile.write(("%X\r\n" % len(chunk)).encode("ascii"))
                             self.wfile.write(chunk)
                             self.wfile.write(b"\r\n")
@@ -5368,6 +5791,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         print("[tts] 前端断开（pcm）")
                     except Exception as e:
                         print("[tts] pcm 转发出错:", e)
+                    finally:
+                        # 中途停止也存（半条也是一条，文本还在）；入库失败绝不影响主链路
+                        try:
+                            tools.tts_hist.save_stream(b"".join(_tee),
+                                (params.get("text") or [""])[0],
+                                (params.get("model") or [""])[0])
+                        except Exception as _e:
+                            print("[tts_hist] 入库异常:", _e)
 
         elif path == "/api/tts/lines":
             # 逐句 NDJSON 流式：必须自己写 raw socket（_json 会加 Content-Length）
@@ -5745,6 +6176,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     finish_working(tid, "failed")
                     with _cancel_lock:
                         _cancel_events.pop(tid, None)
+                    _softstop_drop(tid)
+                    _setup_release(tid)
                 try:
                     self._json(500, {"error": str(e)})
                 except Exception:
@@ -5900,6 +6333,47 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 self._json(400, {"error": "topic_id required"})
 
+        # ── 侧栏分类：新建 / 重命名 / 删除 ──
+        # 三个动作共用一个路由（同一个资源，只是动作不同），响应恒带最新分类表，
+        # 前端拿到就能直接重绘，不用再补一次 GET。
+        elif path == "/api/categories":
+            act = (data.get("action") or "create").strip()
+            cid = (data.get("id") or "").strip()
+            name = (data.get("name") or "").strip()
+            try:
+                if act == "create":
+                    if not name:
+                        raise ValueError("分类名称不能为空")
+                    self.topics.create_category(name)
+                elif act == "rename":
+                    if not (cid and name):
+                        raise ValueError("id 与 name 必填")
+                    self.topics.rename_category(cid, name)
+                elif act == "delete":
+                    if not cid:
+                        raise ValueError("id 必填")
+                    self.topics.delete_category(cid)
+                else:
+                    raise ValueError("unknown action")
+                self._json(200, {"ok": True, "categories": self.topics.list_categories()})
+            except ValueError as e:
+                self._json(400, {"error": str(e)})
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+
+        # ── Topic: 移入分类（cat_id 传空串 = 移回未分类）──
+        elif path == "/api/topic/category":
+            try:
+                tid = (data.get("topic_id") or "").strip()
+                cid = (data.get("cat_id") or "").strip()
+                if not tid:
+                    self._json(400, {"error": "topic_id required"})
+                else:
+                    self.topics.set_topic_category(tid, cid)
+                    self._json(200, {"ok": True, "categories": self.topics.list_categories()})
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+
         # ── Topic: 已读（用户打开过 → 抹掉侧栏那枚终态点）──
         # 绿/红点的语义是"有结果没看"，不是"跑完了一会儿"：什么时候看、什么时候消。
         # 只有真打开才算 —— 前端 switchTopic / 轮询发现"当前正看着它跑完"时调这里。
@@ -5909,6 +6383,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(200, {"success": True, "cleared": mark_topic_read(tid)})
             else:
                 self._json(400, {"error": "topic_id required"})
+
+        # ── 语音库操作：收藏 / 快捷键 / 删除 ──
+        elif path == "/api/tts/hist/fav":
+            _it = tools.tts_hist.set_fav(data.get("id", ""), 1 if data.get("fav") else 0)
+            self._json(200 if _it else 404, _it or {"error": "not found"})
+        elif path == "/api/tts/hist/hotkey":
+            _it = tools.tts_hist.set_hotkey(data.get("id", ""), data.get("key", ""))
+            self._json(200 if _it else 404, _it or {"error": "not found"})
+        elif path == "/api/tts/hist/del":
+            self._json(200, {"success": tools.tts_hist.delete_item(data.get("id", ""))})
 
         # ── Switch model ──
         elif path == "/api/switch-model":
@@ -5983,7 +6467,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     _model_config = old_cfg.clone_with(
                         provider=provider, model=model_id,
                         base_url=base_url, api_key=new_key,
-                        protocol=protocol, extra_headers=extra_headers)
+                        protocol=protocol, extra_headers=extra_headers,
+                        # 🔴 必须显式换掉：clone_with 不带这个键就会把**上一个模型**
+                        # 的档位原样搬过来 —— 切到快模型还带着 max，切回来又变 low。
+                        reasoning=_reasoning_pref_for(provider, model_id))
                 _save_model_config()
                 # 换源了：余额缓存必须作废，否则顶栏还是上一个源的数字
                 _invalidate_balance()
@@ -5993,6 +6480,120 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except Exception:
                     pass
             self._json(200, {"success": True})
+
+        # ── 思考强度：保存用户选的档位 ──
+        elif path == "/api/reasoning":
+            try:
+                import reasoning as _rs
+                cfg = get_model_config()
+                provider = str(data.get("provider") or cfg.provider)
+                model = str(data.get("model") or cfg.model)
+                # 目标模型自己的连接参数：协议不同（anthropic / openai）能选的形态就不同，
+                # 拿主模型的 protocol 去算 = 给 glm 配的档位套到 Claude 上，界面会给出错的档位表
+                if (provider, model) == (cfg.provider, cfg.model):
+                    _tb, _tpr = cfg.base_url, cfg.protocol
+                else:
+                    _tgt = _resolve_model_target(provider, model, cfg)
+                    _tb = _tgt.get("base_url") or cfg.base_url
+                    _tpr = _tgt.get("protocol") or cfg.protocol
+                if data.get("reset"):
+                    # 清掉这个模型的记录 = 回到"按站点建议"
+                    _save_reasoning_pref(provider, model, {})
+                    with _config_lock:
+                        if cfg.provider == provider and cfg.model == model:
+                            _model_config = cfg.clone_with(reasoning={})
+                    self._json(200, {"success": True, "pref": {},
+                                     "badge": _reasoning_badge({}),
+                                     "effective": _rs.resolve({}, _tb, _tpr, model)})
+                    return
+                sent = {
+                    "style": data.get("style"),
+                    "level": data.get("level"),
+                    "enabled": data.get("enabled", True),
+                }
+                # 只认已知形态/档位；乱填的字段被丢弃而不是原样落盘
+                pref = _rs.normalize_pref(sent)
+                if not pref:
+                    self._json(400, {"success": False,
+                                     "error": "没有可保存的档位（需要 style 或 level）"})
+                    return
+                pref["source"] = "manual"
+                # 合并旧记录：只改这次传的字段，没传的保留（比如只调档位不换形态）
+                old = _reasoning_pref_for(provider, model)
+                merged = dict(old)
+                merged.update(pref)
+                # 显式传空 level + 开启 = 「默认」：整条记录回退到未设置。
+                # 为什么整条删而不是只删 level：留下的 {"style": x, "source": "manual"}
+                # 会让界面显示"手动指定形态"却没有任何档位，用户看着像没保存成功；
+                # 而「默认」这个词在用户心里的意思就是"别管我，按站点的来"。
+                _is_default = "level" in data and not data.get("level") and data.get("enabled", True)
+                if _is_default:
+                    merged = {}
+                # 档位不在该形态支持范围内 = 直接拒绝并说明，不静默改档
+                allowed = _rs.levels_for(merged.get("style") or "")
+                lv = merged.get("level")
+                if lv and allowed and lv not in allowed:
+                    self._json(400, {
+                        "success": False,
+                        "error": f"形态 {merged.get('style')} 不支持档位 {lv}，"
+                                 f"可选：{'/'.join(allowed) or '（只有开关）'}",
+                    })
+                    return
+                ok = _save_reasoning_pref(provider, model, merged)
+                if cfg.provider == provider and cfg.model == model:
+                    with _config_lock:
+                        _model_config = cfg.clone_with(reasoning=merged)
+                self._json(200 if ok else 500, {
+                    "success": ok, "pref": merged,
+                    "badge": _reasoning_badge(merged),
+                    "effective": _rs.resolve(merged, _tb, _tpr, model),
+                })
+            except Exception as e:
+                self._json(500, {"success": False, "error": str(e)})
+
+        # ── 思考强度：真发请求探一次，读回这个站点到底认哪个形态 ──
+        elif path == "/api/reasoning/probe":
+            try:
+                import reasoning as _rs
+                cfg = get_model_config()
+                provider = str(data.get("provider") or cfg.provider)
+                model = str(data.get("model") or cfg.model)
+                # 探活要用"这个模型自己的连接参数"，不能直接拿主配置 ——
+                # 用户可能探的是列表里另一个源，地址/密钥都不一样
+                try:
+                    tgt = _resolve_model_target(provider, model, cfg)
+                except Exception:
+                    tgt = {"base_url": cfg.base_url, "api_key": cfg.api_key,
+                           "protocol": cfg.protocol}
+                r = _rs.probe(tgt.get("base_url", ""), tgt.get("api_key", ""),
+                              tgt.get("protocol", "openai") or "openai",
+                              model, max_tokens=2048, timeout=25)
+                # 探到可用形态就顺手记为 probe 结论（source=probe，用户手动选过
+                # 的 style 不会被这里覆盖 —— 见下面判断）
+                old = _reasoning_pref_for(provider, model)
+                if r.get("ok") and old.get("source") != "manual":
+                    best = r["best"]
+                    lvls = r.get("levels", {}).get(best) or _rs.levels_for(best)
+                    # 检测只回答"能用什么参数形态"，**不替用户定档位**。
+                    # 以前这里按 "low 优先" 挑一个，结果是用户点完检测，
+                    # 模型强度被悄悄降了一档，而界面上没人告诉过他。
+                    _keep = old.get("level") if old.get("level") in lvls else ""
+                    pref = _rs.normalize_pref({
+                        "style": best,
+                        "level": _keep,
+                        "enabled": old.get("enabled", True),
+                        "source": "probe",
+                        "levels": lvls,
+                        "probed_at": int(time.time()),
+                    })
+                    _save_reasoning_pref(provider, model, pref)
+                    if cfg.provider == provider and cfg.model == model:
+                        with _config_lock:
+                            _model_config = cfg.clone_with(reasoning=pref)
+                    r["saved"] = pref
+                self._json(200, r)
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e), "tried": []})
 
         # ── 本地模型服务：启动 ──
         elif path == "/api/local-llm/start":
@@ -7958,6 +8559,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 _chat_t0 = float(_resume_ctx.get("ts_start") or _chat_t0)  # 接着原轮算耗时
             except (TypeError, ValueError):
                 pass
+        # 思考泡底部「耗时」的起点：必须与落最终回复时用的 _chat_t0 **同一个值**
+        # （续跑已接回原轮起点），否则同一个任务上两个数字对不上。
+        _mark_working_start(tid, _chat_t0)
         _configured_budget = int(self.db.get_topic_meta(tid, 'context_budget') or self.db.get_meta('compress_token_limit') or TOKEN_LIMIT)
         _cp = _custom_provider(_task_config.provider) or {}
         # 预算上限同样走 _wm_setting_ceiling：原来直接查 _MODEL_CONTEXT_WINDOWS，
@@ -8043,6 +8647,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # 消息落库后进入注入队列，运行中的循环会在轮次边界取出、插入上下文继续思考。
         with _cancel_lock:
             _loop_active = _cancel_events.get(tid) is not None
+        # 起跑窗口：循环还没登记、但上一个请求正在组装 ⇒ 等它（最多 20s）。
+        # 等到就落到下面的插话分支；等不到（它失败了 / 卡死了）就自己接管，照旧起循环。
+        if not _loop_active and not _resume:
+            if not _setup_claim(tid):
+                _wd = time.time() + 20.0
+                while time.time() < _wd:
+                    with _cancel_lock:
+                        if _cancel_events.get(tid) is not None:
+                            break
+                    with _setup_lock:
+                        _cur = _loop_starting.get(tid)
+                    if _cur is None or (time.time() - _cur[1]) > 20.0:
+                        _setup_claim(tid)   # 占位者已经不在了 → 接管
+                        break
+                    time.sleep(0.05)
+                with _cancel_lock:
+                    _loop_active = _cancel_events.get(tid) is not None
         if _loop_active and _resume:
             # 续跑只能落在"真的没有任何循环在跑"的那一刻，否则会起第二个并行循环
             self._json(409, {"error": "这个任务正在运行中，无需续跑 —— 等它自己跑完或先点停止。"})
@@ -8059,6 +8680,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._log_guard(f"[chat] 运行中同文本重发已拦截 (间隔{int(_inj_gap)}s, topic {tid[:8]}, 首句{message[:30]!r})")
                 self._json(200, {"status": "duplicate", "response": "", "topic_id": tid})
                 return
+            # 打标 interject=True：落库后刷新界面，这条气泡上仍挂「插话」小标 ——
+            # 它和普通提问在时间线上是两回事（一句是对它说，一句是打断它说的）。
+            # 🔴 _msg_args 上面被 `_msg_args = _msg_args or None` 收成过 None，
+            #    这里直接下标赋值会 TypeError（整条请求 500，AI 根本收不到这句）。
+            _msg_args = dict(_msg_args or {})
+            _msg_args["interject"] = True
             self.db.add_message(tid, "user", message, args=_msg_args, ts=time.time())
             self.db.update_topic(tid, updated_at=time.time())
             with _inject_lock:
@@ -8066,6 +8693,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # 少了前缀它就不知道用户是针对哪段在补充要求（落库的 text 仍干净）。
                 _inject_queues.setdefault(tid, []).append(
                     (_qnote + "\n" + message) if _qnote else message)
+            # 🔴 入队只是「收得到」。紧跟着置软停，才让它**现在**生效：
+            # 否则模型会把自己那段话说完（甚至再跑十几轮工具）才回头看到这句。
+            _softstop_set(tid)
+            _setup_release(tid)   # 这条按插话处理，不再起循环，记账作废
             print(f"[agent] message injected into running loop (topic {tid[:8]})")
             self._json(200, {"status": "injected", "response": "", "topic_id": tid})
             return
@@ -8170,6 +8801,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "  · 下一步：接着要做什么，具体到动作，一句话\n"
             "说事不说流程 —— 不要写「我要调用某个工具」，直接说你要弄清什么、怎么弄。\n"
             "这两行就是我自己以后翻回来看的东西；只写工具名，将来的我读不懂。\n"
+            "\n"
+            "交付大文件时按段写：先用 write_file 落第一段/骨架，再用 append_file 逐段追加，"
+            "最终仍是同一个文件。单次 write_file 内容过长会被工具拒绝并告诉你怎么分段；"
+            "被拒绝不是失败，照提示拆开继续写就行。\n"
             "\n"
             "做完不等于改对。改东西守三条：\n"
             "  · 改前找真源：grep 出真正生效的那一处，别凭名字猜；同一句话/颜色/逻辑常有两处各写一遍，找到一处必须反查第二处。\n"
@@ -9000,6 +9635,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         cancel_evt = threading.Event()
         with _cancel_lock:
             _cancel_events[tid] = cancel_evt
+        # 插话软停事件（见 _soft_stop_events 说明）：与 cancel 同寿命，收工即摘。
+        soft_stop_evt = threading.Event()
+        with _soft_stop_lock:
+            _soft_stop_events[tid] = soft_stop_evt
+        # 循环已登记 ⇒ 起跑结束，等待中的插话请求现在能看到 _loop_active 了。
+        _setup_release(tid)
         full_thinking = ""
         # 【2026-10-17】full_thinking 是"整段 agent 会话"的累积值，只用于实时思考泡
         # 显示（重置会让用户看到的思考内容突然变短/跳段，见 §20 的坑）。
@@ -9030,9 +9671,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 _est = True
                 _in = int(_est_input)
                 _out = int((len(full_response) + len(full_intermediate) + len(full_thinking)) / 1.6)
-            return {"elapsed": round(max(0.0, time.time() - _chat_t0), 1),
-                    "tokens": _in + _out,
-                    "est": _est}
+            _d = {"elapsed": round(max(0.0, time.time() - _chat_t0), 1),
+                  "tokens": _in + _out,
+                  "est": _est}
+            # 以 topic_id 为键可检索到本轮结束原因；sticky：曾被截断就写 length。
+            try:
+                _d.update({
+                    "turn_id": _req_turn_id,
+                    "finish_reason": ("length" if _recovery["sticky_length"]
+                                      else _recovery["last_finish_reason"]),
+                    "termination_kind": _recovery["termination_kind"],
+                    "stop_reason": _recovery["stop_reason"],
+                    "length_count": _recovery["length_count"],
+                    "continuations": _recovery["used"],
+                    "max_tokens": int(getattr(llm_config, "max_tokens", 0) or 0),
+                    "max_tokens_trace": list(_recovery["budget_trace"]),
+                    "thinking_chars": len(full_thinking),
+                    "text_chars": len(full_response or ""),
+                    "fallback_used": _recovery["fallback_used"],
+                })
+            except Exception:
+                pass
+            return _d
 
         turn = 0
         # 系统注入的动态状态（时间/任务图/记忆/上下文用量）：每轮变，只能追在 messages 末尾，
@@ -9128,6 +9788,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
         global _last_hard_tokens
         # 硬性内容实测 = 系统提示 + 工具 schema（每请求刷新，供最小值计算）
         _last_hard_tokens = _estimate_tokens([msgs[0]]) + _tools_tokens
+        # ── 输出预算恢复状态（2026-11-08 第 84 轮）──
+        # 实证：8 条兜底消息各 12 万字符 thinking、正文与 tool_call 皆 0，
+        # 每次把 8192 全花在 thinking 上。旧重试既不改参数也不保留产物，
+        # 于是同一份输入必然重演 4~5 次，配额用尽还要用户手输「继续」。
+        # 这里把「截断」做成一等状态：下一轮必须换预算（compute_key 会自动换 key），
+        # 保留被裁掉的那一步，重试消耗轮次预算，耗尽后有界终止并写清停因。
+        _req_turn_id = uuid.uuid4().hex          # 请求级 turn_id（零 schema 迁移）
+        _budget_base = int(getattr(llm_config, "max_tokens", 8192) or 8192)
+        # 硬顶必须高于分档基础预算：否则默认配置下 32768 -> 32768，
+        # max_tokens 没变、compute_key 也不换，续写退化成原地重试（第 84 轮探针实测）。
+        _budget_hard_cap = max(65536, _budget_base * 2)
+        try:
+            _budget_hard_cap = int(os.environ.get("BIGEYE_BUDGET_HARD_CAP",
+                                                  str(_budget_hard_cap)))
+        except ValueError:
+            pass
+        _recovery = {
+            "used": 0,
+            "max": 2,                 # 单次请求最多 2 次递增续写
+            "budget_trace": [],       # 每次真实请求发出的 max_tokens
+            "length_count": 0,
+            "sticky_length": False,   # 曾发生 length 就保留，后续正常轮不覆盖
+            "last_finish_reason": "stop",
+            "termination_kind": "",
+            "stop_reason": "",
+            "fallback_used": "",
+        }
         remaining = TURN_BUDGET
         # ─ 专注模式自动恢复检测 ──
         _focus_restore_at = self.db.get_topic_meta(tid, "focus_restore_at") or "-1"
@@ -9257,7 +9944,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception:
                 pass
 
-            for event in chat_stream_cached(llm_config, _send_view(msgs), tools=_tool_defs, cancel_event=cancel_evt, verify_ssl=_VERIFY_SSL):
+            # 开口前先收一次插话：工具跑完到模型回话之间、以及循环起跑那段长组装
+            # （本机实测 5~10s）里到达的插话，如果不在这里收，就得等这条流吐出第一个
+            # chunk 才被软停 —— 请求已经发出去了，1.5~3 万 input token 白付一次。
+            if soft_stop_evt.is_set():
+                soft_stop_evt.clear()
+                _pre_injs = _drain_injections(tid)
+                if _pre_injs:
+                    for _inj in _pre_injs:
+                        msgs.append({"role": "user", "content": _inj})
+                    print(f"[agent] injected {len(_pre_injs)} message(s) before turn start")
+                    _tl_split(tid, _pre_injs)
+            _out_msgs = _normalize_roles(_send_view(msgs))
+            _recovery["budget_trace"].append(int(getattr(llm_config, "max_tokens", 0) or 0))
+            for event in chat_stream_cached(llm_config, _out_msgs, tools=_tool_defs,
+                                           cancel_event=cancel_evt, verify_ssl=_VERIFY_SSL,
+                                           soft_stop_event=soft_stop_evt):
                 et = event["type"]
                 if et == "thinking_delta":
                     full_thinking += event["delta"]
@@ -9274,6 +9976,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     _record_tool_usage(tid, event.get("tool_name"))
                 elif et == "done":
                     turn_finish_reason = event.get("finish_reason") or "stop"
+                    _recovery["last_finish_reason"] = turn_finish_reason
+                    if turn_finish_reason == "length":
+                        _recovery["length_count"] += 1
+                        _recovery["sticky_length"] = True
                     usage = event.get("usage", {})
                     if usage:
                         turn_usage = {
@@ -9282,6 +9988,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         }
                         total_input_tokens += turn_usage["input"]
                         total_output_tokens += turn_usage["output"]
+                        # 思考泡底部「消耗 / 速度」的实时值：用同一份累加账，
+                        # 最终回复底下那个数字就是它跑完的最后一帧。
+                        _set_working_usage(tid, total_input_tokens, total_output_tokens)
                         # 缓存命中 token 数（DeepSeek 在 prompt_tokens_details.cached_tokens）
                         _cache_hit = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0
                         _accumulate_cost(tid, turn_usage["input"], turn_usage["output"],
@@ -9301,6 +10010,46 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif et == "error":
                     turn_error = event.get("error", "unknown")
 
+            # ── 插话生效：本轮被用户打断 → 保住已说内容，插入新消息，接着跑 ──
+            # 两路触发：① llm 层读到软停事件，正常收尾报 finish_reason='interjected'；
+            # ② 事件在流自然说完的同时才置位 —— 语义一样，都按插话处理（等价于老的
+            #    轮次边界注入，只是这里顺手把 response 清干净）。
+            # 🔴 必须先给 cancel 让路：用户点了停止又顺手打了一句话时，停止才是意图，
+            #    这里若把控制权抢过来，cancel 分支就永远走不到，界面会一直停在「处理中」。
+            if not cancel_evt.is_set() and (turn_finish_reason == "interjected"
+                                            or soft_stop_evt.is_set()):
+                soft_stop_evt.clear()
+                _injs = _drain_injections(tid)
+                if _injs:
+                    print(f"[agent] interjected mid-stream, {len(_injs)} new message(s), continuing")
+                    # 已说出口的半段要留在上下文里：不带上它，模型下一轮会**重新开场**，
+                    # 用户就会看到同一个开头说两遍（插话前一次、插话后又一次）。
+                    if turn_text.strip():
+                        msgs.append({"role": "assistant", "content": turn_text})
+                    for _inj in _injs:
+                        msgs.append({"role": "user", "content": _inj})
+                    # 过程泡里留一句「为什么停」：正文归零、下一句另起一行，
+                    # 不解释的话看起来像模型自己把话咽回去了。
+                    full_intermediate = _append_intermediate(
+                        full_intermediate, "（你插话 → 我先停在这里，按你的新要求接着做）")
+                    # 被截断的思考/叙述进时间线：过程泡按轮渲染，少记一轮等于把用户
+                    # 刚看过的那几句删掉（他只会以为界面抽了）。
+                    with _working_lock:
+                        _w_tl = _current_working.get(tid)
+                        if _w_tl is not None:
+                            _w_tl.setdefault("timeline", []).append({
+                                "thinking": (_turn_thinking or "")[-600:],
+                                "inter": turn_text or "",
+                                "tools": [],
+                            })
+                    # 界碑在 with 外立：_working_lock 不是 RLock，块内再拿会死锁
+                    _tl_split(tid, _injs)
+                    set_working(tid, "thinking", thinking="", intermediate=full_intermediate,
+                                response="", turn=turn + 1, remaining=remaining)
+                    continue
+                # 队列是空的（多半是工具轮边界刚 drain 过、事件没来得及清）→
+                # 本轮按正常收尾处理，别在这里空转。
+
             # If LLM returned an error with no text, abort
             # 但 cancel 导致的 error 不算真错误——走 cancel 处理流程
             if turn_error and not turn_text.strip() and not turn_tool_calls:
@@ -9312,7 +10061,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # is_retryable_llm_error（另含 HTTP 5xx / 429 / "无可用渠道" / upstream）。
                 # 实证：DMXAPI 会间歇返回 503 "无可用渠道（distributor）"，约 1 分钟后自愈；
                 # 旧判据把它当"非瞬时"→ 当场 raise → 整个循环死掉，用户只看到"断了"且无提示。
-                # 次数上限 LLM_TURN_RETRY_MAX = 10（用户要求拉长）：重试是零副作用的，
+                # 次数上限 LLM_TURN_RETRY_MAX = 100，但真正的闸门是 LLM_TURN_RETRY_WINDOW
+                # （600s，用户 2026-11-03 定稿）：重试是零副作用的，
                 # 换源才有副作用，所以"能等就等"。
                 # ── reasoning_content 回传修复（2026-10-17）──
                 # 症状：HTTP 400 LITELLM_ERROR "The `reasoning_content` in the
@@ -9357,7 +10107,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if (_retry_window_open and _turn_retries < LLM_TURN_RETRY_MAX
                         and is_retryable_llm_error(turn_error)):
                     _turn_retries += 1
-                    _wait = min(_turn_retries * 2, 8)
+                    _wait = 30  # 固定每 30s 重试一次（用户 2026-11-03 要求：10 分钟窗口内每半分钟一发）
                     print(f"[agent] retryable LLM error (retry {_turn_retries}/{LLM_TURN_RETRY_MAX}), retry in {_wait}s: {turn_error}")
                     # 让用户看得见"在重试"而不是干等（过程泡里出这行）
                     full_intermediate = _append_intermediate(
@@ -9387,7 +10137,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     print(f"[agent] main model '{_orig_model}' unusable -> fallback to {_fb_label}")
                     llm_config = _fb_cfg
                     _turn_retries = 0  # 新源重新给满重试额度
-                    _turn_retry_started = time.monotonic()  # 新源独立计时 2 分钟
+                    _turn_retry_started = time.monotonic()  # 新源独立计时（恢复窗口同 600s）
                     if _budget_hint_msg and msgs and msgs[-1].get("content") == _budget_hint_msg:
                         msgs.pop()
                     msgs.append({"role": "user", "content":
@@ -9483,6 +10233,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     #   args 里的耗时/Token 仍然保留：那是本轮**真实花掉**的钱，删了成本报表会少记。
                     _err_args = _task_stats_args()
                     _err_args["kind"] = "error"
+                    _err_args["termination_kind"] = "runtime_error"
+                    _err_args["stop_reason"] = "runtime_error"
                     _err_args["error_msg"] = _fb_note_lines[0].replace("⚠️ ", "").replace("⚠ ", "")
                     self.db.add_message(tid, "ai", _fb_note, args=_err_args,
                                         thinking=_turn_thinking, ts=time.time())
@@ -9513,6 +10265,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 for _inj in _injs:
                     msgs.append({"role": "user", "content": _inj})
                 print(f"[agent] injected {len(_injs)} user message(s) at final-turn boundary, continuing")
+                _tl_split(tid, _injs)
                 set_working(tid, "thinking", thinking=_turn_thinking,
                             intermediate=full_intermediate, response="",
                             turn=turn+1, remaining=remaining)
@@ -9564,21 +10317,82 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 _thinking_truncated = (
                     turn_finish_reason == "length"
                     and not turn_text.strip()
-                    and full_thinking.strip()
+                    and (_turn_thinking.strip() or full_thinking.strip())
                 )
                 _dangling = (
                     turn_finish_reason == "length"
                     or _is_hanging_announcement(turn_text)
                 )
-                if _dangling and _dangling_retries < 2 and (turn_text.strip() or _thinking_truncated):
-                    _dangling_retries += 1
-                    print(f"[agent] dangling announcement (finish={turn_finish_reason}, retry {_dangling_retries}/2), forcing continuation")
-                    if turn_text.strip():
-                        msgs.append({"role": "assistant", "content": turn_text})
-                        msgs.append({"role": "user", "content": "[系统强制] 你上一轮以预告结尾但没有调用任何工具。请立即执行你预告的动作（直接调用工具），不要重复说明、不要重新确认现状。直接做。"})
-                    else:
-                        msgs.append({"role": "user", "content": "[系统提示] 你上一轮的思考输出被截断（token 预算耗尽），尚未产生任何正文。请跳过冗长推理，直接给出简洁的最终回答，不要再展开长思考。"})
-                    continue
+                if _dangling and (turn_text.strip() or _thinking_truncated):
+                    if _recovery["used"] < _recovery["max"] and not cancel_evt.is_set():
+                        _recovery["used"] += 1
+                        # ① 改参数：倍率递增且严格递增，硬顶封口；clone_with 让
+                        #    compute_key(config.max_tokens) 自然换 key，绝不命中旧缓存。
+                        _cur = int(getattr(llm_config, "max_tokens", _budget_base) or _budget_base)
+                        _nxt = min(max(_cur * 2, _budget_base * (_recovery["used"] + 1)),
+                                   _budget_hard_cap)
+                        if _nxt <= _cur:
+                            _nxt = _cur  # 已到硬顶：仍靠下面的换源/降档改变状态
+                        _patch = {"max_tokens": _nxt}
+                        # ② 连续纯思考空转：附带的降档（边际优化，不单独计入 P0）
+                        _rs = dict(getattr(llm_config, "reasoning", None) or {})
+                        if _rs.get("level") in ("max", "high"):
+                            _rs["level"] = "low"
+                            _patch["reasoning"] = _rs
+                        llm_config = llm_config.clone_with(**_patch)
+                        # ②b 预算已封顶却仍撞 length：换源。只换一次，失败静默降级，
+                        #     不阻塞原有的「降档 + 保留部分消息」路径。
+                        if _nxt <= _cur and not _recovery["fallback_used"]:
+                            try:
+                                _fb = list(getattr(llm_config, "fallback_chain", None) or [])
+                                _curkey = "%s::%s" % (llm_config.provider, llm_config.model)
+                                _pick = next((it for it in _fb
+                                              if it.get("provider") and it.get("model")
+                                              and "%s::%s" % (it["provider"], it["model"]) != _curkey),
+                                             None)
+                                if _pick:
+                                    _tgt = _resolve_model_target(_pick["provider"],
+                                                                 _pick["model"], llm_config)
+                                    _allow = set(LLMConfig.__init__.__code__.co_varnames)
+                                    _delta = {k: v for k, v in _tgt.items() if k in _allow}
+                                    _delta["max_tokens"] = _cur  # 保持预算不回退，trace 单调
+                                    llm_config = llm_config.clone_with(**_delta)
+                                    _recovery["fallback_used"] = ("%s::%s" %
+                                                                  (_pick["provider"], _pick["model"]))
+                                    print(f"[agent] output budget recovery: switched source to "
+                                          f"{_recovery['fallback_used']}")
+                            except Exception as _fe:
+                                print(f"[agent] fallback source switch skipped: {_fe}")
+                        # ③ 保留被裁掉的那一步：assistant(部分) + user(续写)，严格交替。
+                        #    严格思考源要原样回传 reasoning_content，否则 400。
+                        _partial = {"role": "assistant", "content": turn_text or ""}
+                        if _turn_thinking.strip():
+                            _partial["reasoning_content"] = _turn_thinking
+                        msgs.append(_partial)
+                        msgs.append({"role": "user", "content": _CONTINUE_HINT})
+                        # ④ 续写不再免费：消耗轮次预算，杜绝 132 分钟式空转。
+                        remaining -= 1
+                        print(f"[agent] output budget recovery {_recovery['used']}/{_recovery['max']}: "
+                              f"finish={turn_finish_reason}, max_tokens={_cur}->{_nxt}, "
+                              f"kept thinking={len(_turn_thinking)} chars")
+                        set_working(tid, "thinking", thinking=_turn_thinking,
+                                    intermediate=full_intermediate, response="",
+                                    turn=turn + 1, remaining=remaining)
+                        continue
+                    # ⑤ 配额用尽：有界终止，写清停因与已完成工作，不再叫用户点继续。
+                    _recovery["termination_kind"] = "bounded_termination"
+                    _recovery["stop_reason"] = "output_budget_exhausted"
+                    _done = (full_intermediate or "").strip()
+                    _summary = (_done[-600:] if len(_done) > 600 else _done)
+                    full_response = (
+                        "（本轮因输出预算反复耗尽，已停止，不会自动重试。）\n\n"
+                        "停因：模型连续多轮把输出额度全部用于思考，未产出正文或工具调用；"
+                        "系统已自动放大输出预算并降低思考强度，仍未能完成。\n"
+                        + ("已完成的工作：\n" + _summary + "\n\n" if _summary else "")
+                        + "如需继续，请直接把任务拆小或换一个模型再发一条消息。")
+                    print(f"[agent] bounded_termination: stop_reason={_recovery['stop_reason']}, "
+                          f"continuations={_recovery['used']}")
+                    break
                 # ── 动作链对账（收尾轮）──
                 # 这里是把「思维链」变成「规范动作」的唯一生效点：
                 # 模型想收尾，账本说"还欠着"（声称完成却没验证 / 说了要改却没改），
@@ -9624,18 +10438,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     _empty_final_retries += 1
                     print(f"[agent] empty final turn (no text, no tool calls), "
                           f"forcing conclusion {_empty_final_retries}/2")
+                    _partial = {"role": "assistant", "content": turn_text or ""}
+                    if _turn_thinking.strip():
+                        _partial["reasoning_content"] = _turn_thinking
+                    msgs.append(_partial)
                     msgs.append({"role": "user", "content": (
                         "[系统提示] 你上一轮既没有调用工具，也没有输出任何正文。"
                         "现在请直接用正文向用户汇报：这一轮做了什么、结论是什么、"
                         "还需要用户确认或决定什么。不要调用工具，不要重新开头。")})
+                    remaining -= 1
                     set_working(tid, "responding", thinking=_turn_thinking,
                                 intermediate=full_intermediate, response="",
                                 turn=turn + 1, remaining=remaining)
                     continue
+                _recovery["termination_kind"] = "bounded_termination"
+                _recovery["stop_reason"] = "empty_final_exhausted"
                 full_response = (
-                    "（模型这一轮没有返回正文，任务停在了上面「最后一步」之后 —— "
-                    "过程都在最后一个过程泡里，结论没出来。"
-                    "直接回一句「继续」，我接着把结论说完。）")
+                    "（本轮没有拿到任何正文，已停止，不会自动重试。）\n\n"
+                    "停因：模型连续多轮既没调用工具也没写正文；系统已自动重试并调整输出预算。\n"
+                    "如需继续，请把任务拆小或换一个模型再发一条消息。")
                 break
             # 工具轮：turn_text 是动作叙述（"好嘞去抓官网…"），归 intermediate，不进最终回复
             if turn_text.strip():
@@ -9896,6 +10717,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 for _inj in _injs:
                     msgs.append({"role": "user", "content": _inj})
                 print(f"[agent] injected {len(_injs)} user message(s) after tool turn, continuing")
+                _tl_split(tid, _injs)
+            # 这里的 drain 已经把插话交给模型了 ⇒ 软停事件作废。
+            # 不清的话，下一轮流刚一开就被秒停，而队列已空 ⇒ 白白多切一次。
+            soft_stop_evt.clear()
 
             # ── Context wall: trim if over budget (dialogue-granular) ──
             # 预算必须计入 tools schema token，否则工具+消息总和可能超限
@@ -9962,10 +10787,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # Check if cancelled
         if cancel_evt.is_set():
+            _recovery["termination_kind"] = "cancelled"
+            _recovery["stop_reason"] = "user_cancelled"
             with _cancel_lock:
                 _cancel_events.pop(tid, None)
             with _inject_lock:
                 _inject_queues.pop(tid, None)
+            _softstop_drop(tid)
             # 组装回复内容：优先用 full_response（最终轮已有内容），
             # 其次用 full_intermediate（工具轮过程叙述），让用户看到 AI 跑到的位置。
             # 附上 [用户已停止] 标记落库，AI 下次加载历史时知道用户中断过。
@@ -10002,21 +10830,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # ── 预算耗尽且无最终答案：用中间过程兜底，不发空回复 ──
         if _budget_exhausted and not full_response:
-            _exhaust_note = "\n\n[系统提示] 本轮工作轮次已用完，任务未结束。发送任意消息可让我继续。"
+            _recovery["termination_kind"] = "bounded_termination"
+            _recovery["stop_reason"] = "turn_budget_exhausted"
             # 只落简短提示，不落全量过程叙述（full_intermediate 可能几十万字符，进上下文会炸工作记忆）
-            full_response = "（本轮工作轮次已用完，过程叙述见前端 intermediate 面板。）" + _exhaust_note
+            full_response = ("（本轮工作轮次已用完，已停止。过程叙述见前端 intermediate 面板。）"
+                             "\n\n停因：turn_budget_exhausted。如需继续，请新发一条消息把任务拆小。")
 
         print(f"[agent] done after {turn+1} turns")
         # 先释放 cancel 事件：此后到达的新消息会走正常流程起新循环
         # （插话消息已落库，新循环历史自然包含），不会被误判为"运行中"
         with _cancel_lock:
             _cancel_events.pop(tid, None)
+        _softstop_drop(tid)
         # 收尾竞态：循环刚结束的瞬间到达的插话，本轮已来不及纳入，
         # 在最终回复里明示已收到（消息已落库，下轮历史自然包含）
         _tail_injs = _drain_injections(tid)
         if _tail_injs and full_response:
             full_response += "\n\n（你刚发来的补充我已收到，会结合它继续。）"
         if full_response:
+            if not _recovery["termination_kind"]:
+                _recovery["termination_kind"] = "completed"
             self.db.add_message(tid, "ai", full_response, args=_task_stats_args(),
                                 thinking=full_thinking, ts=time.time())
             # 收尾这一轮也要留步 —— 但链在的时候已经由上面的 record(final=True) 写过了
@@ -10032,6 +10865,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         finish_working(tid, "done")
         with _inject_lock:
             _inject_queues.pop(tid, None)
+        _softstop_drop(tid)
         # ── CMN P4: 空闲触发反思回路（2026-08-17 已禁用：自动反思产出的碎片平时不加载，对行为零约束，且每次对话后烧 LLM 调用；行为修正改由重要事项第12条承担，需要时手动调 reflect 工具/API）──
         # def _idle_reflect():
         #     try:
@@ -10405,16 +11239,20 @@ def main():
             results.append("工具: 无模块可加载")
         # Re-load MCP servers (pick up new mcp_servers.json)
         try:
-            from mcp_client import load_mcp_servers, list_mcp_servers
-            load_mcp_servers()
-            mcp_list = list_mcp_servers()
+            import mcp_client as _mcp
+            # 内存里可能是旧代码（改了 mcp_client.py 但没重启），先就地重载
+            if getattr(_mcp, "_CFG_FIX_V", "") != "2026-11-05-cfgpath":
+                importlib.reload(_mcp)
+            _mcp.load_mcp_servers(reload=True)   # 热加载要重读配置，否则装卸 server 不生效
+            mcp_list = _mcp.list_mcp_servers()
             if mcp_list:
                 total_tools = sum(len(v["tools"]) for v in mcp_list.values())
                 results.append(f"MCP: {len(mcp_list)} 服务器, {total_tools} 个工具")
             else:
-                results.append("MCP: 无服务器 (创建 mcp_servers.json 添加)")
-        except Exception:
-            results.append("MCP: 加载失败")
+                cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_servers.json")
+                results.append(f"MCP: 无服务器（{cfg_path} 里 servers 为空）")
+        except Exception as _e:
+            results.append(f"MCP: 加载失败 {type(_e).__name__}: {_e}")
         return {"loaded": True, "results": results}
 
     print(f"[大眼X] Tool count: {len(get_tool_defs())}")

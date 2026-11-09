@@ -34,6 +34,8 @@ import uuid
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if os.name == "nt" else 0
 
 SERVER_FILE = "mcp_servers.json"
+# 模块版本标记：热加载时据此判断内存里的 mcp_client 是不是旧代码
+_CFG_FIX_V = "2026-11-05-cfgpath"
 
 # ── JSON-RPC helpers ──────────────────────────────────
 
@@ -160,6 +162,9 @@ class MCPServer:
         return {"error": "timeout"}
 
     def call_tool(self, tool_name, arguments, timeout=60):
+        # 进程已死就别等满了：卸载后调用会白卡一个 timeout（实测 3s/60s）
+        if not self.process or self.process.poll() is not None:
+            return {"error": f"{self.name}: server 未运行"}
         resp = self._call("tools/call", {
             "name": tool_name,
             "arguments": arguments,
@@ -193,8 +198,10 @@ _mcp_lock = threading.Lock()
 def _load_config():
     """Find mcp_servers.json in project root or executable dir."""
     candidates = []
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    candidates.append(os.path.join(base, SERVER_FILE))
+    here = os.path.dirname(os.path.abspath(__file__))
+    # 源码运行时 __file__ 就在项目根；打包后可能在 _internal/ 子目录里
+    candidates.append(os.path.join(here, SERVER_FILE))
+    candidates.append(os.path.join(os.path.dirname(here), SERVER_FILE))
     if getattr(sys, 'frozen', False):
         candidates.append(os.path.join(os.path.dirname(sys.executable), SERVER_FILE))
     for path in candidates:
@@ -204,35 +211,71 @@ def _load_config():
     return {"servers": {}}
 
 
-def load_mcp_servers():
-    """Start all configured MCP servers and discover tools. Idempotent."""
+def load_mcp_servers(reload=False):
+    """按 mcp_servers.json 对齐运行中的 server 集合。
+
+    reload=False: 首次加载，已启动的直接跳过。
+    reload=True : 重新读配置 —— 新增的启动、配置变了的重启、删掉的停掉。
+                  热加载走这条路，否则装卸 server 不生效。
+    """
     global _mcp_loaded
     with _mcp_lock:
-        if _mcp_loaded:
+        if _mcp_loaded and not reload:
             return len(_mcp_servers)
+
         config = _load_config()
-        for name, cfg in config.get("servers", {}).items():
-            if name in _mcp_servers:
-                continue
+        want = config.get("servers", {}) or {}
+
+        # 1) 配置里没有的 → 停掉并摘除（卸载）
+        for name in list(_mcp_servers.keys()):
+            if name not in want:
+                try:
+                    _mcp_servers[name].stop()
+                except Exception:
+                    pass
+                _mcp_servers.pop(name, None)
+                print(f"[mcp] {name}: unloaded")
+
+        # 2) 配置里有但没在跑的 → 启动；配置变了的 → 重启
+        for name, cfg in want.items():
+            old = _mcp_servers.get(name)
+            if old is not None:
+                if getattr(old, "config", None) == cfg:
+                    continue          # 配置没变，保持原进程
+                try:
+                    old.stop()
+                except Exception:
+                    pass
+                _mcp_servers.pop(name, None)
             srv = MCPServer(name, cfg)
+            srv.config = cfg          # 存快照，供下次比对配置是否变化
             if srv.start():
                 _mcp_servers[name] = srv
+
         _mcp_loaded = True
         return len(_mcp_servers)
 
 
 def get_mcp_tool_defs():
-    """Get OpenAI-compatible tool definitions for all MCP tools."""
+    """Get OpenAI-compatible tool definitions for all MCP tools.
+
+    返回扁平格式 {"name":..., "description":..., "parameters":...}，
+    和 registry 里内置工具完全一致 —— 因为下游两处都这么吃：
+      - llm._build_tools() 直接取 t["name"] / t["parameters"]
+      - server./api/settings/tools 同样取 d.get("name")
+    早先这里返回 {"function": {...}} 嵌套壳，导致 MCP 工具名被读成空串，
+    设置面板显示 11 个空条目、模型也永远拿不到它们。
+    """
     defs = []
     for name, srv in _mcp_servers.items():
         for tool in srv.tools:
             schema = tool.get("inputSchema", {"type": "object", "properties": {}})
+            full = f"mcp_{name}__{tool['name']}"
             defs.append({
-                "function": {
-                    "name": f"mcp_{name}__{tool['name']}",
-                    "description": f"[MCP:{name}] {tool.get('description', '')}",
-                    "parameters": schema,
-                }
+                "name": full,
+                "label": full,
+                "description": f"[MCP:{name}] {tool.get('description', '')}",
+                "parameters": schema,
             })
     return defs
 

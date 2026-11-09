@@ -66,6 +66,9 @@ TRANSIENT_MARKERS = ("remote end closed", "timed out", "timeout",
                      "network is unreachable", "name or service not known",
                      # Windows 连接层瞬时故障文案（urllib 抛 WinError）
                      "winerror 10054", "winerror 10053", "winerror 10060",
+                     # 2026-11-01 补：WinError 的中文本地化措辞（部分路径只透传
+                     # str(e) 的中文部分，如 ConnectionResetError(10054)）
+                     "远程主机强迫关闭", "现有的连接", "远程计算机积极拒绝",
                      "forcibly closed", "existing connection was aborted",
                      # SSE 流读到一半被掐断（urllib/http.client 抛的伪异常文案）
                      # 2026-09-13 补：原清单漏了这几个，导致"流式中断"被当成
@@ -104,6 +107,15 @@ RETRYABLE_SERVER_MARKERS = (
     # 这两句原不在清单里 ⇒ 上层判"非瞬时" ⇒ **0 次重试**直接中断，
     # 用户看到的就是"模型侧持续不可用，已停止（已尝试 0 次）"。
     "settlement pending", "pending reconciliation",
+    # 2026-11-01 补：网关（LiteLLM 代理）间歇返回 SSE error
+    #   "LITELLM_UNAVAILABLE: 模型服务暂时不可用，请稍后重试"
+    # 与 10-20 的 settlement pending 同款剧本：**又一句新措辞**不在清单里
+    # ⇒ 判"非瞬时" ⇒ 0 次重试直接中断（恢复窗口 0/120 秒就关了）。
+    # 实测这类是渠道池临时枯竭，等几秒重发即恢复 —— 明确可重试。
+    # "unavailable" 放宽为通用标记（service/temporarily/litellm_* 全覆盖）；
+    # 余额/鉴权类致命错在 _FATAL_QUOTA_MARKERS 先行拦截，不受影响。
+    "unavailable",
+    "暂时不可用", "请稍后重试",
 )
 
 # 明确**不可**重试：余额/额度类。重试无意义，必须换源或直接告知用户。
@@ -134,7 +146,8 @@ class LLMConfig:
     def __init__(self, provider="deepseek", model="deepseek-chat",
                  base_url="https://api.deepseek.com", api_key="",
                  max_tokens=8192, fallback_chain=None,
-                 protocol="openai", extra_headers=None, extra_body=None):
+                 protocol="openai", extra_headers=None, extra_body=None,
+                 reasoning=None):
         self.provider = provider
         self.model = model
         self.base_url = base_url.rstrip("/")
@@ -146,6 +159,13 @@ class LLMConfig:
         self.extra_headers = dict(extra_headers or {})
         # 源级附加请求体参数（如 {"enable_thinking": true}）—— 见 chat_stream 内注释
         self.extra_body = dict(extra_body or {})
+        # 思考强度偏好（用户按模型选的档位 + 形态）。空 dict = 没设置过，
+        # 走 llm.py 里原有的按前缀回落逻辑（行为不变）。
+        # 🔴 必须放在 __init__ 签名里：clone_with() 是按 __init__ 的参数名过滤的，
+        #    字段只挂在 self 上不进签名，任何 clone_with 都会把它**静默丢掉**
+        #    （任务级模型 / 思绪整理模型都走 clone_with，症状是"设置页选了，
+        #    一次任务配了模型就变回默认"，且没有任何报错）。
+        self.reasoning = dict(reasoning or {})
 
     @classmethod
     def from_config(cls, path="model_config.json"):
@@ -158,10 +178,31 @@ class LLMConfig:
         base_url = cfg.get("base_url", "https://api.deepseek.com")
         api_key = cfg.get("api_key", "")
         max_tokens = cfg.get("max_tokens", 8192)
+        # 按 provider::model 分档：话题级模型切换后不能继承顶层的旧预算。
+        # 缺省/非法值一律回落到顶层（再不行回落 8192），不静默改小。
+        try:
+            _by = cfg.get("max_tokens_by_model") or {}
+            _mk = "%s::%s" % (provider, model)
+            if isinstance(_by, dict) and _mk in _by:
+                _v = int(_by[_mk])
+                if _v > 0:
+                    max_tokens = _v
+        except (TypeError, ValueError):
+            pass
         fallback = cfg.get("fallback_chain", [])
         protocol = cfg.get("protocol", "openai")
         extra_headers = cfg.get("extra_headers") or {}
         extra_body = cfg.get("extra_body") or {}
+        # 思考强度：按「源::模型」取该模型自己记住的档位（换模型不会串档）。
+        # 顶层 reasoning 作为兜底（只有一个模型时用户不必逐条配）。
+        reasoning = cfg.get("reasoning") or {}
+        try:
+            _prefs = cfg.get("reasoning_prefs") or {}
+            _k = "%s::%s" % (provider, model)
+            if isinstance(_prefs, dict) and isinstance(_prefs.get(_k), dict):
+                reasoning = _prefs[_k]
+        except Exception:
+            pass
         # 当前 provider 是第三方源时，以 custom_providers 里的登记值为准 ——
         # 用户在设置页改完地址/协议，即使没重新切换模型也应该立刻生效
         try:
@@ -179,7 +220,8 @@ class LLMConfig:
         return cls(provider=provider, model=model, base_url=base_url,
                    api_key=api_key, max_tokens=max_tokens,
                    fallback_chain=fallback, protocol=protocol,
-                   extra_headers=extra_headers, extra_body=extra_body)
+                   extra_headers=extra_headers, extra_body=extra_body,
+                   reasoning=reasoning)
 
     def to_dict(self):
         return {
@@ -188,6 +230,7 @@ class LLMConfig:
             "base_url": self.base_url,
             "max_tokens": self.max_tokens,
             "protocol": self.protocol,
+            "reasoning": dict(getattr(self, "reasoning", None) or {}),
         }
 
     def clone_with(self, **kwargs):
@@ -664,7 +707,8 @@ def _norm_usage_anthropic(usage):
     }
 
 
-def _chat_stream_anthropic(config, messages, tools=None, cancel_event=None, verify_ssl=True):
+def _chat_stream_anthropic(config, messages, tools=None, cancel_event=None, verify_ssl=True,
+                           soft_stop_event=None):
     """走 Anthropic /v1/messages 的流式对话（事件与 OpenAI 路径同构）。"""
     url = f"{config.base_url}/messages"
     safe_key = config.api_key
@@ -702,6 +746,16 @@ def _chat_stream_anthropic(config, messages, tools=None, cancel_event=None, veri
     atools = _to_anthropic_tools(_build_tools(tools))
     if atools:
         body["tools"] = atools
+    # ── 思考强度（与 OpenAI 路径同源，见 reasoning.py）──
+    # 注意：Anthropic /messages 只认 thinking.budget_tokens / output_config.effort，
+    # reasoning.resolve() 会把 OpenAI 那套形态纠正过来（不然选了等于没选）。
+    if getattr(config, "reasoning", None):
+        try:
+            import reasoning as _rs
+            _rs.apply_to_body(body, config.reasoning, config.base_url,
+                              "anthropic", config.model, config.max_tokens)
+        except Exception as _e:
+            print(f"[llm] (anthropic) reasoning 注入失败（已忽略）: {_e}")
     # ── 源级附加请求体参数（与 OpenAI 路径同款语义）──
     # 有些 Anthropic 中转站对请求体有额外要求，且**必修不可选**：实测
     # leaderai.top 的 claude 系列若 body 里没有 metadata 字段，一律返回
@@ -766,6 +820,15 @@ def _chat_stream_anthropic(config, messages, tools=None, cancel_event=None, veri
                 _log_raw_response(log_group, "cancelled",
                                   duration_ms=(time.time() - t0) * 1000, status_code=0)
                 yield {"type": EVENT_ERROR, "error": "cancelled"}
+                return
+            # 插话软停（与 OpenAI 路径同源，见 chat_stream 的说明）
+            if soft_stop_event is not None and soft_stop_event.is_set():
+                resp.close()
+                _log_raw_response(log_group, "interjected",
+                                  duration_ms=(time.time() - t0) * 1000, status_code=0)
+                yield {"type": EVENT_DONE, "finish_reason": "interjected",
+                       "full_text": full_text, "full_thinking": full_thinking,
+                       "usage": usage or {}}
                 return
             line = raw_line.decode("utf-8", errors="replace").strip()
             if not line or line.startswith(":"):
@@ -900,9 +963,17 @@ def _chat_stream_anthropic(config, messages, tools=None, cancel_event=None, veri
                       output_tokens=usage.get("completion_tokens", 0))
 
 
-def chat_stream(config, messages, tools=None, cancel_event=None, verify_ssl=True):
+# soft_stop_event（2026-11-03「插话」）与 cancel_event 的区别必须先说清楚：
+#   cancel      = 用户喊停 ⇒ 整轮作废，抛 error('cancelled')，上层落 [用户已停止]。
+#   soft_stop   = 用户插了一句话 ⇒ 只是**这一轮到此为止**：已产出的正文照常交回
+#                 （finish_reason='interjected'），上层把它记进过程、带着新消息继续跑。
+# 为什么不复用 cancel：cancel 会把"说到一半"判成错误，插话就变成了"停止+重开"，
+# 而用户要的是「接着说，但按我新说的来」——两件事在账本上是不同的。
+def chat_stream(config, messages, tools=None, cancel_event=None, verify_ssl=True,
+                soft_stop_event=None):
     if config.provider not in ('llamacpp', 'ninfer'):
-        yield from _chat_stream_impl(config, messages, tools, cancel_event, verify_ssl)
+        yield from _chat_stream_impl(config, messages, tools, cancel_event, verify_ssl,
+                                     soft_stop_event)
         return
     import local_llm
     # One GPU: keep profile activation and generation atomic across topics.
@@ -929,14 +1000,16 @@ def chat_stream(config, messages, tools=None, cancel_event=None, verify_ssl=True
         except Exception as exc:
             yield {'type': 'error', 'error': str(exc)}
             return
-        yield from _chat_stream_impl(config, messages, tools, cancel_event, verify_ssl)
+        yield from _chat_stream_impl(config, messages, tools, cancel_event, verify_ssl,
+                                     soft_stop_event)
 
 
 import threading as _local_threading
 _local_generation_lock = _local_threading.RLock()
 
 
-def _chat_stream_impl(config, messages, tools=None, cancel_event=None, verify_ssl=True):
+def _chat_stream_impl(config, messages, tools=None, cancel_event=None, verify_ssl=True,
+                      soft_stop_event=None):
     """
     Stream a chat completion from the LLM API.
     Yields dicts: {"type": EVENT_THINKING_DELTA|TEXT_DELTA|TOOL_CALL|DONE|ERROR, ...}
@@ -946,7 +1019,8 @@ def _chat_stream_impl(config, messages, tools=None, cancel_event=None, verify_ss
     # 两条路径产出的事件完全一致，上层无感。
     if str(getattr(config, "protocol", "openai") or "openai").lower() == "anthropic":
         yield from _chat_stream_anthropic(config, messages, tools=tools,
-                                          cancel_event=cancel_event, verify_ssl=verify_ssl)
+                                          cancel_event=cancel_event, verify_ssl=verify_ssl,
+                                          soft_stop_event=soft_stop_event)
         return
 
     url = f"{config.base_url}/chat/completions"
@@ -982,8 +1056,21 @@ def _chat_stream_impl(config, messages, tools=None, cancel_event=None, verify_ss
         body["tools"] = tool_spec
         body["tool_choice"] = "auto"
     body["stream_options"] = {"include_usage": True}
-    # ── 思考档位默认值（2026-10-28 实测后加，见 _default_reasoning_effort）──
-    if "reasoning_effort" not in (getattr(config, "extra_body", None) or {}):
+    # ── 思考强度（用户按模型选的档位）──
+    # 注入顺序即优先级，从低到高：
+    #   ① 未设置 → 按模型前缀回落（_default_reasoning_effort，历史行为）
+    #   ② 用户在设置页选过 → reasoning.apply_to_body() 写入
+    #   ③ 源级 extra_body → 最后合并，永远赢（那是用户在源上手写的，更明确）
+    _rs_injected = {}
+    if getattr(config, "reasoning", None):
+        try:
+            import reasoning as _rs
+            _rs_injected = _rs.apply_to_body(
+                body, config.reasoning, config.base_url, config.protocol,
+                config.model, config.max_tokens)
+        except Exception as _e:
+            print(f"[llm] reasoning 注入失败（已忽略）: {_e}")
+    elif "reasoning_effort" not in (getattr(config, "extra_body", None) or {}):
         _eff = _default_reasoning_effort(getattr(config, "model", ""))
         if _eff:
             body["reasoning_effort"] = _eff
@@ -1060,6 +1147,18 @@ def _chat_stream_impl(config, messages, tools=None, cancel_event=None, verify_ss
                                    duration_ms=(time.time() - t0) * 1000,
                                    status_code=0)
                 yield {"type": EVENT_ERROR, "error": "cancelled"}
+                return
+            # 插话软停：这里必须 `resp.close()` —— 只是不再读它，连接会一直挂着，
+            # 一次长任务被插几次话就漏几条 HTTP 连接。收尾按 done/"interjected" 报，
+            # 上层据此走「插入用户消息后继续」，而不是「截断续写」或「报错重试」。
+            if soft_stop_event is not None and soft_stop_event.is_set():
+                resp.close()
+                _log_raw_response(log_group, "interjected",
+                                   duration_ms=(time.time() - t0) * 1000,
+                                   status_code=0)
+                yield {"type": EVENT_DONE, "finish_reason": "interjected",
+                       "full_text": full_text, "full_thinking": full_thinking,
+                       "usage": last_usage or {}}
                 return
             line = raw_line.decode("utf-8", errors="replace").strip()
             if not line or line.startswith(":"):
@@ -1219,7 +1318,8 @@ def is_cache_enabled():
     return _LLM_CACHE_ENABLED
 
 
-def chat_stream_cached(config, messages, tools=None, cancel_event=None, verify_ssl=True):
+def chat_stream_cached(config, messages, tools=None, cancel_event=None, verify_ssl=True,
+                       soft_stop_event=None):
     """带本地缓存层的 chat_stream 包装。
 
     命中：一次性重放 text/thinking + DONE，不走网络。
@@ -1229,7 +1329,8 @@ def chat_stream_cached(config, messages, tools=None, cancel_event=None, verify_s
     if not _LLM_CACHE_ENABLED:
         # 开关关闭：完全透传，零开销
         yield from chat_stream(config, messages, tools=tools,
-                               cancel_event=cancel_event, verify_ssl=verify_ssl)
+                               cancel_event=cancel_event, verify_ssl=verify_ssl,
+                               soft_stop_event=soft_stop_event)
         return
 
     try:
@@ -1240,7 +1341,8 @@ def chat_stream_cached(config, messages, tools=None, cancel_event=None, verify_s
     except Exception:
         # 缓存层任何异常都不影响主流程，直接透传
         yield from chat_stream(config, messages, tools=tools,
-                               cancel_event=cancel_event, verify_ssl=verify_ssl)
+                               cancel_event=cancel_event, verify_ssl=verify_ssl,
+                               soft_stop_event=soft_stop_event)
         return
 
     if hit:
@@ -1264,10 +1366,12 @@ def chat_stream_cached(config, messages, tools=None, cancel_event=None, verify_s
     had_tool_calls = False
     had_error = False
     had_interrupted = False
+    had_interjected = False   # 插话打断：半截答案同样不能进缓存（重发会重放半截）
     done_emitted = False
 
     for event in chat_stream(config, messages, tools=tools,
-                             cancel_event=cancel_event, verify_ssl=verify_ssl):
+                             cancel_event=cancel_event, verify_ssl=verify_ssl,
+                             soft_stop_event=soft_stop_event):
         et = event.get("type")
         if et == EVENT_TEXT_DELTA:
             collected_text += event.get("delta", "")
@@ -1281,6 +1385,8 @@ def chat_stream_cached(config, messages, tools=None, cancel_event=None, verify_s
             done_emitted = True
             if event.get("finish_reason") == "interrupted":
                 had_interrupted = True
+            elif event.get("finish_reason") == "interjected":
+                had_interjected = True
             collected_text = event.get("full_text", collected_text)
             collected_thinking = event.get("full_thinking", collected_thinking)
             collected_usage = event.get("usage", {}) or {}
@@ -1291,7 +1397,7 @@ def chat_stream_cached(config, messages, tools=None, cancel_event=None, verify_s
     # 否则同样的消息重发会命中缓存，永远重放空正文（"AI 无回复"循环）。
     # 截断（interrupted）的回复同样不入缓存——否则重发永远重放半截答案。
     if (done_emitted and not had_tool_calls and not had_error
-            and not had_interrupted and collected_text.strip()):
+            and not had_interrupted and not had_interjected and collected_text.strip()):
         try:
             cache.put(key, config.model, collected_text, collected_thinking,
                       collected_usage, has_tool_calls=0)

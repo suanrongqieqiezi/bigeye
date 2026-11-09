@@ -624,9 +624,45 @@ def _try_set_session_for_path(full_path: str, display_path: str):
         pass  # 静默失败，不影响读文件
 
 
+# ── 单次写入体积护栏（2026-11-08 第 84 轮）──────────────────────────
+# 根因：thinking / 正文 / tool_call 参数共用同一个 max_tokens 输出池。
+# 一次把十几 KB 的 HTML 塞进 write_file.content，思考稍长就 finish=length，
+# tool_call 整个为 0 ⇒ 用户只看到「模型这一轮没有返回正文」，被迫手输「继续」。
+# 对策：单次 content 超限时工具明确拒绝并给出分段指令，把「静默截断」变成
+# 「可执行的下一步」。分段拼完仍是同一个文件，交付形态不变。
+try:
+    _WRITE_MAX_CHARS = int(os.environ.get("BIGEYE_WRITE_MAX_CHARS", "12000"))
+except ValueError:
+    _WRITE_MAX_CHARS = 12000
+if _WRITE_MAX_CHARS <= 0:
+    _WRITE_MAX_CHARS = 12000
+
+
+def _split_hint(n, tool_name):
+    # 超限返回：只说「太长」模型会原地重试，必须给出能照抄的分段步骤。
+    _need = max(1, (int(n) + _WRITE_MAX_CHARS - 1) // _WRITE_MAX_CHARS)
+    return {
+        "error": "单次写入内容过长，已拒绝写入（文件未被改动）",
+        "tool": tool_name,
+        "chars": int(n),
+        "limit": _WRITE_MAX_CHARS,
+        "estimated_segments": _need,
+        "how_to_split": [
+            "第 1 段：write_file(path=同一个路径, content=开头/骨架)",
+            "第 2..N 段：append_file(path=同一个路径, content=紧接着的下一块，不要重复上一段)",
+            "每段控制在 %d 字符以内，换行由你自己带，不要留占位符" % _WRITE_MAX_CHARS,
+            "收尾：read_file(path=同一个路径, read_full=true) 核对拼接结果完整",
+        ],
+        "note": ("被拒绝不是失败，也不需要用户介入。照上面拆成多次调用即可，"
+                 "最终仍然只有这一个文件。不要在正文里复述整份内容。"),
+    }
+
+
 @register_tool(
     name="write_file",
-    description="创建或覆盖文件。相对路径基于工作区，写入后用 read_file 验证。",
+    description=("创建或覆盖文件（整份写入）。相对路径基于工作区，写入后用 read_file 验证。"
+                  "内容超过单次上限会被拒绝并告诉你怎么分段：先用本工具落第一段，"
+                  "再用 append_file 逐段追加，最终仍是同一个文件。"),
     parameters={
         "type": "object",
         "properties": {
@@ -649,6 +685,9 @@ def _try_set_session_for_path(full_path: str, display_path: str):
 )
 def write_file(path: str, content: str, confirm: bool = False):
     try:
+        _n = len(content or "")
+        if _n > _WRITE_MAX_CHARS:
+            return _split_hint(_n, "write_file")
         full = _safe_path(path)
         allowed, err = _check_boundary(full, for_write=True)
         if not allowed and not confirm:
@@ -712,6 +751,93 @@ def write_file(path: str, content: str, confirm: bool = False):
         return result
     except Exception as e:
         return {"error": f"写文件失败: {e}"}
+
+
+@register_tool(
+    name="append_file",
+    description=("把一段内容追加到文件末尾（不覆盖）。分段交付大文件用：先 write_file 落骨架/第一段，"
+                 "再多次 append_file，最终仍是同一个文件。返回 tail_preview 供你从断点接着写，"
+                 "不要重复已写过的段落。单次 content 超限会被拒绝并告诉怎么拆；"
+                 "全部写完后用 read_file(read_full=true) 核对整份内容。"),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "文件路径，必须与前几段是同一个路径。优先用句柄：'产出/xxx'、'工作区/xxx'"
+            },
+            "content": {
+                "type": "string",
+                "description": "紧接着上一段末尾的下一块内容；不要重复、不要重写开头、不要留占位符"
+            },
+            "confirm": {
+                "type": "boolean",
+                "description": "写入工作区外的文件需设为 true",
+                "default": False
+            }
+        },
+        "required": ["path", "content"]
+    }
+)
+def append_file(path: str, content: str, confirm: bool = False):
+    try:
+        _n = len(content or "")
+        if _n > _WRITE_MAX_CHARS:
+            return _split_hint(_n, "append_file")
+        if _n == 0:
+            return {"error": "content 为空，没有内容可追加（文件未被改动）。"}
+        full = _safe_path(path)
+        allowed, err = _check_boundary(full, for_write=True)
+        if not allowed and not confirm:
+            return err
+        # 改前快照：新建文件为 None，供 file_history / file_restore 回溯
+        _before = None
+        if os.path.exists(full):
+            try:
+                with open(full, "r", encoding="utf-8", errors="replace") as f:
+                    _before = f.read()
+            except Exception:
+                pass
+        _dir = os.path.dirname(full) or '.'
+        os.makedirs(_dir, exist_ok=True)
+        # 与 write_file 用同一写入模式（文本 "w" / "a"）：Windows 下两者都把
+        # \n 落成 \r\n，分段拼完行尾风格统一；若这里改二进制追加，第一段 CRLF、
+        # 后续段 LF，整份前后不一致。追加不改动已有字节，存量 CRLF 文件安全。
+        with open(full, "a", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        _record_file_edit(full, _before, "append_file")
+        try:
+            _total_bytes = os.path.getsize(full)
+        except OSError:
+            _total_bytes = -1
+        # 尾部预览：截断续写时模型靠它认出「写到哪了」，不会从头重来或重复上一段。
+        # 只读末尾 600 字节，大文件也不整份回读。
+        _tail = ""
+        try:
+            with open(full, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                f.seek(max(0, f.tell() - 600))
+                _tail = f.read().decode("utf-8", errors="replace")[-200:]
+        except Exception:
+            pass
+        _out = {
+            "success": True,
+            "path": _ref_path(full),
+            "resolved": full,
+            "segment_chars": _n,
+            "total_bytes": _total_bytes,
+            "created_new_file": _before is None,
+            "tail_preview": _tail,
+            "hint": ("下一段从 tail_preview 之后接着写，不要重复。全部段写完后用 "
+                     "read_file(path, read_full=true) 核对首尾完整。"),
+        }
+        if _before is None:
+            _out["note"] = "文件原本不存在，本段已作为第一段创建。"
+        return _out
+    except Exception as e:
+        return {"error": "追加文件失败: %s" % e}
 
 
 # ── grep 扫描策略（修复：不再按文件数 30 截断，改为全量收集候选 + 只截断命中结果）──

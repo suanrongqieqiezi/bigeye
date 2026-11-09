@@ -172,12 +172,32 @@ html[data-theme="white"] #topicList mark{background:rgba(15,157,143,.18);color:#
 .topic-swipe{position:relative;overflow:hidden;border-radius:var(--radius-md);margin-bottom:3px;background:var(--surface)}
 .topic-swipe-content{position:relative;z-index:1;width:100%;transition:transform .2s cubic-bezier(.4,0,.2,1);touch-action:pan-y;background:var(--surface2)}
 .topic-swipe .topic-item{margin-bottom:0;border-radius:0;background:transparent!important}
-.topic-actions{position:absolute;top:0;left:0;bottom:0;display:flex;align-items:stretch;width:120px;transform:translateX(-100%)}
-.topic-actions button{flex:1;border:none;color:#fff;font-size:12px;font-weight:700;padding:0 14px;cursor:pointer;white-space:nowrap;transition:filter .12s}
+.topic-actions{position:absolute;top:0;left:0;bottom:0;display:flex;align-items:stretch;width:180px;transform:translateX(-100%)}
+.topic-actions button{flex:1;border:none;color:#fff;font-size:12px;font-weight:700;padding:0 8px;cursor:pointer;white-space:nowrap;transition:filter .12s}
 .topic-actions button:active{filter:brightness(.85)}
 .act-delete{background:linear-gradient(135deg,#ff6a5f,var(--danger))}
+.act-cat{background:var(--surface3);color:var(--text)}
 .act-rename{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04241f}
 .topic-swipe-open .topic-actions{transform:translateX(0)}
+/* ── 侧栏分类组头（2026-11-06）────────────────────────────────
+   组头本身是一行纯文字，不铺材质、不吃 --mat-*（内容层）。
+   🔴 左边 padding 12px = .topic-item 的 padding-left：折叠三角与卡片标题同一竖线，
+      差 1px 在白主题下会被看成"整列歪了"。 */
+.cat-head{display:flex;align-items:center;gap:5px;padding:9px 10px 4px 12px;margin-top:2px;border-radius:8px;cursor:pointer;user-select:none;-webkit-user-select:none}
+#topicList>.cat-head:first-child{margin-top:0}
+.cat-head .ch-cv{width:9px;height:9px;flex:0 0 9px;color:var(--tdim);opacity:.85}
+.cat-head .ch-ico{width:13px;height:13px;flex:0 0 13px;color:var(--tdim);opacity:.9}
+.cat-head .ch-nm{font-size:12px;font-weight:600;color:var(--text);opacity:.92;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cat-head .ch-n{font-size:10.5px;color:var(--tdim);opacity:.7;flex:0 0 auto}
+.cat-head .ch-more{margin-left:auto;flex:0 0 auto;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--tdim);font-size:14px;line-height:1;padding:0;border-radius:6px;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,color .15s}
+.cat-head:hover .ch-more{opacity:.9}
+.cat-head .ch-more:hover{background:var(--hover);color:var(--text)}
+@media(hover:none){.cat-head .ch-more{opacity:.85}}
+.cat-head.is-uncat .ch-nm{font-weight:500;color:var(--tdim);opacity:.95}
+.cat-seg{font-size:10.5px;color:var(--tdim);opacity:.7;padding:7px 12px 2px;letter-spacing:.02em}
+.cat-add{display:flex;align-items:center;gap:6px;padding:9px 12px;margin-top:2px;border-radius:8px;font-size:11.5px;color:var(--tdim);cursor:pointer;transition:background .15s,color .15s}
+.cat-add svg{width:12px;height:12px;flex:0 0 12px;opacity:.9}
+.cat-add:hover{background:var(--hover);color:var(--text)}
 /* Main panel */
 #mainPanel{flex:1;display:flex;flex-direction:column;min-width:0;height:100%;overflow:hidden;position:relative;z-index:10;background:var(--surface);transition:transform .25s cubic-bezier(.4,0,.2,1)}
 header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 16px;display:flex;align-items:center;gap:10px;flex-shrink:0;min-height:var(--panel-head-h)}
@@ -273,6 +293,19 @@ html[data-theme="white"] .row.ai .av{color:rgba(16,24,40,.5)}
 .row.ai .bubble{background:var(--ab);border:1px solid var(--border);border-top-left-radius:4px;box-shadow:var(--shadow-sm)}
 .meta{font-size:10.5px;color:var(--tdim);margin-top:4px;opacity:.85}.row.you .meta{text-align:right}
 .msg-stat{font-variant-numeric:tabular-nums;white-space:nowrap;margin-left:10px}
+/* 「插话」小标：AI 输出过程中插进去的那句，在时间线上与普通提问区分开。
+   颜色跟主题走（--accent），尺寸比时间戳还小一号 —— 它是标记，不是内容。 */
+.interject-tag{display:inline-block;font-size:9.5px;line-height:1;padding:2px 5px;border-radius:5px;margin-right:6px;color:var(--accent);background:rgba(var(--accent-rgb),.12);border:1px solid rgba(var(--accent-rgb),.22);vertical-align:1px;font-weight:600;letter-spacing:.02em}
+.w-tl-split{display:flex;align-items:center;gap:8px;margin:12px 0 10px;min-width:0}
+.w-tl-split::before,.w-tl-split::after{content:'';flex:1 1 14px;height:1px;background:rgba(var(--accent-rgb),.25)}
+.w-tl-split-cap{flex:0 0 auto;font-size:9.5px;line-height:1;padding:2px 5px;border-radius:5px;color:var(--accent);background:rgba(var(--accent-rgb),.12);border:1px solid rgba(var(--accent-rgb),.22);font-weight:600;letter-spacing:.02em}
+.w-tl-split-t{flex:0 1 auto;min-width:0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;color:var(--accent);font-size:11px;line-height:1.5;font-weight:600}
+/* 思考泡底部统计行（耗时 / 消耗 / token 速度，2026-11-01）：
+   与消息底部 .meta 同一套字号与配色，差别只在排成 flex —— 三段数字的宽度一直变
+   （59s→1h5m、8.2k→1.2M、9.4→126 tok/s），沿用 .msg-stat 的固定 margin-left
+   会让整行在进位那一刻横向抖一下。窄屏允许换行：宁可两行，也不撑出 .row 的 max-width。 */
+.proc-meta{display:flex;flex-wrap:wrap;column-gap:10px;row-gap:2px}
+.proc-meta>.msg-stat{margin-left:0}
 /* ══ 气泡底部动作条（2026-10-23 二次改造）═════════════════════════════
    参考用户给的截图：纯图标圆按钮（用户 2026-10-23 指定圆形底色）、无文字、无分隔线、常驻可见。
    上一版带文字标签（朗读/引用/复制），窄屏会把气泡撑宽、视觉噪音大，用户判为"丑"。
@@ -978,6 +1011,27 @@ main::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
 /* 兼容层：Web设置表单标签/提示（等同原内联样式） */
 .cfg-label{display:block;font-size:11px;color:var(--tdim);margin-bottom:4px}
 .cfg-hint{font-size:10px;color:var(--tdim);margin-bottom:8px}
+
+/* ── 思考强度（模型档位）2026-11-04 ──
+   胶囊只画服务端给的档位；颜色全走 :root 变量，白主题自动跟随，
+   不写死 rgba(255,255,255,..) 那种暗色专用值。 */
+.rs-pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px}
+.rs-pill{padding:5px 13px;border-radius:999px;border:1px solid var(--border2);background:var(--surface3);color:var(--text);font-size:11.5px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;font-family:inherit}
+.rs-pill:hover{background:rgba(var(--accent-rgb),.1);border-color:rgba(var(--accent-rgb),.4)}
+.rs-pill.on{background:rgba(var(--accent-rgb),.18);border-color:rgba(var(--accent-rgb),.55);color:var(--accent);font-weight:600}
+.rs-pill:disabled{opacity:.35;cursor:not-allowed}
+/* 工具按钮与「选项」必须视觉可分：工具不是档位，不能长成一排里的第六个 */
+.rs-tool{padding:4px 11px;border-radius:999px;border:1px dashed var(--border2);background:transparent;color:var(--tdim);font-size:10.5px;cursor:pointer;font-family:inherit;transition:color .15s,border-color .15s}
+.rs-tool:hover{color:var(--accent);border-color:rgba(var(--accent-rgb),.5)}
+.rs-tool:disabled{opacity:.5;cursor:not-allowed}
+.rs-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:10.5px;color:var(--tdim);margin-bottom:7px;line-height:1.5}
+.rs-meta select{font-size:10.5px;padding:3px 6px;border-radius:6px;border:1px solid var(--border2);background:var(--surface3);color:var(--text);font-family:inherit;max-width:210px}
+.rs-tag{font-size:9.5px;padding:1px 6px;border-radius:999px;border:1px solid var(--border2);color:var(--tdim)}
+.rs-tag.probe{color:var(--accent);border-color:rgba(var(--accent-rgb),.4)}
+.rs-tag.manual{color:var(--ok,#3fb950);border-color:rgba(63,185,80,.4)}
+.rs-warn{font-size:10.5px;color:var(--warn);line-height:1.55;margin-bottom:7px;padding:6px 8px;border-radius:6px;background:rgba(var(--warn-rgb),.08);border:1px solid rgba(var(--warn-rgb),.22);word-break:break-word;overflow-wrap:anywhere}
+.rs-detail{font-size:10px;color:var(--tdim);line-height:1.6;margin-top:6px;max-height:170px;overflow:auto;max-width:100%;word-break:break-word;overflow-wrap:anywhere}
+.rs-detail b{color:var(--text);font-weight:600}
 .cfg-input.mono{font-family:monospace}
 .cfg-input{margin-bottom:12px}
 .cfg-input.sm{margin-bottom:0}
@@ -988,6 +1042,7 @@ main::-webkit-scrollbar-thumb:hover{background:var(--tdim)}
   .topic-swipe:hover .topic-actions{opacity:1;pointer-events:auto}
   .topic-swipe-open .topic-actions{transform:translateY(-50%)}
   .topic-swipe:hover .t-cost{opacity:0}
+  .topic-actions .act-cat{border-color:var(--border2);color:var(--text)}
 }
 
 /* 设置面板导航方向动画（跟手手势的收尾） */
@@ -1282,6 +1337,35 @@ body.fb-narrow #fbFileTools button.fb-ibtn{padding:0;width:24px;height:24px}
 .xq-close{background:none;border:none;color:var(--tdim);font-size:13px;line-height:1;cursor:pointer;padding:3px 7px;border-radius:6px;transition:color .12s,background .12s}
 .xq-close:hover{color:var(--text);background:rgba(255,255,255,.07)}
 
+/* ── 语音库（朗读历史）：卡片列表 + 常用收藏 + 快捷键直放（2026-10-30）──
+   后端 tools/tts_hist.py 滚动保存 200 条；收藏(fav) 永不参与清理。
+   卡片视觉沿用传输队列 .xq-* 的语言：surface2 面板、卡片 hover 微亮、操作钮悬浮。 */
+#btnVoiceLib{position:relative}
+#btnVoiceLib.on{color:var(--accent)}
+#vhBadge{position:absolute;top:-4px;right:-5px;margin:0}
+#vhPanel{position:fixed;top:56px;right:12px;width:min(400px,calc(100vw - 24px));max-height:min(72vh,560px);background:var(--surface2);border:1px solid var(--border2);border-radius:12px;box-shadow:0 18px 48px rgba(0,0,0,.5);z-index:70;display:none;flex-direction:column;overflow:hidden}
+.vh-head{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:12.5px;font-weight:600;flex-shrink:0}
+.vh-tabs{display:flex;gap:2px;margin-left:auto;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:2px}
+.vh-tabs button{background:none;border:none;color:var(--tdim);font-size:11px;padding:3px 10px;border-radius:6px;cursor:pointer;transition:color .12s,background .12s}
+.vh-tabs button.on{background:rgba(var(--accent-rgb),.15);color:var(--accent);font-weight:600}
+.vh-list{overflow-y:auto;padding:6px;flex:1}
+.vh-item{display:flex;align-items:center;gap:8px;padding:8px;border-radius:9px;cursor:pointer;transition:background .12s}
+.vh-item:hover{background:var(--hover)}
+.vh-item.playing{background:rgba(var(--accent-rgb),.08);box-shadow:inset 0 0 0 1px rgba(var(--accent-rgb),.35)}
+.vh-play{flex-shrink:0;width:32px;height:32px;border-radius:999px;background:rgba(var(--accent-rgb),.14);border:1px solid rgba(var(--accent-rgb),.3);color:var(--accent);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.vh-play svg{width:15px;height:15px}
+.vh-main{flex:1;min-width:0}
+.vh-text{font-size:12px;color:var(--text);line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.vh-meta{display:flex;align-items:center;gap:8px;margin-top:3px;font-size:10px;color:var(--tdim)}
+.vh-key{background:rgba(var(--accent-rgb),.15);color:var(--accent);border-radius:4px;padding:0 6px;font-weight:700;font-family:monospace}
+.vh-ops{flex-shrink:0;display:flex;gap:2px;opacity:.55;transition:opacity .12s}
+.vh-item:hover .vh-ops,.vh-item.fav .vh-ops{opacity:1}
+.vh-op{background:none;border:none;color:var(--tdim);width:26px;height:26px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:color .12s,background .12s}
+.vh-op svg{width:14px;height:14px}
+.vh-op:hover{color:var(--text);background:rgba(255,255,255,.07)}
+.vh-op.on{color:#f5b94a}
+.vh-empty{padding:26px;text-align:center;color:var(--tdim);font-size:11.5px;line-height:1.8}
+
 /* ── 文件查看器 ── */
 #fbViewer{position:absolute;inset:0;z-index:5;background:var(--bg);flex-direction:column}
 .fv-head{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;row-gap:6px}
@@ -1523,7 +1607,13 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible),[onclick]:focus:not
    正文常驻 DOM,收起同样是平滑裁切而非瞬间消失。 */
 .proc-wrap{min-width:0;max-width:100%}
 .proc-box{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:var(--radius-md);padding:6px 11px;font-size:11px;color:var(--text);opacity:.7;cursor:pointer;max-height:88px;overflow:hidden;min-width:0;max-width:100%;user-select:text;-webkit-user-select:text;-webkit-tap-highlight-color:transparent;transition:max-height .42s cubic-bezier(.3,.3,.5,1),opacity .15s,border-color .15s;display:flex;flex-direction:column}
-.proc-box:not(.proc-live){filter:grayscale(1) brightness(.85)}
+/* 🔴 这里没有 brightness(.85)（2026-11-04 拿掉，别加回来）。
+   它会把**不透明**的东西整体压暗一档：工具标题吸顶时铺的那层不透明底 255 -> 217，
+   再经 .open 的 opacity:.85 混合成 223；而周围的 rgba(255,255,255,.02) 几乎透明、
+   不受 brightness 影响，还是 254 ⇒ 白主题下就是一条肉眼可见的灰带。
+   子元素写反向 brightness(1.1765) 救不回来（实测中间结果先被 clamp 到 255，再乘 .85）。
+   "跑完的泡比进行中的淡" 仍由 grayscale(1) + .proc-box 的 opacity:.7/.85 承担。 */
+.proc-box:not(.proc-live){filter:grayscale(1)}
 .proc-box:hover{opacity:.85;border-color:var(--border2)}
 .proc-box.open{max-height:352px;opacity:.85}
 .proc-box::-webkit-scrollbar{width:4px}
@@ -1718,6 +1808,34 @@ body.proc-edge-on:not(.think-glow-off) .row.proc-live .proc-box{animation:neonGl
 .proc-body .w-tool-body code{color:var(--tdim);opacity:.85;font-size:10.5px}
 html[data-theme="white"] .proc-body .w-tool-head:hover{background:rgba(0,0,0,.05)}
 html[data-theme="white"] .proc-body .w-tool-head:active{background:rgba(0,0,0,.09)}
+/* 工具标题行吸顶（2026-11-04）。
+   用户原话：「用户点击工具展开内容后，下滑看内容时如果该工具的标题超出视野，
+   就把该工具的条目一直置顶，方便用户点收起」。
+   · 整行吸（第 1 条确认）：编号 + 扳手 + 名字 + 「N 条」+ 三角，缺一项就认不出是哪个工具。
+   · 只对 .open 生效（第 2 条确认）：折叠行不吸 —— 一屏好几个工具全都 top:0 会一层压一层。
+   · 止于自己的 .w-tool：sticky 的包含块就是它本身，内容滚完标题自然跟着走，
+     不需要额外算"什么时候该脱离"。
+   · 「无痕」（第 3 条确认）：不画分隔线、不加阴影、不改圆角，只铺一层**不透明**同色底。
+     🔴 底色必须不透明：留透明的话，输出文字会从名字右侧那一大片空白穿上来糊成一片
+        （截图里箭头指的正是那段输出）。
+     🔴 左右各外扩 11px = .proc-box 的 padding，把整行铺到泡泡内边界。少了这两道，
+        两侧各留一条 11px 的缝，缝里正好是滚上来的输出 —— 比不吸还难看。
+     🔴 上下也要外扩：top:0 上方是容器内边界（无需扩），bottom:-3px 盖住 .w-tool-body
+        的 3px margin，否则第一行输出会从标题下沿的缝里露头。
+   · 底色分两种泡，各写一份（live 泡 background:var(--surface2) 是实色；
+     静态泡是 rgba(255,255,255,.02) 叠在 --surface 上，等价写法见下）。
+     🔴 静态泡这套公式**两种主题通用**，白主题千万别改成 rgba(0,0,0,.02)：
+        白主题 --surface=#ffffff，.02 白叠白还是白（所以 .proc-box 在白底上看不出色）；
+        换成 .02 黑就比周围暗一档，白底上直接是一条灰带（2026-11-04 截图实锤后删掉）。 */
+.proc-body .w-tool.open .w-tool-head{position:sticky;top:0;z-index:3;display:flex;width:100%;min-width:0}
+.proc-body .w-tool.open .w-tool-head::before{
+  content:"";position:absolute;left:-11px;right:-11px;top:0;bottom:-3px;z-index:-1;
+  background-color:var(--surface);
+  background-image:linear-gradient(rgba(255,255,255,.02),rgba(255,255,255,.02));
+}
+.row.proc-live .proc-body .w-tool.open .w-tool-head::before{
+  background-color:var(--surface2);background-image:none;
+}
 /* 无内容工具行（.w-tool-flat）：无三角纯展示，指针与 hover 按普通文本对待 */
 .proc-body .w-tool.w-tool-flat .w-tool-head{cursor:default}
 .proc-body .w-tool.w-tool-flat .w-tool-head:hover,
@@ -2149,6 +2267,7 @@ html[data-boot] .hdr-pill-r, html[data-boot] .hdr-pill-r *{visibility:hidden !im
   <div class="hdr-dragzone win-drag" data-page-node-id="Cou3HdrDrag"></div>
   <div class="hdr-pill hdr-pill-r win-drag" data-page-node-id="Cou3HdrPillR">
     <button id="btnFlowChart" type="button" onclick="openFlowChart()" title="查看任务流程图" aria-label="查看任务流程图" data-page-node-id="BtnFlowChartEntry"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.90 20.40C11.98 17.80 12.34 15.20 12.50 13.20" stroke-width="1.9"/><path d="M12.50 13.20C12.10 10.20 8.90 8.20 8.37 8.08" stroke-width="1.9"/><path d="M12.50 13.20C13.50 9.80 16.20 7.80 16.60 7.37" stroke-width="1.9"/><circle cx="5.50" cy="7.40" r="2.30" stroke-width="1.9"/><circle cx="18.60" cy="5.20" r="2.30" stroke-width="1.9"/></svg></button>
+    <button id="btnVoiceLib" onclick="toggleVhPanel()" title="语音库：朗读历史（卡片可收藏、可设快捷键直放）" aria-label="语音库"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg><span id="vhBadge" class="xq-badge" style="display:none"></span></button>
     <button id="btnFiles" onclick="toggleFileBrowser()" title="工作区文件（Esc 关闭）" data-page-node-id="gyN19HiRLgwHXuSmo89RcX"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="FY0maM0KOiYKW1qOqOALv8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" data-page-node-id="u6SKPAS6NsdomlHN2I6id5"/></svg></button>
     <button id="btnDebug" onclick="toggleDebugPanel()" title="调试面板" data-page-node-id="c8zFNAuu46kNHCSvRjFZ5d"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="HLPgQILxXRrOznMrMVMQAm"><rect x="8" y="7" width="8" height="13" rx="4" data-page-node-id="GW6fRfl9f0CECGmTr2YUUZ"/><path d="M12 7V5" data-page-node-id="ajUNdVxfHK2VbyUFCj6RHH"/><path d="M10 5.5 9 3.5" data-page-node-id="KbHkliUrWFSx5zgcqaTWAI"/><path d="M14 5.5 15 3.5" data-page-node-id="i92pOGPJRWzWCH2xEjreP0"/><path d="M8 11H4" data-page-node-id="ix260ARmzGqvvb9nqStRyu"/><path d="M8 15H5" data-page-node-id="yqwVNChRcUqkgaofipPsi8"/><path d="M8 18.5H4" data-page-node-id="VOALKF0ad1SrftlyHDN8Au"/><path d="M16 11h4" data-page-node-id="uWcTCixEL8ycNd8sOoUzks"/><path d="M16 15h3" data-page-node-id="7NbGMcdWH8HEvWw4xMqgwC"/><path d="M16 18.5h4" data-page-node-id="q7IAJKUmVcYtlLjNukZ8JU"/></svg></button>
   </div>
@@ -2799,11 +2918,11 @@ if (!_encKeyB64) { try { var _tk = localStorage.getItem('dg_token'); if (_tk) he
 // 🔴 「设置 → 界面」的默认配置（2026-10-30 用户按自己调好的界面定稿）：
 //    隐藏余额横幅 开 / 余额 精简 / 工作记忆 精简 / 运行状态 三点(spin) /
 //    显示任务金额·耗时·Token 全开 / 思考气泡光晕 关 / 思考气泡边缘渐隐 开 /
-//    思考框边缘渐隐 关 / 思考气泡背景 开 / 思考框描边 虚线。
+//    思考框边缘渐隐 关 / 思考气泡背景 开 / 思考框描边 虚线 / 顶栏语音库按钮 开。
 //    ⚠ 改这里的任何一项，必须同步改它自己的 init*Pref() 回落（loadTopbarModes /
 //      initGlowPref / initEdgePref 等）—— 同一套默认值不许两处各写一遍，否则
 //      刷新时按 A 值渲染、改一次设置又回到 B 值。
-var chatBox, msgInput, btnSend, sDot, sText, uInfo, topicList, topicTitle, sidebar, overlay, workingDot, balanceBanner, balanceDisplay, balLbl, balText, costDisplay, tokenDisplay, sidebarTokens, workingPoll=null, hideBannerPref=true, balMode='lean', wmMode='lean', showTaskCostPref=true, showElapsedPref=true, showTokensPref=true, thinkGlowPref=false, procFadePref=true, procEdgePref=false, procBorderPref='dashed', procBgPref=true, runIndPref='spin', userAvatar='';
+var chatBox, msgInput, btnSend, sDot, sText, uInfo, topicList, topicTitle, sidebar, overlay, workingDot, balanceBanner, balanceDisplay, balLbl, balText, costDisplay, tokenDisplay, sidebarTokens, workingPoll=null, hideBannerPref=true, balMode='lean', wmMode='lean', showTaskCostPref=true, showElapsedPref=true, showTokensPref=true, procStatsPref=true, thinkGlowPref=false, procFadePref=true, procEdgePref=false, procBorderPref='dashed', procBgPref=true, runIndPref='spin', voiceLibBtnPref=true, userAvatar='';
 var messages=[], currentTopic=null, topics=[], cnyRate=7.0, appName='AI';
 var ATT_ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
 var LS_KEY='dayan_cache_v2';
@@ -3559,6 +3678,39 @@ function fmtTokens(n){
   if(n>=1000) return (n/1000).toFixed(1)+'k tok';
   return n+' tok';
 }
+// ── 思考泡（进行中的实时过程泡）底部统计：耗时 · 消耗 · token 速度 ──────────
+// 口径与消息底部 meta **完全一致**，只多一项速度。速度取「输出 token ÷ 已耗时」——
+// 它回答的是"模型吐字有多快"，不是"账面 token 涨得多快"：输入 token 每一轮都要把
+// 整个上下文重算一遍，用 in+out 算会得到几百 tok/s 的假高峰（292.8k ÷ 8m22s ≈ 583）。
+// 🔴 三个数全走服务端真账（/api/working 的 elapsed / tokens_in / tokens_out），前端不估算：
+//    估出来的值跟最终回复底下那行对不上，用户第一眼就会问"为什么两个数不一样"。
+function fmtTps(tps){
+  if(!(tps>0)) return '';
+  return (tps>=10 ? Math.round(tps) : Math.round(tps*10)/10) + ' tok/s';
+}
+// 只出 <span>（updateProcDom 每 500ms 用它刷新），外层 .proc-meta 由 procStatsHTML 包
+function procStatsInner(m){
+  if(!procStatsPref || !m || !m.live) return '';
+  // 已耗时 = 服务端给的基准 + 收到之后本地走过的秒数（500ms 一轮刷新基准）。
+  // 老服务端没有 elapsed 字段 → 退回本地泡的创建时刻，至少数字还在动（不会显示成 0s）。
+  var _ela=0;
+  if(m.elapsedBase>0) _ela=m.elapsedBase+(Date.now()/1000-(m.elapsedAt||Date.now()/1000));
+  else if(m.ts) _ela=Date.now()/1000-m.ts;
+  if(!(_ela>0)) _ela=0;
+  var _tot=(m.tokIn||0)+(m.tokOut||0);
+  var h='';
+  // 0.5s 起就出（fmtElapsed 会四舍五入成 1s）：统计行不能比泡晚出现 ——
+  // 晚一拍就是发完消息后先没有、一秒后凭空多一行，底部内容整体下跳 19px。
+  if(_ela>=0.5) h+='<span class="msg-stat" title="本次任务已耗时">耗时 '+fmtElapsed(_ela)+'</span>';
+  if(_tot>0) h+='<span class="msg-stat" title="本次任务已消耗（输入+输出，含工具定义）">消耗 '+fmtTokens(_tot)+'</span>';
+  // 1 秒内的速度没有意义（除出来是几百 tok/s 的噪声），等跑起来再说
+  if(m.tokOut>0 && _ela>=2) h+='<span class="msg-stat" title="本轮平均输出速度（输出 token ÷ 已耗时）">'+fmtTps(m.tokOut/_ela)+'</span>';
+  return h;
+}
+function procStatsHTML(m){
+  var i=procStatsInner(m);
+  return i?('<div class="meta proc-meta">'+i+'</div>'):'';
+}
 // 耗时取值：优先服务端精确值（落库时写进 args.elapsed）；
 // 老消息没有该字段，用「本条 AI 回复 ts − 最近一条用户消息 ts」近似同一次问答的墙钟耗时。
 // 上限 2 小时：超过说明中间隔了很久（AI 主动消息 / 跨轮），近似值会失真，宁可不显示。
@@ -3796,6 +3948,9 @@ function _ttsReset(){
   _tts.btn=null;
   // row 是"这条正在念"的判据：右键菜单没有按钮元素，只能靠它判断第二次点击是不是"停"
   _tts.row=null;
+  // 朗读会话结束（播完/点停/出错都会走到这）→ 后端此刻已把整条（含点停的半条）落盘，
+  // 稍候拉一次语音库。点 stopSpeak 之外的路径（语音库播放）也会触发，多一次 GET 无害。
+  try{ vhOnTtsEnd(); }catch(e){}
 }
 function stopSpeak(){ _ttsReset(); }
 /* 把已收到但未播的 PCM 转成 AudioBuffer 排队 */
@@ -3943,6 +4098,169 @@ function _speak(row,btn){
 
 /* 切任务/卸载时掐断声音，避免看不见在响的幽灵播放 */
 window.addEventListener('beforeunload',function(){ try{ _ttsReset(); }catch(e){} });
+
+// ═══ 语音库：朗读历史卡片 + 常用收藏 + 快捷键直放（2026-10-30）═══
+// 后端：/api/tts/hist（列表）/file/<id>（wav）+ POST fav/hotkey/del；存储 tools/tts_hist.py。
+// 播放互斥：开播前先 _ttsReset()（停朗读）+ vhStopSrc()（停库内上一条）——全局永远一个声源。
+var _vh={items:[],open:false,tab:'all',playingId:null,src:null,capId:null,unseen:0};
+var VH_PLAY='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>';
+var VH_STOP='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>';
+var VH_STAR='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.7 5.9 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.6l6.3-.7z"/></svg>';
+var VH_KEY='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></svg>';
+var VH_TRASH='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+function vhPad(n){ return n<10?'0'+n:''+n; }
+function vhFmtDur(s){ s=Math.round(s||0); return Math.floor(s/60)+':'+vhPad(s%60); }
+function vhFmtTime(ts){
+  var d=new Date((ts||0)*1000), now=new Date();
+  var hm=vhPad(d.getHours())+':'+vhPad(d.getMinutes());
+  if(d.toDateString()===now.toDateString()) return hm;
+  var yd=new Date(now.getTime()-86400000);
+  if(d.toDateString()===yd.toDateString()) return '昨天 '+hm;
+  return (d.getMonth()+1)+'/'+d.getDate()+' '+hm;
+}
+function vhBadge(){
+  var b=document.getElementById('vhBadge');
+  if(b){ b.style.display=_vh.unseen>0?'':'none'; b.textContent=_vh.unseen>9?'9+':''+_vh.unseen; }
+}
+function toggleVhPanel(force){
+  _vh.open=(force===true)?true:(force===false?false:!_vh.open);
+  var pn=document.getElementById('vhPanel');
+  if(pn) pn.style.display=_vh.open?'flex':'none';
+  var b=document.getElementById('btnVoiceLib');
+  if(b) b.classList.toggle('on',_vh.open);
+  if(_vh.open){ _vh.unseen=0; vhBadge(); vhFetch(); }
+}
+function vhFetch(){
+  fetch('/api/tts/hist',{cache:'no-store'}).then(function(r){ return r.json(); }).then(function(j){
+    _vh.items=(j&&j.items)||[];
+    vhBadge();
+    if(_vh.open) vhRender();
+  }).catch(function(){});
+}
+// 朗读会话结束（播完/点停/出错）→ 后端此时已把整条落盘，稍候拉一次。
+// 面板没开也拉：徽标要靠新条目数点亮。
+function vhOnTtsEnd(){ setTimeout(function(){ vhFetch(); }, 1200); }
+function vhSetTab(t){
+  _vh.tab=t;
+  var a=document.getElementById('vhTabAll'), f=document.getElementById('vhTabFav');
+  if(a) a.classList.toggle('on',t==='all');
+  if(f) f.classList.toggle('on',t==='fav');
+  vhRender();
+}
+function vhRender(){
+  var el=document.getElementById('vhList'); if(!el) return;
+  var list=_vh.tab==='fav'?_vh.items.filter(function(x){return x.fav;}):_vh.items;
+  if(!list.length){
+    el.innerHTML='<div class="vh-empty">'+(_vh.tab==='fav'
+      ?'还没有常用语音<br>点卡片旁的 ☆ 加入常用，永久保存、不参与 200 条滚动清理'
+      :'还没有语音<br>点回复旁的朗读按钮，念过的语音会自动存到这里（最多 200 条）')+'</div>';
+    return;
+  }
+  var h='';
+  for(var i=0;i<list.length;i++){
+    var it=list[i], pl=(_vh.playingId===it.id);
+    h+='<div class="vh-item'+(pl?' playing':'')+(it.fav?' fav':'')+'" data-id="'+it.id+'" onclick="vhPlay(\''+it.id+'\')">'
+      +'<button class="vh-play" title="'+(pl?'停止':'播放')+'">'+(pl?VH_STOP:VH_PLAY)+'</button>'
+      +'<div class="vh-main"><div class="vh-text">'+esc(it.text||'(无文本)')+'</div>'
+      +'<div class="vh-meta"><span>'+vhFmtDur(it.dur)+'</span><span>'+vhFmtTime(it.ts)+'</span>'
+      +(it.hotkey?'<span class="vh-key">'+esc(it.hotkey)+'</span>':'')+'</div></div>'
+      +'<div class="vh-ops">'
+      +'<button class="vh-op'+(it.fav?' on':'')+'" onclick="event.stopPropagation();vhFav(\''+it.id+'\')" title="'+(it.fav?'移出常用（恢复滚动清理）':'加入常用（永久保存）')+'">'+VH_STAR+'</button>'
+      +'<button class="vh-op" onclick="event.stopPropagation();vhHotkey(\''+it.id+'\')" title="设置播放快捷键">'+VH_KEY+'</button>'
+      +'<button class="vh-op" onclick="event.stopPropagation();vhDel(\''+it.id+'\')" title="删除">'+VH_TRASH+'</button>'
+      +'</div></div>';
+  }
+  el.innerHTML=h;
+}
+function vhStopSrc(){
+  if(_vh.src){ try{ _vh.src.onended=null; _vh.src.stop(0); }catch(e){} _vh.src=null; }
+  if(_vh.playingId){ _vh.playingId=null; if(_vh.open) vhRender(); }
+}
+function vhFind(id){ for(var i=0;i<_vh.items.length;i++){ if(_vh.items[i].id===id) return _vh.items[i]; } return null; }
+function vhPlay(id){
+  if(_vh.playingId===id){ vhStopSrc(); return; }   // 点同一条 = 停
+  vhStopSrc(); try{ _ttsReset(); }catch(e){}       // 全局一个声源
+  _vh.playingId=id; if(_vh.open) vhRender();
+  fetch('/api/tts/hist/file/'+encodeURIComponent(id),{cache:'no-store'}).then(function(r){
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.arrayBuffer();
+  }).then(function(ab){
+    var ctx=_ttsCtx();
+    ctx.decodeAudioData(ab, function(buf){
+      if(_vh.playingId!==id) return;               // 拉取期间已被停/换
+      var src=ctx.createBufferSource(); src.buffer=buf; src.connect(ctx.destination);
+      _vh.src=src;
+      src.onended=function(){ if(_vh.src===src){ _vh.src=null; _vh.playingId=null; if(_vh.open) vhRender(); } };
+      src.start(0);
+    }, function(){
+      if(_vh.playingId===id){ _vh.playingId=null; if(_vh.open) vhRender(); }
+      try{ if(typeof toast==='function') toast('这段语音无法解码'); }catch(e2){}
+    });
+  }).catch(function(e){
+    if(_vh.playingId===id){ _vh.playingId=null; if(_vh.open) vhRender(); }
+    try{ if(typeof toast==='function') toast('播放失败：'+((e&&e.message)||e)); }catch(e2){}
+  });
+}
+function vhPost(op,body){
+  return fetch('/api/tts/hist/'+op,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})
+    .then(function(r){ return r.json(); });
+}
+function vhFav(id){
+  var it=vhFind(id); if(!it) return;
+  vhPost('fav',{id:id,fav:it.fav?0:1}).then(function(j){
+    if(j&&j.id){ it.fav=j.fav; vhRender(); try{ if(typeof toast==='function') toast(it.fav?'已加入常用（永久保存）':'已移出常用'); }catch(e){} }
+  }).catch(function(){});
+}
+function vhDel(id){
+  vhPost('del',{id:id}).then(function(){
+    _vh.items=_vh.items.filter(function(x){return x.id!==id;});
+    if(_vh.playingId===id) vhStopSrc();
+    vhRender();
+  }).catch(function(){});
+}
+// 快捷键串规范化：'Alt+1' / 'Ctrl+Shift+F4' / 'F4'（Shift+字母由大写字母本身表达）
+function vhKeyStr(e){
+  if(['Control','Alt','Shift','Meta'].indexOf(e.key)>=0) return '';
+  var k=(e.key===' ')?'Space':(e.key.length===1?e.key.toUpperCase():e.key);
+  var mods=[];
+  if(e.ctrlKey) mods.push('Ctrl');
+  if(e.altKey) mods.push('Alt');
+  if(e.shiftKey&&k.length>1) mods.push('Shift');
+  if(e.metaKey) mods.push('Meta');
+  var s=mods.join('+');
+  return s?s+'+'+k:k;
+}
+function vhHotkey(id){
+  _vh.capId=id;
+  var it=vhFind(id);
+  try{ if(typeof toast==='function') toast((it&&it.hotkey)?('正在改快捷键，当前 '+it.hotkey+' —— 按新组合键覆盖，Esc 取消'):'按下想用的组合键（如 Alt+1）…Esc 取消'); }catch(e){}
+}
+// 捕获阶段挂：设置模式吃掉所有键；平时匹配快捷键直放（输入框焦点时放行）
+document.addEventListener('keydown',function(e){
+  if(_vh.capId){
+    e.preventDefault(); e.stopPropagation();
+    if(e.key==='Escape'){ _vh.capId=null; try{ if(typeof toast==='function') toast('已取消'); }catch(e2){} return; }
+    var s=vhKeyStr(e); if(!s) return;
+    var cap=_vh.capId; _vh.capId=null;
+    vhPost('hotkey',{id:cap,key:s}).then(function(j){
+      if(j&&j.id){ vhFetch(); try{ if(typeof toast==='function') toast('快捷键 '+s+' 已绑定，随时按下直接播放'); }catch(e2){} }
+    }).catch(function(){});
+    return;
+  }
+  if(e.ctrlKey||e.altKey||e.metaKey||/^F\d+$/.test(e.key)){
+    var s=vhKeyStr(e); if(!s) return;
+    for(var i=0;i<_vh.items.length;i++){
+      if(_vh.items[i].hotkey===s){
+        var t=e.target||{}, tag=(t.tagName||'').toUpperCase();
+        if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||t.isContentEditable) return;
+        e.preventDefault();
+        vhPlay(_vh.items[i].id);
+        return;
+      }
+    }
+  }
+},true);
+window.addEventListener('beforeunload',function(){ vhStopSrc(); });
 var _fmtCache=new Map();
 function fmt(t){
   var _hit=_fmtCache.get(t);
@@ -4346,11 +4664,172 @@ function ssFlashByText(q){
   }
 }
 
-function renderTopics(){
-  if(_searchMode) return;   // 搜索态：列表由搜索结果接管
-  topicList.innerHTML='';
-  for(var i=0; i<topics.length; i++){
-    var t=topics[i];
+// ── 侧栏任务分类（文件夹，2026-11-06 第 81 轮）────────────────────────
+// 库侧只有一个 topics.cat_id：分类表在 topic_categories，'' 恒表示「未分类」。
+// 渲染规则（用户定稿 B+A）：手动文件夹在上、按 sort 排；「未分类」恒排最后，
+// 内部再按「进行中 / 今天 / 更早」自动分段 —— 只有 ≥_CAT_SEG_MIN 条才分，
+// 一两条顶两个段头等于白占两行。
+// 🔴 分组只发生在渲染层。别为了分组去改 list_topics 的排序：组内顺序就是
+//    updated_at DESC，一旦在这里重排，分类内部的时间线索会跟主列表对不上。
+var topicCategories=[];        // [{id,name,sort,count}] —— 跟 /api/topics 一起下发
+var _catApiOk=false;           // 服务端到底支不支持分类：只看 /api/topics 有没有 categories 字段
+var _catCollapsed={};          // {'<catId>'|'__uncat__':1}
+var _CAT_SEG_MIN=3;
+
+function _catLoadCollapsed(){
+  try{
+    var raw=localStorage.getItem('dayan_cat_collapsed');
+    var o=raw?JSON.parse(raw):null;
+    _catCollapsed=(o&&typeof o==='object')?o:{};
+  }catch(e){ _catCollapsed={}; }
+}
+function _catSaveCollapsed(){
+  try{ localStorage.setItem('dayan_cat_collapsed', JSON.stringify(_catCollapsed)); }catch(e){}
+}
+_catLoadCollapsed();
+
+function _catKnown(cid){
+  for(var i=0;i<topicCategories.length;i++) if(topicCategories[i].id===cid) return true;
+  return false;
+}
+// 指向已被删掉的分类 ⇒ 当未分类处理。删分类因此不需要任何补偿逻辑。
+function _catOf(t){
+  var cid=(t&&t.cat_id)||'';
+  return (cid&&_catKnown(cid))?cid:'';
+}
+function _catIsToday(ts){
+  if(!ts) return false;
+  var d=new Date(ts*1000), n=new Date();
+  return d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()&&d.getDate()===n.getDate();
+}
+function _catIsRunning(t){
+  var ws=t.working_status;
+  if(ws && !_wsIsTerminal(ws)) return true;
+  if(t.loop_active) return true;
+  if(t.action_needed) return true;
+  if(typeof _sendingTopics!=='undefined' && _sendingTopics && _sendingTopics[t.id]) return true;
+  return false;
+}
+function _catSplitUncat(list){
+  var run=[], today=[], older=[];
+  for(var i=0;i<list.length;i++){
+    var t=list[i];
+    if(_catIsRunning(t)) run.push(t);
+    else if(_catIsToday(t.updated_at||t.created_at)) today.push(t);
+    else older.push(t);
+  }
+  return [{label:'进行中',rows:run},{label:'今天',rows:today},{label:'更早',rows:older}];
+}
+
+function _catHeadNode(cat, n, isUncat){
+  var key=isUncat?'__uncat__':cat.id;
+  var folded=!!_catCollapsed[key];
+  var d=document.createElement('div');
+  d.className='cat-head'+(isUncat?' is-uncat':'')+(folded?' is-folded':'');
+  d.setAttribute('data-cat', key);
+  var cv='<svg class="ch-cv" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">'
+        +(folded?'<polyline points="9 6 15 12 9 18"/>':'<polyline points="6 9 12 15 18 9"/>')+'</svg>';
+  var ic=isUncat
+    ? '<svg class="ch-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13h4l1.5 2h5L16 13h4"/><path d="M5 5h14l1 7v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-5Z"/></svg>'
+    : '<svg class="ch-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
+  d.innerHTML=cv+ic+'<span class="ch-nm">'+esc(cat.name)+'</span><span class="ch-n">'+n+'</span>'
+    +(isUncat?'':'<button class="ch-more" type="button" title="分类操作" aria-label="分类操作">⋯</button>');
+  d.onclick=function(ev){
+    if(ev.target&&ev.target.closest&&ev.target.closest('.ch-more')) return;
+    _catCollapsed[key]=folded?0:1;
+    _catSaveCollapsed(); renderTopics();
+  };
+  var more=d.querySelector('.ch-more');
+  if(more) more.onclick=function(ev){ ev.stopPropagation(); catMenu(cat, n); };
+  return d;
+}
+function _catSegNode(label){
+  var d=document.createElement('div');
+  d.className='cat-seg';
+  d.textContent=label;
+  return d;
+}
+function _catAddRow(){
+  var d=document.createElement('div');
+  d.className='cat-add';
+  d.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>新建分类</span>';
+  d.onclick=function(){ createCategoryFlow(); };
+  return d;
+}
+
+async function _catPost(payload){
+  try{
+    var r=await fetch('/api/categories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    var d=await r.json();
+    if(!r.ok){ alert('分类操作失败：'+((d&&d.error)||r.status)); return false; }
+    if(d&&d.categories) topicCategories=d.categories;
+    renderTopics();
+    return true;
+  }catch(e){ alert('分类操作失败：'+e.message); return false; }
+}
+async function createCategoryFlow(){
+  var name=await uiPrompt({title:'新建分类',label:'分类名称',placeholder:'例如：工作 / 生活 / 灵感'});
+  if(name===null) return;
+  name=String(name||'').trim();
+  if(!name) return;
+  await _catPost({action:'create',name:name});
+}
+async function catMenu(cat){
+  if(!cat||!cat.id) return;
+  var act=await uiSelect({title:'分类：'+cat.name,label:'选择操作',okText:'继续',
+    options:[{value:'rename',label:'重命名'},{value:'delete',label:'删除分类'}]});
+  if(!act) return;
+  if(act==='rename'){
+    var nm=await uiPrompt({title:'重命名分类',label:'新的分类名称',value:cat.name,placeholder:'分类名称'});
+    if(nm===null) return;
+    nm=String(nm||'').trim();
+    if(!nm||nm===cat.name) return;
+    await _catPost({action:'rename',id:cat.id,name:nm});
+    return;
+  }
+  var cnt=0;
+  for(var i=0;i<topics.length;i++) if(_catOf(topics[i])===cat.id) cnt++;
+  var ok=await uiConfirm({title:'删除分类',okText:'删除',danger:true,
+    message:'删除分类「'+cat.name+'」？'+(cnt?('\n其中的 '+cnt+' 个任务会回到「未分类」，任务本身不会被删除。'):'\n这个分类里还没有任务。')});
+  if(!ok) return;
+  await _catPost({action:'delete',id:cat.id});
+}
+async function moveTopicCategory(tid){
+  closeTopicSwipe();
+  var cur='';
+  for(var i=0;i<topics.length;i++) if(topics[i].id===tid){ cur=_catOf(topics[i]); break; }
+  var opts=[{value:'',label:'未分类'}];
+  for(var j=0;j<topicCategories.length;j++) opts.push({value:topicCategories[j].id,label:topicCategories[j].name});
+  opts.push({value:'__new__',label:'＋ 新建分类…'});
+  var cid=await uiSelect({title:'移动到分类',label:'选择分类',options:opts,value:cur});
+  if(cid===null) return;
+  if(cid==='__new__'){
+    var nm=await uiPrompt({title:'新建分类',label:'分类名称',placeholder:'例如：工作'});
+    if(nm===null) return;
+    nm=String(nm||'').trim();
+    if(!nm) return;
+    try{
+      var r=await fetch('/api/categories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create',name:nm})});
+      var d=await r.json();
+      if(!r.ok){ alert('新建分类失败：'+((d&&d.error)||r.status)); return; }
+      topicCategories=d.categories||topicCategories;
+      var created=null;
+      for(var k=0;k<topicCategories.length;k++) if(topicCategories[k].name===nm) created=topicCategories[k];
+      if(!created){ alert('新建分类失败：拿到的新分类列表里没有「'+nm+'」'); return; }
+      cid=created.id;
+    }catch(e){ alert('新建分类失败：'+e.message); return; }
+  }
+  try{
+    var rr=await fetch('/api/topic/category',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic_id:tid,cat_id:cid})});
+    var dd=await rr.json();
+    if(!rr.ok){ alert('移动失败：'+((dd&&dd.error)||rr.status)); return; }
+    if(dd&&dd.categories) topicCategories=dd.categories;
+    for(var m=0;m<topics.length;m++) if(topics[m].id===tid){ topics[m].cat_id=cid||''; break; }
+    renderTopics();
+  }catch(e){ alert('移动失败：'+e.message); }
+}
+
+function _topicRowNode(t){
     var wrap=document.createElement('div');
     wrap.className='topic-swipe';
     var content=document.createElement('div');
@@ -4385,17 +4864,64 @@ function renderTopics(){
 
     var actions=document.createElement('div');
     actions.className='topic-actions';
-    actions.innerHTML='<button class="act-rename" data-tid="'+t.id+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg><span class="act-txt">重命名</span></button><button class="act-delete" data-tid="'+t.id+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg><span class="act-txt">删除</span></button>';
+    actions.innerHTML='<button class="act-cat" data-tid="'+t.id+'" title="移动到分类"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="act-txt">分类</span></button><button class="act-rename" data-tid="'+t.id+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg><span class="act-txt">重命名</span></button><button class="act-delete" data-tid="'+t.id+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg><span class="act-txt">删除</span></button>';
     (function(topic){
+      actions.querySelector('.act-cat').onclick=function(ev){ ev.stopPropagation(); moveTopicCategory(topic.id); };
       actions.querySelector('.act-rename').onclick=function(ev){ ev.stopPropagation(); renameTopicItem(topic.id, topic.title); };
       actions.querySelector('.act-delete').onclick=function(ev){ ev.stopPropagation(); deleteTopicItem(topic.id); };
     })(t);
 
     wrap.appendChild(content);
     wrap.appendChild(actions);
-    topicList.appendChild(wrap);
+    return wrap;
+}
+
+function renderTopics(){
+  if(_searchMode) return;   // 搜索态：列表由搜索结果接管
+  // 🔴 8 秒一次的轮询会重画整个列表，不抓住滚动位置的话每 8 秒被拽回顶部。
+  //    innerHTML 清空后 scrollTop 会被浏览器钳成 0，所以必须在重建之后再写回去。
+  var _keepTop=topicList.scrollTop;
+  topicList.innerHTML='';
+  if(!topicCategories.length){
+    // 一个分类都没有：列表保持原来的扁平静态。此时「新建分类」必须摆在最上面，
+    // 摆到底部会被几十条任务压住，等于没有入口。
+    if(_catApiOk) topicList.appendChild(_catAddRow());
+    for(var i=0;i<topics.length;i++) topicList.appendChild(_topicRowNode(topics[i]));
+    topicSwipeOpen=null;
+    topicList.scrollTop=_keepTop;
+    return;
   }
+  var buckets={}, uncat=[], j;
+  for(j=0;j<topics.length;j++){
+    var cid=_catOf(topics[j]);
+    if(cid){ (buckets[cid]||(buckets[cid]=[])).push(topics[j]); }
+    else uncat.push(topics[j]);
+  }
+  for(j=0;j<topicCategories.length;j++){
+    var cat=topicCategories[j], rows=buckets[cat.id]||[];
+    topicList.appendChild(_catHeadNode(cat, rows.length, false));
+    if(!_catCollapsed[cat.id]){
+      for(var k=0;k<rows.length;k++) topicList.appendChild(_topicRowNode(rows[k]));
+    }
+  }
+  if(uncat.length){
+    topicList.appendChild(_catHeadNode({id:'',name:'未分类'}, uncat.length, true));
+    if(!_catCollapsed['__uncat__']){
+      if(uncat.length>=_CAT_SEG_MIN){
+        var segs=_catSplitUncat(uncat);
+        for(var s=0;s<segs.length;s++){
+          if(!segs[s].rows.length) continue;
+          topicList.appendChild(_catSegNode(segs[s].label));
+          for(var q=0;q<segs[s].rows.length;q++) topicList.appendChild(_topicRowNode(segs[s].rows[q]));
+        }
+      }else{
+        for(var u=0;u<uncat.length;u++) topicList.appendChild(_topicRowNode(uncat[u]));
+      }
+    }
+  }
+  if(_catApiOk) topicList.appendChild(_catAddRow());
   topicSwipeOpen=null;
+  topicList.scrollTop=_keepTop;
 }
 
 function closeTopicSwipe(){
@@ -4678,12 +5204,37 @@ function _setTailWorking(tid,busy){
 }
 var _stopPending=false;   // 停止请求在途：期间任何轮询都不许把按钮翻回"发送"
 // 按钮同步的唯一出口。幂等，可在 render / 各路轮询里无脑调用。
+// 输入框里有没有"发得出去的东西"（正文或附件）——按钮形态看它，不看是否在跑。
+function _hasDraft(){
+  try{
+    if(msgInput && String(msgInput.value||'').trim()) return true;
+    if(typeof pendingAttachments!=='undefined' && pendingAttachments && pendingAttachments.length) return true;
+  }catch(e){}
+  return false;
+}
+// 占位符是插话唯一"不新增控件"的说明书：AI 说话时把它换成一句"还能继续输入"的提示。
+// 与 HTML 里的 placeholder 同源，改文案只需改这里一处（initDom 会按它写回）。
+var _INPUT_PH='输入消息…';
+function _syncInputHint(running){
+  try{
+    if(!msgInput) return;
+    var ph=running?'任务进行中，您仍可继续输入内容':(_INPUT_PH||'输入消息…');
+    if(msgInput.getAttribute('placeholder')!==ph) msgInput.setAttribute('placeholder',ph);
+  }catch(e){}
+}
 function _syncSendBtn(tidArg){
   if(!btnSend) return;
   if(_stopPending) return;
   var tid=tidArg||(currentTopic?currentTopic.id:null);
-  if(_btnRunningFor(tid)) _setBtnStopping();
-  else _setBtnSending();
+  var running=_btnRunningFor(tid);
+  // 在跑时要给两个意图各留一个位置：
+  //   空草稿 → 停止（AI 还要不要接着说）
+  //   有草稿 → 发送（把这句话插进去；Esc 仍是停止）
+  // 只按 running 一刀切会把「插话」这个动作藏起来 —— 手机端连回车都没有。
+  if(running && !_hasDraft()) _setBtnStopping();
+  else _setBtnSending(running);
+  // 占位符只反映**当前看的这个任务**：别的任务在跑不该改这里的提示。
+  if(!currentTopic || tid===currentTopic.id) _syncInputHint(running);
 }
 // 末尾那条消息是不是 AI 的文字回复（决定收尾行要不要提示"没有文字回复"）
 function _lastIsAiText(){
@@ -4706,7 +5257,10 @@ var _renderedTopic='';
 function _renderSig(){
   // 带上 msgOffset：加载更早的历史时，工具密集的任务折叠后可见行可能一条都不多，
   // 但顶部提示行的"已加载 N 条"要跟着变，否则用户看不出加载在推进。
-  var s=(currentTopic?currentTopic.id:'~')+'|'+(_topicBusy()?1:0)+'|'+(allLoaded?1:0)+'|'+msgOffset+'|'+(userAvatar?userAvatar.length:0)+'|'+messages.length
+  // |P：思考泡底部统计的开关。它只改 proc-wrap 末尾多不多一行，一条消息都不增删 ——
+  // 不进签名的话 toggleProcStatsVisible 里那句 render() 会被短路掉，
+  // 表现就是"开关拨了、界面不动"（与 |R、|E 同一类坑）。
+  var s=(currentTopic?currentTopic.id:'~')+'|'+(_topicBusy()?1:0)+'|'+(allLoaded?1:0)+'|'+msgOffset+'|'+(userAvatar?userAvatar.length:0)+'|'+messages.length+'|P'+(procStatsPref?1:0)
     // 断点状态（resume_ok → 「继续 / 用备用源继续」）。它只改错误卡的**画法**，一条消息都不增删
     // —— 不进签名的话，重取结论后内容一模一样 ⇒ render 被短路 ⇒ 按钮补不上（与上面 |E 同一类坑）。
     +'|R'+(_resumeOk?1:0);
@@ -4809,7 +5363,7 @@ function render(){
       if(!m._seen){ pcls+=' anim-in'; m._seen=true; }
       dp.className=pcls;
       dp.setAttribute('data-uid', mid(m));
-      dp.innerHTML='<div class="av">'+_avHTML('ai')+'</div><div class="proc-wrap"><div class="proc-box'+(m.open?' open':'')+(m.live?' proc-live':'')+'" onclick="toggleProc('+mid(m)+',event)"><div class="proc-head-line"><span class="proc-mark">'+procMarkHTML(m)+'</span><span class="proc-sum">'+procSummary(m)+'</span>'+(m.live?'<span class="proc-live-dot"></span>':'')+'</div><div class="proc-body">'+((m.open||m.live)?procBodyHTML(m):'')+'</div></div></div>';
+      dp.innerHTML='<div class="av">'+_avHTML('ai')+'</div><div class="proc-wrap"><div class="proc-box'+(m.open?' open':'')+(m.live?' proc-live':'')+'" onclick="toggleProc('+mid(m)+',event)"><div class="proc-head-line"><span class="proc-mark">'+procMarkHTML(m)+'</span><span class="proc-sum">'+procSummary(m)+'</span>'+(m.live?'<span class="proc-live-dot"></span>':'')+'</div><div class="proc-body">'+((m.open||m.live)?procBodyHTML(m):'')+'</div></div>'+procStatsHTML(m)+'</div>';
       // 首帧就定好空态：不然先按 352px 画出来再缩回 108px，肉眼看到的是闪一下
       if(m.live&&m.open) _syncProcEmpty(dp.querySelector('.proc-box'), dp.querySelector('.proc-body'), m);
       // 摘要行首帧把内容指纹初始化 —— 否则第一次 updateProcDom 会以为"内容变了"重写一次，
@@ -4910,6 +5464,11 @@ function render(){
       // 动作条 / 元信息（2026-10-23 改造）
       // 复制等按钮从 .meta 移到气泡内部。.meta 只留时间/耗时/token（不可点）
       var metaHTML=ts(m.ts)+(m.elapsed?' '+m.elapsed:'')+statHTML+_favStarHTML(m);
+      // 「插话」小标：这条是 AI **正在说话时**插进去的，不是一次普通提问。
+      // 只挂在 meta 行首（内容归内容、标记归标记），失败时下面的错误样式会整段接管。
+      if(m.role==='you'&&m.interject){
+        metaHTML='<span class="interject-tag" title="AI 输出过程中插入的消息">插话</span>'+metaHTML;
+      }
       if(m.error&&m.role==='you'){
         // 未得到回复的用户消息：气泡正下方给原因 + 一个真正的「重新发送」按钮。
         // 按 uid 引用消息重发:encodeURIComponent 不转义单引号,旧写法消息带 ' 时 onclick 直接语法错误
@@ -5039,6 +5598,8 @@ async function loadTopics(){
     var data=await r.json();
     if(data.cny_rate) cnyRate=data.cny_rate;
     topics=data.topics||[];
+    // 分类跟列表同源下发：不另起请求，也就不会出现「列表新、分类旧」的半拍
+    if(data.categories){ topicCategories=data.categories; _catApiOk=true; }
     if(data.active){
       // _creatingTopic 期间不自动填充 currentTopic，避免与 newTopic 竞态
       if(!currentTopic && !window._creatingTopic){
@@ -5654,7 +6215,7 @@ function _mapServerMsgs(msgs, stillWorking){
       // 去重签名也必须基于去掉后的文本：否则"本地乐观气泡(原文)"与"服务端行(原文+[附件:…])"
       // 签名不同 → 同一条消息在界面上渲染两次（看起来像"重复发送"，实测带附件/粘贴截图必现）。
       if(role==='you'&&atts.length){ text=text.replace(/\n?\[附件: [^\]]*\]\s*$/,''); }
-      fresh.push({role:role,text:text,ts:ts,id:m.id,thinking:'',has_thinking:!!(m.has_thinking||m.thinking),error:err,error_msg:err?(m.args.error_msg||'系统错误'):null,attachments:atts,original_text:m.original_text||'',cmid:(m.args&&m.args.cmid)||'',quotes:quoteListOf(m.args||{}),elapsedSec:(m.args&&m.args.elapsed)||0,tokens:(m.args&&m.args.tokens)||0,tokensEst:(m.args&&m.args.est)?1:0,kind:_kind,errDone:(m.args&&m.args.resolved)?1:0});
+      fresh.push({role:role,text:text,ts:ts,id:m.id,thinking:'',has_thinking:!!(m.has_thinking||m.thinking),error:err,error_msg:err?(m.args.error_msg||'系统错误'):null,attachments:atts,original_text:m.original_text||'',cmid:(m.args&&m.args.cmid)||'',quotes:quoteListOf(m.args||{}),elapsedSec:(m.args&&m.args.elapsed)||0,tokens:(m.args&&m.args.tokens)||0,tokensEst:(m.args&&m.args.est)?1:0,kind:_kind,errDone:(m.args&&m.args.resolved)?1:0,interject:(m.args&&m.args.interject)?1:0});
     }
   }
   fresh.sort(function(a,b){ return (a.ts||0)-(b.ts||0); });
@@ -6105,6 +6666,13 @@ function applyWorkingData(w, wd){
   w.resp=wd.response||'';               // 当前轮模型打字（工具轮=动作，最终轮=答案）
   w.timeline=wd.timeline||[];           // 按轮交织时间线 [{thinking,inter,tools,out?}]：历轮思考跟着动作走
   w.tools=(wd.tool_calls||[]).map(function(t){return t.name;});
+  // 思考泡底部统计：elapsed 是服务端自己减好的已耗时（不受手机时钟偏差影响），
+  // tokens_in/out 是本轮累计真账 —— 与最终回复底部那行同一个来源。
+  // 收到时刻要记下来：两次轮询之间靠本地时钟把数字续着走，否则耗时每 500ms 卡一下。
+  w.elapsedBase=Number(wd.elapsed)||0;
+  w.elapsedAt=Date.now()/1000;
+  w.tokIn=Number(wd.tokens_in)||0;
+  w.tokOut=Number(wd.tokens_out)||0;
   // 转速由 token 流速驱动（见 _orbOmegaTick）：这里回报一次「已经吐出来多少字符」，
   // 增量 ÷ 间隔 就是流速。三段都算 —— 想事的 thinking 也是 token。
   _orbSampleFlow(w.thinking.length + w.resp.length + String(wd.intermediate || '').length);
@@ -6713,6 +7281,20 @@ function _toolBlock(key,name,bodyHtml,extraHead,cnt){
     +(hasBody?'<div class="w-tool-body">'+bodyHtml+'</div>':'')
     +'</div>';
 }
+// 收起后把这一行的标题拉回容器顶部（2026-11-04，探针实测必须做）。
+// 起因：标题吸在顶部时点收起，这块内容塌陷了，但**后面还有别的工具的内容** ⇒
+// scrollHeight 仍然够长，scrollTop 不会被 clamp —— 标题直接留在容器上方两百多像素外，
+// 用户点了"收起"，结果连自己刚点的那一行都看不见，会以为点错了/界面坏了。
+// 只修"已经滚过头"（d<0）的情况：标题本来就在视野里就一个像素都不动。
+// 不碰 .w-tool 之外的滚动祖先（页面 main 不归这里管），避免顺手把整个对话滚走。
+function _toolRevealHead(hd, box){
+  var pb = box.parentNode;
+  while(pb && (!pb.classList || !pb.classList.contains('proc-body'))) pb = pb.parentNode;
+  if(!pb) return;
+  var d = hd.getBoundingClientRect().top - pb.getBoundingClientRect().top;
+  if(d < 0) pb.scrollTop = Math.max(0, pb.scrollTop + d);
+  _procFade(pb);
+}
 document.addEventListener('click',function(ev){
   var t=ev.target;
   var hd=t&&t.closest?t.closest('.w-tool-head'):null;
@@ -6720,6 +7302,7 @@ document.addEventListener('click',function(ev){
   var box=hd.parentNode; if(!box||!box.classList) return;
   if(!box.querySelector('.w-tool-body')) return; // 展开没内容的行不响应点击（2026-10-29）
   var on=box.classList.toggle('open');
+  if(!on) _toolRevealHead(hd, box);
   var k=box.getAttribute('data-key');
   if(k){ if(on) _toolOpen[k]=1; else delete _toolOpen[k]; }
 },false);
@@ -6728,6 +7311,15 @@ function _tlRoundHTML(r, n0, tn0){
   // 🔴 编号/序号的**唯一**算法在这里：上层不许再写一份"数编号"的循环，否则两处必然对不上。
   var h='', n=n0||0, tn=tn0||0;
   if(!r) return {h:'', n:n, tn:tn};
+  if(r.split){
+    // 插话界碑：一条居中分隔，露出插话原文 —— 插话前后的思考/工具是两段事，
+    // 连着排就看不出"它已经听到新指令了"。不占编号（n/tn 原样返回）。
+    var _si=String(r.inj||'').replace(/\s+/g,' ').trim();
+    h+='<div class="w-tl-split"><span class="w-tl-split-cap">\u63D2\u8BDD</span>'
+      +(_si?'<span class="w-tl-split-t" title="'+esc(_si)+'">'+esc(_si)+'</span>':'')
+      +'</div>';
+    return {h:h, n:n, tn:tn};
+  }
   if(r.thinking) h+='<div class="w-think md">'+fmtThink(r.thinking)+'</div>';
   // 2026-10-29 编号单位=一条叙述（与静态 steps / 服务端「N 步」同口径）。
   // 原来按 \n 拆行逐行发号：多行叙述吃掉多个号，跟静态一比编号整体错位 —— 用户指的"对不上"。
@@ -6990,12 +7582,28 @@ var _procScrollTrack={}; // uid → {body, userControlled, userTop, lastST, scro
 // 过程泡边缘渐隐：按**当下真的溢出**哪一侧来决定挂不挂类（2026-10-28）。
 // 为什么不在 CSS 里写死：正文只有两行时，上沿那层渐隐会把首行擦淡 —— 那是凭空少字。
 // 1px 容差：125% 缩放下 scrollTop 会取成小数（如 61.5），`>0` 会误判成"上头还有"。
+// 有没有工具标题行正贴在本容器顶部（吸顶态）。
+// 用后代选择器而不是 `>`：DOM 多包一层时 `>` 会静默失效（踩过），工具块也不会嵌套。
+function _toolHeadStuck(body){
+  var hs = body.querySelectorAll('.w-tool.open .w-tool-head');
+  if(!hs.length) return false;
+  var top = body.getBoundingClientRect().top;
+  for(var i=0;i<hs.length;i++){
+    if(hs[i].getBoundingClientRect().top - top < 1.5) return true;
+  }
+  return false;
+}
 function _procFade(body){
   if(!body || !body.classList || !body.classList.contains('proc-body')) return;
   if(procFadePref === false) return;              // 关着：applyFadePref 已摘类，这里别再往上写
   if(!body.clientHeight) return;                  // height:0（折叠档）：此刻量不出溢出，等展开时算
   var up = body.scrollTop > 1;
   var dn = body.scrollTop + body.clientHeight < body.scrollHeight - 1;
+  // 有标题行吸在顶部时摘掉上沿渐隐（2026-11-04）：
+  // mask 作用于整个容器的合成结果，吸顶行自己的底色挡不住它 —— 不摘的话标题会被淡成半透明，
+  // 越到顶上越淡，正好毁掉"随时能点收起"这个唯一目的。
+  // 硬边由吸顶行自己挡（它本来就是不透明的一整行），所以摘掉不会露出半截字形。
+  if(up && _toolHeadStuck(body)) up = false;
   body.classList.toggle('proc-fade-up', up);
   body.classList.toggle('proc-fade-dn', dn);
 }
@@ -7118,6 +7726,13 @@ function updateProcDom(w){
   }
   // 状态会从「处理中…」变成「等待你确认」/「整理回复中」—— 槽位要跟着换（图形 ↔ 空）。
   _procMarkSet(el.querySelector('.proc-mark'), procMarkHTML(w));
+  // 思考泡底部统计：耗时是一个**一直在跳的数字**，只能靠这 500ms 一轮来刷 ——
+  // pollTopicTail 在忙的时候刻意不 render()（见那里的守卫），指望整页重建更新等于把数字冻住。
+  // 内容没变不写 innerHTML（同 .proc-sum 的理由：无谓重写会让上一帧的排版重来一遍）。
+  var _pm=el.querySelector('.proc-meta');
+  var _pin=procStatsInner(w);
+  if(!_pin){ if(_pm) _pm.remove(); }
+  else if(_pm){ if(_pm._html!==_pin){ _pm.innerHTML=_pin; _pm._html=_pin; } }
   var box=el.querySelector('.proc-box');
   var body=el.querySelector('.proc-body');
   if(box&&body){
@@ -7665,7 +8280,7 @@ function recoverPendingReply(tid, wMsg){
         updateTopicActionTag(tid, !!wd.pending_question);   // 侧栏黄标即时同步（断线恢复路径）
         updateProcDom(wMsg);
         // 首次轮询成功 → HTTP 已恢复，清除"连接中断"提示
-        if(polls===1) setSt('thinking', wMsg.status||'处理中…');
+        if(polls===1){ setSt('thinking', wMsg.status||'处理中…'); clearConnError(tid); }
         return;
       }
       // agent 已完成：从服务端拉取最终消息（含回复），整体替换本地列表
@@ -7691,12 +8306,33 @@ function recoverPendingReply(tid, wMsg){
         _setTailWorking(tid, false); _clearTopicWorkingStatus(tid); _syncSendBtn(tid);
         workingDot.classList.remove('pulse');
         for(var mi=messages.length-1;mi>=0;mi--){ if(messages[mi]===wMsg){ messages.splice(mi,1); break; } }
-        for(var ei=messages.length-1;ei>=0;ei--){ if(messages[ei].role==='you'){ messages[ei].error=true; messages[ei].error_msg='连接中断（后台可能仍在处理，稍后会自动补上）'; break; } }
+        for(var ei=messages.length-1;ei>=0;ei--){ if(messages[ei].role==='you'){ messages[ei].error=true; messages[ei].error_msg='连接中断（后台可能仍在处理，稍后会自动补上）'; messages[ei].err_conn=true; break; } }
         render(); saveCache();
         setSt('error','连接错误');
       }
     }
   },1000);
+}
+
+// ── 「连接中断」卡的撤回（2026-11-05）────────────────────────────────
+// 这张卡是一张**快照**：写下它的依据是"那一刻连着 30 次 /api/working 都没问通"。
+// 但它只写了进、没写退 —— 网络回来、后台还在跑、下面内容一格一格往前推的时候，
+// 上面那行红字还杵在那儿，跟正下方的事实正好相反（用户原话："明明网络恢复下面内容在跑了，报错还在"）。
+// 判据只认**正面证据**：服务端回包说这个话题还在跑（3s 的 tail 探针 / 500ms 的 working 轮询都算）。
+// 这比任何本地定时器推出来的都硬，也不需要用户点「重新发送」去自证。
+// 只撤 err_conn 那一条，且要求它仍是**最后一条用户消息**：用户后来另发一句、
+// agent 跑的是那一句时，前一句的失败是另一回事，不能顺手抹掉。
+function clearConnError(tid){
+  if(!currentTopic||currentTopic.id!==tid) return false;
+  var ui=-1;
+  for(var i=messages.length-1;i>=0;i--){ if(messages[i].role==='you'){ ui=i; break; } }
+  if(ui<0) return false;
+  var m=messages[ui];
+  if(!m.error||!m.err_conn) return false;
+  m.error=false; m.error_msg=null; m.err_conn=false;
+  setSt('thinking','处理中…');   // 状态行也要跟着撤：不能卡上红卡没了、顶栏还写着"连接错误"
+  render(); saveCache();
+  return true;
 }
 
 var pendingAttachments=[];
@@ -8088,7 +8724,8 @@ async function _doSendInner(){
   var atts=pendingAttachments.map(function(a){return a.filename;});
   pendingAttachments=[]; renderAttachPreview();
   // 带 cmid：本地乐观气泡与服务端落库行靠这个键精确对齐，不受"时钟偏差/附件清单改写文本"影响
-  messages.push({role:'you',text:text,ts:Date.now()/1000,attachments:atts,cmid:_cmid,quotes:_q||null});
+  // interject：这次发送是"AI 说话时插进去的"，气泡上要挂小标（服务端 args 里也有同一标记）
+  messages.push({role:'you',text:text,ts:Date.now()/1000,attachments:atts,cmid:_cmid,quotes:_q||null,interject:_interjecting?1:0});
   // Store working message by reference, not index — survives topic switches
   var wMsg=makeLiveProc();
   wMsg.inflight=true;
@@ -8417,18 +9054,20 @@ function _setBtnStopping(){
   btnSend.disabled=false; // 保持可点击,让用户能点停止
 }
 // 按钮恢复发送态:图标变纸飞机,去 stopping class,可点击
-function _setBtnSending(){
+function _setBtnSending(interject){
   if(!btnSend) return;
   btnSend.classList.remove('stopping');
-  btnSend.title='发送';
+  // 同一枚按钮两种含义：平时"发送"，AI 在跑时说"插话"（点下去会先把它停下）
+  btnSend.title=interject?'发送插话（AI 会先停下听你的）':'发送';
   btnSend.disabled=false;
 }
 // toggleSend:发送态点击=发送,停止态点击=停止
 async function toggleSend(){
-  // 按钮属于当前任务：本任务在跑→停止；否则→发送（别的任务在跑不影响本任务）
-  // 判据必须与按钮的**显示判据**同源，否则会出现"按钮画的是停止、点下去却发消息"的错位。
+  // 本任务在跑 **且输入框是空的** → 停止；否则 → 发送（在跑时就是插话）。
+  // 判据必须与按钮的**显示判据**同源（_btnRunningFor + _hasDraft），否则会出现
+  // "按钮画的是发送、点下去却停止"这种错位。
   var _tid=currentTopic?currentTopic.id:null;
-  if(_tid && _btnRunningFor(_tid)){ await stopThinking(); return; }
+  if(_tid && _btnRunningFor(_tid) && !_hasDraft()){ await stopThinking(); return; }
   await doSend();
 }
 // stopThinking:调 /api/stop-thinking 中断 agent loop
@@ -8461,9 +9100,13 @@ async function stopThinking(){
 }
 async function doSend(){
   var myTid=currentTopic?currentTopic.id:null;
-  if(myTid && _sendingTopics[myTid]) return; // 只拤本任务重复发送
   var _t=msgInput.value.trim();
   if(!_t && !pendingAttachments.length) return;
+  // 🔴 本任务已有发送在途 = AI 正在跑 ⇒ 这句是**插话**，不是重复提交。
+  // 旧实现这里 `return;` 一句吞掉：同一个窗口里「AI 说着话、我在下面打一句回车」
+  // 完全没有反应（回车、按钮都一样），只能先按停止再说一遍。于是插话通道实际上
+  // 只存在于「换台设备 / 刷新过的窗口」——服务端的注入队列一直是好的（2026-11-03 定位）。
+  if(myTid && _sendingTopics[myTid]){ await doInterject(); return; }
   if(myTid) _sendingTopics[myTid]=true; // 记录真正在跑的任务
   _setBtnStopping();  // 按钮切到停止态
   try { await _doSendInner(); }
@@ -8489,6 +9132,24 @@ async function doSend(){
     if(!currentTopic || !_sendingTopics[currentTopic.id]) _syncSendBtn();
   }
 }
+// 插话（2026-11-03）：AI 正在跑时用户又发了一句。
+// 与 doSend 的唯一区别是**不碰 _sendingTopics** —— 那个标志代表"本轮请求在途"，
+// 插话请求很快（服务端入队即回），用完就删会把原来那条长请求的状态一起抹掉
+// （按钮瞬间翻回"发送"，而 AI 其实还在跑）。
+// 也不另写一条发送链路：_doSendInner 收到 {"status":"injected"} 时本来就会摘掉
+// 临时过程泡、保留用户气泡，插话复用的正是那条路径；万一循环刚巧收工（服务端
+// 按普通新消息受理），它也能照常把回复渲染出来。
+var _interjecting=false;   // 本次发送是插话（只用于给乐观气泡打标，不参与任何判据）
+async function doInterject(){
+  var myTid=currentTopic?currentTopic.id:null;
+  _interjecting=true;
+  try { await _doSendInner(); }
+  finally {
+    _interjecting=false;
+    // 收尾不看本地 bool，按服务端真相定按钮（AI 还在跑就该停着）
+    _syncSendBtn(myTid);
+  }
+}
 window.toggleSidebar = toggleSidebar;
 window.newTopic = newTopic;
 window.doSend = doSend;
@@ -8497,6 +9158,13 @@ window.stopThinking = stopThinking;
 window.onKey = function(e){
   // [2] 输入法组词中的回车是"确认候选词",不是发送
   if(e.isComposing||e.keyCode===229) return;
+  // Esc = 停止。这是"在跑时按钮会变成发送"的配套：否则一旦有草稿，停止就只剩
+  // 「先把输入框清空」一条路 —— 插话不该以失去停止能力为代价。
+  if(e.key==='Escape'){
+    var _tid=currentTopic?currentTopic.id:null;
+    if(_tid && _btnRunningFor(_tid)){ e.preventDefault(); stopThinking(); }
+    return;
+  }
   if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); doSend(); }
 };
 
@@ -8526,7 +9194,7 @@ _orbWatchStart();
     }
     if(tsState.active){
       e.preventDefault(); e.stopPropagation();
-      var off=Math.max(0,Math.min(120,dx));
+      var off=Math.max(0,Math.min(180,dx));
       tsState.el.style.transform='translateX('+off+'px)';
     }
   },{passive:false});
@@ -8536,7 +9204,7 @@ _orbWatchStart();
     if(!tsState.active){ tsState=null; return; }
     var dx=e.changedTouches[0].clientX-tsState.sx;
     if(dx>40){
-      tsState.el.style.transform='translateX(120px)';
+      tsState.el.style.transform='translateX(180px)';
       tsState.wrap.classList.add('topic-swipe-open');
       topicSwipeOpen=tsState.wrap;
     } else {
@@ -14689,6 +15357,9 @@ function bindFbSurface(grid, scope){
 msgInput.addEventListener('input',function(){
   msgInput.style.height='auto';
   msgInput.style.height=Math.min(msgInput.scrollHeight,window.__composerInputMax?window.__composerInputMax():120)+'px';
+  // AI 在跑时，第一个字符落进输入框的瞬间按钮就该从「停止」变成「发送」——
+  // 这是用户唯一能看见"现在可以插话"的地方（不等下一次 render/轮询）。
+  if(_btnRunning()) _syncSendBtn();
   // 草稿防抖保存:停顿 400ms 后落盘
   if(draftTimer) clearTimeout(draftTimer);
   draftTimer=setTimeout(function(){ saveDraft(); },400);
@@ -14884,6 +15555,7 @@ function loadThemeSettings(){
   try { showTaskCostPref = localStorage.getItem('task_cost_display')!=='0'; } catch(e){}
   try { showElapsedPref = localStorage.getItem('task_elapsed_display')!=='0'; } catch(e){}
   try { showTokensPref = localStorage.getItem('task_tokens_display')!=='0'; } catch(e){}
+  try { procStatsPref = localStorage.getItem('proc_stats_display')!=='0'; } catch(e){}
   loadTopbarModes(srvShowBal);   // 新键优先；wm_display / topbar_compact 只在首次迁移时读
   applyBalMode();
   applyWmMode();
@@ -15133,6 +15805,7 @@ function checkTopicWorking(){
       else {
         workingDot.classList.add('pulse');
         setSt('thinking','处理中…');
+        clearConnError(tid);   // 服务端正在跑 = 正面证据（与 tail 探针同一条判据，这里只是更快）
         updateTopicActionTag(tid, !!wd.pending_question);   // 侧栏黄标（切回正在跑的任务时立即校正）
         // 服务端在跑 → 按钮必须是红色"停止"。这一路原来只点亮运行点与提示、没管按钮，
         // 而它恰恰是"页面重载 / 从别的终端发起"时唯一还活着的服务端真相来源。
@@ -15299,6 +15972,9 @@ async function pollTopicTail(){
     // 先把这个事实落到 _topicBusy 能看见的地方：末尾占位要从"未给出结论"翻成"正在执行"，
     // 这一步不能排在 refreshCurrentTopic 之后（那一次 render 才是让它生效的机会）
     _tailWorking=busy;
+    // 探针回包 = 链路活着；busy = 后台确实在跑 ⇒ 之前那张「连接中断」红卡已被事实推翻。
+    // 这一条是主力：断线恢复后 recoverPoll 已经死了，只有这条探针还在跟服务端说话。
+    if(busy) clearConnError(tid);
     // first：刚打开/刚切到这一轮 —— 必须刷新一次。缓存优先（CACHE_FRESH_MS=60s）会让
     // "打开时直接用缓存、不拉服务端"，与"切任务时的那次拉取"之间存在时间差，
     // 期间落库的消息不会被任何东西发现。一次 141KB 的结论重取最省心：
@@ -18423,6 +19099,8 @@ function loadInterfaceSettings() {
     '<div class="sp-toggle-row"><span style="font-size:13px">显示任务金额</span><label class="sp-toggle"><input type="checkbox"' + (showTaskCostPref ? ' checked' : '') + ' onchange="toggleTaskCostVisible(this.checked)"><span class="slider"></span></label></div>',
     '<div class="sp-toggle-row"><span style="font-size:13px">任务耗时</span><label class="sp-toggle"><input type="checkbox"' + (showElapsedPref ? ' checked' : '') + ' onchange="toggleElapsedVisible(this.checked)"><span class="slider"></span></label></div>',
     '<div class="sp-toggle-row"><span style="font-size:13px">任务 Token</span><label class="sp-toggle"><input type="checkbox"' + (showTokensPref ? ' checked' : '') + ' onchange="toggleTokensVisible(this.checked)"><span class="slider"></span></label></div>',
+    '<div class="sp-toggle-row"><span style="font-size:13px">思考泡统计</span><label class="sp-toggle"><input type="checkbox"' + (procStatsPref ? ' checked' : '') + ' onchange="toggleProcStatsVisible(this.checked)"><span class="slider"></span></label></div>',
+    '<div class="sp-toggle-row"><span style="font-size:13px" title="顶栏那枚喇叭：只控制入口显隐，消息上的朗读按钮与 TTS 不受影响">语音库按钮</span><label class="sp-toggle"><input type="checkbox"' + (voiceLibBtnPref ? ' checked' : '') + ' onchange="toggleVoiceLibBtn(this.checked)"><span class="slider"></span></label></div>',
     '<div class="sp-toggle-row"><span style="font-size:13px">思考气泡光晕</span><label class="sp-toggle"><input type="checkbox"' + (thinkGlowPref ? ' checked' : '') + ' onchange="toggleThinkGlow(this.checked)"><span class="slider"></span></label></div>',
     '<div class="sp-toggle-row"><span style="font-size:13px">思考气泡边缘渐隐</span><label class="sp-toggle"><input type="checkbox"' + (procFadePref ? ' checked' : '') + ' onchange="toggleProcFade(this.checked)"><span class="slider"></span></label></div>',
     '<div class="sp-toggle-row"><span style="font-size:13px">思考框边缘渐隐</span><label class="sp-toggle"><input type="checkbox"' + (procEdgePref ? ' checked' : '') + ' onchange="toggleProcEdge(this.checked)"><span class="slider"></span></label></div>',
@@ -18445,6 +19123,14 @@ function toggleElapsedVisible(show){
 function toggleTokensVisible(show){
   showTokensPref=show;
   try{ localStorage.setItem('task_tokens_display', show?'1':'0'); }catch(e){}
+  if(typeof render==='function') render();
+}
+// 思考泡底部统计（耗时 / 消耗 / 速度）：只影响思考泡外面那行 meta，重绘消息区即可。
+// 🔴 跑着的实时泡也要立刻跟着变：render() 会重建 proc-wrap，新节点自带/不带这一行；
+//    之后 updateProcDom 的 500ms 刷新按同一开关判空（procStatsInner 里判）。
+function toggleProcStatsVisible(show){
+  procStatsPref=show;
+  try{ localStorage.setItem('proc_stats_display', show?'1':'0'); }catch(e){}
   if(typeof render==='function') render();
 }
 // 思考气泡光晕（设置 → 界面）：任务进行中的思考泡 / 正在输出答案的气泡会跑 neonGlow 氛围灯，
@@ -18551,6 +19237,46 @@ function setProcBorder(m){
   applyProcBorder();        // 纯样式切换：不需要 render() 重建消息区
 }
 initProcBorder();
+
+// ── 顶栏语音库按钮显隐（设置 → 界面 →「语音库按钮」，2026-11-07 第 82 轮）──
+// 默认开；关掉只隐藏入口，消息气泡上的朗读按钮 / TTS 本身一概不动。
+// 🔴 用「摘掉 DOM 节点」而不是 display:none：手机档那些 :has(> #btnVoiceLib) 判据
+//    回答的是「右岛里有没有这枚键」——元素还在只是藏起来，判据仍算它在场，
+//    只剩文件键时就不套 38px 正圆，胶囊里会孤零零挂一枚 30px 按钮（第 66 轮）。
+//    摘掉节点后 :has() 自动为假，一条 CSS 都不用改。节点留在 _voiceLibBtnNode，
+//    重新打开时原位插回（btnFlowChart 之后 / btnFiles 之前）。
+// 🔴 首次应用在定义处同步执行，不塞进 init()：init 里有一串 await，
+//    刷新时会先看见喇叭再消失（闪一下）。
+var _voiceLibBtnNode=null;
+function applyVoiceLibBtn(){
+  var b=document.getElementById('btnVoiceLib')||_voiceLibBtnNode;
+  if(!b) return;
+  if(!voiceLibBtnPref){
+    // 面板开着时先收起：入口都没了，面板不该继续浮在右上角；顺带摘掉 .on
+    if(typeof _vh!=='undefined'&&_vh&&_vh.open&&typeof toggleVhPanel==='function') toggleVhPanel(false);
+    _voiceLibBtnNode=b;
+    if(b.parentNode) b.parentNode.removeChild(b);
+    return;
+  }
+  if(b.parentNode) return;
+  var pill=document.querySelector('.hdr-pill-r');
+  if(!pill) return;
+  var files=document.getElementById('btnFiles');
+  if(files&&files.parentNode===pill) pill.insertBefore(b,files);
+  else pill.appendChild(b);
+  if(typeof vhBadge==='function') vhBadge();
+}
+function initVoiceLibBtn(){
+  try{ voiceLibBtnPref=localStorage.getItem('voice_lib_btn_display')!=='0'; }
+  catch(e){ voiceLibBtnPref=true; }
+  applyVoiceLibBtn();
+}
+function toggleVoiceLibBtn(on){
+  voiceLibBtnPref=!!on;
+  try{ localStorage.setItem('voice_lib_btn_display',voiceLibBtnPref?'1':'0'); }catch(e){}
+  applyVoiceLibBtn();   // 纯 DOM 摘挂：不重建消息区、不重拉列表
+}
+initVoiceLibBtn();
 
 // 顶栏「余额」「工作记忆」各自的档位由 setBalMode / setWmMode 负责（见上方三态函数组）
 function updateWmDisplay(){
@@ -19974,6 +20700,12 @@ async function loadModelConfig() {
     html += '<span class="sp-current-provider">@ ' + esc(currentModel ? cpActiveSourceLabel(currentModel.provider) : '?') + '</span>';
     html += '</div></div>';
 
+    // 思考强度：内容全部来自 /api/reasoning（服务端给出这个模型能选什么）。
+    // 前端**不猜**档位 —— 发出去不生效的档位比没有这个功能更糟。
+    html += '<div class="sp-section"><h4>思考强度</h4>';
+    html += '<div id="mdlReasonBody"><div class="center-msg" style="padding:4px 0">读取中…</div></div>';
+    html += '</div>';
+
     // 故障处理：主模型持续不可用时的行为（同源重试 → 可选自动换源）。
     // 换源会改变模型本身，不是所有场景都能换，所以做成开关而不是无条件自动切。
     html += '<div class="sp-section"><h4>故障处理</h4>';
@@ -20068,6 +20800,7 @@ async function loadModelConfig() {
     }
     // 本地服务状态用实时探活刷新（列表里的值来自 /api/models 的缓存探活）
     refreshLocalServiceStatus();
+    renderReasoningSection();
     renderVisionFallbackRow();
     renderAutoFallbackRow();
     renderAttachPreview();   // 模型切换后，附件区的"能否看图"提示要跟着变
@@ -20474,6 +21207,220 @@ async function editLocalLlmCtx(){
     alert('已保存为 ' + n + ' tokens，下次启动服务时生效。');
   }
   await loadModelConfig();
+}
+
+// ── 思考强度（模型档位）2026-11-04 ─────────────────────────────
+// 数据全部来自服务端：/api/reasoning 给「这个模型能选哪几档 + 走什么形态」。
+// 前端只负责画和发请求。为什么不在前端按模型名猜档位：
+// 同一份权重在不同中转站支持度不同（有的只认 enable_thinking，有的只吃 low/max），
+// 猜出来的档位发出去要么被静默忽略、要么直接 400，用户以为"设了"，其实没设。
+var _rsState = null;
+var _rsProbe = null;      // 上一次检测的明细（不落盘，刷新页面即清）
+
+async function renderReasoningSection() {
+  var box = document.getElementById('mdlReasonBody');
+  if (!box) return;
+  var r;
+  try {
+    r = await fetch('/api/reasoning').then(function(x){ return x.json(); });
+    if (r && r.error) throw new Error(r.error);
+  } catch(e) {
+    box.innerHTML = '<div class="center-msg err" style="padding:4px 0">读取失败<small>'
+                  + esc(e.message || '') + '</small></div>';
+    return;
+  }
+  _rsState = r;
+  box.innerHTML = reasoningHtml(r);
+}
+
+function reasoningHtml(r) {
+  var eff = r.effective || {};
+  var labels = r.level_labels || {};
+  var levels = r.levels || [];
+  var styles = r.styles || [];
+  var info = null;
+  for (var i = 0; i < styles.length; i++) { if (styles[i].id === eff.style) { info = styles[i]; break; } }
+  var on = eff.enabled !== false;
+  var h = '';
+
+  // 档位胶囊：该形态支持哪几档就画哪几档
+  h += '<div class="rs-pills">';
+  if (levels.length) {
+    // 「默认」= 不指定档位，让上游按自己的默认跑。
+    // 不能默认就替用户选一个最省档：那等于悄悄把强度降下来（DeepSeek 默认是 high）。
+    // 「默认」= 完全没有手动记录（形态和档位都交给站点建议）。
+    // 不能只看 !eff.level：手动选了形态但没选档也是合法状态，那不是"默认"。
+    var isDefault = on && (eff.source === 'suggest' || eff.source === 'default');
+    h += '<button class="rs-pill' + (isDefault ? ' on' : '') + '" data-lv="" '
+       + 'onclick="resetReasoning()" '
+       + 'title="不指定档位与形态，完全交给模型自己决定">默认</button>';
+    for (var j = 0; j < levels.length; j++) {
+      var lv = levels[j];
+      var act = on && eff.level === lv;
+      h += '<button class="rs-pill' + (act ? ' on' : '') + '" data-lv="' + escAttr(lv) + '" '
+         + 'onclick="setReasoning(\'' + escAttr(lv) + '\',true)">'
+         + esc(labels[lv] || lv) + '</button>';
+    }
+    h += '<button class="rs-pill off' + (on ? '' : ' on') + '" data-lv="__off" '
+       + 'onclick="setReasoning(null,false)">关</button>';
+  } else {
+    // 只有开关的形态：没有档位可选，别画一排点不动的胶囊骗人
+    // 无档位形态只有开/关两态，不再单独放「默认」（会和「开」同时亮）。
+    // 想回"按站点建议"用下面形态下拉里的「自动」。
+    h += '<button class="rs-pill' + (on ? ' on' : '') + '" data-lv="__on" onclick="setReasoning(null,true)">开</button>';
+    h += '<button class="rs-pill off' + (on ? '' : ' on') + '" data-lv="__off" onclick="setReasoning(null,false)">关</button>';
+  }
+  h += '</div>';
+
+  // 形态（发出去的到底是哪个字段）
+  h += '<div class="rs-meta"><span>参数形态</span>';
+  h += '<select onchange="setReasoningStyle(this.value)">';
+  // 「自动」= 清掉手动记录，回到按站点给的建议形态。没有这一项的话，
+  // 用户误选了某个形态就再也回不去（除非去手改 model_config.json）。
+  h += '<option value="__auto"' + (eff.source === 'suggest' || eff.source === 'default' ? ' selected' : '')
+     + '>自动（按站点建议）</option>';
+  for (var k = 0; k < styles.length; k++) {
+    var s = styles[k];
+    var _cur = (eff.source === 'suggest' || eff.source === 'default') ? '' : eff.style;
+    h += '<option value="' + escAttr(s.id) + '"' + (_cur === s.id ? ' selected' : '') + '>'
+       + esc(s.label) + '</option>';
+  }
+  h += '</select>';
+  var srcLabel = { probe: '探测', manual: '手动', suggest: '站点建议', default: '默认' }[eff.source] || eff.source || '未知';
+  h += '<span class="rs-tag ' + escAttr(eff.source || '') + '">' + esc(srcLabel) + '</span>';
+  h += '<button class="rs-tool" title="会向该模型真发十余次最小请求，约 10~30 秒" '
+     + 'onclick="probeReasoning(this)">检测能选哪些档</button>';
+  h += '</div>';
+
+  if (info && info.note) {
+    h += '<div class="rs-meta" style="margin-top:-3px">' + esc(info.note) + '</div>';
+  }
+
+  // 源级 extra_body 里写死了同名字段 → 这里选什么都不生效，必须直说
+  if (r.conflict && r.conflict.length) {
+    h += '<div class="rs-warn">模型源的自定义参数里已经写死了 <b>' + esc(r.conflict.join('、'))
+       + '</b>，它会覆盖这里的档位。要在这里调档，先去「自定义模型源」把那一项删掉。</div>';
+  }
+  if (eff.coerced_from) {
+    h += '<div class="rs-warn">当前源走 Anthropic 协议，<b>' + esc(eff.coerced_from)
+       + '</b> 在 /messages 上不生效，已自动改用 <b>' + esc(eff.style) + '</b>。</div>';
+  }
+
+  if (_rsProbe && _rsProbe.tried && _rsProbe.tried.length) {
+    h += '<div class="rs-detail"><b>上次检测</b>（' + (_rsProbe.ok ? '有形态可用' : '都没确认') + '）<br>';
+    if (_rsProbe.baseline_thinking) {
+      h += '<span style="color:var(--warn)">注意：这个模型<b>裸调用（不带任何参数）就会输出思考内容</b>，'
+         + '所以「接口没报错」不能证明字段生效。标 ✓✓ 的才是确凿的。</span><br>';
+    }
+    for (var t = 0; t < _rsProbe.tried.length; t++) {
+      var it = _rsProbe.tried[t];
+      // 标签只给结论，原因在后面的 note 里，别两处各说一遍
+      var mark = {
+        confirmed: '✓✓ 确认可用',
+        accepted: '✓ 可用',
+        weak: '~ 无法确认',
+        silent: '· 被忽略',
+        rejected: '× 不认这个字段',
+        error: '! 接口出错'
+      }[it.result] || it.result;
+      h += esc(it.style) + ' → ' + esc(mark) + (it.note ? '（' + esc(it.note) + '）' : '') + '<br>';
+    }
+    h += '</div>';
+  }
+  return h;
+}
+
+async function setReasoning(level, enabled, style) {
+  var st = _rsState;
+  if (!st) return;
+  var eff = st.effective || {};
+  var payload = {
+    provider: st.provider,
+    model: st.model,
+    style: style || eff.style,
+    enabled: enabled === undefined ? true : !!enabled
+  };
+  // 只有"具体档位"才发 level；null/undefined = 只改开关或形态，档位保持原样。
+  // 「默认」是另一个动作（resetReasoning），不走这里 —— 混在一起会导致
+  // "换形态"顺手把档位清掉、"选默认"反而留下一个空壳记录。
+  if (level !== null && level !== undefined && level !== '') payload.level = level;
+  else if (level === undefined && eff.level) payload.level = eff.level;
+  try {
+    var r = await fetch('/api/reasoning', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function(x){ return x.json(); });
+    if (!r.success) { alert('保存失败：' + (r.error || '未知错误')); return; }
+    _rsState.effective = r.effective || {};
+    _rsState.pref = r.pref || {};
+    _rsState.levels = (r.effective || {}).levels || [];
+    var box = document.getElementById('mdlReasonBody');
+    if (box) box.innerHTML = reasoningHtml(_rsState);
+  } catch(e) {
+    alert('保存失败：' + (e.message || ''));
+  }
+}
+
+// 「默认」= 删掉这个模型的全部思考设置，回到站点建议。
+// 单独一个动作而不是"设成某个特殊档位"：空壳记录（有 style 没 level）会让
+// 界面显示"手动指定"却没有任何档位，看起来像没保存成功。
+async function resetReasoning() {
+  var st = _rsState;
+  if (!st) return;
+  try {
+    var r = await fetch('/api/reasoning', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: st.provider, model: st.model, reset: true })
+    }).then(function(x){ return x.json(); });
+    if (!r.success) { alert('重置失败：' + (r.error || '未知错误')); return; }
+    await renderReasoningSection();
+  } catch(e) {
+    alert('重置失败：' + (e.message || ''));
+  }
+}
+
+// 换形态：只改形态。档位只有在"新形态不认已选档"时才降级，没选档就保持没选。
+function setReasoningStyle(style) {
+  if (!_rsState) return;
+  if (style === '__auto') { resetReasoning(); return; }
+  var styles = _rsState.styles || [];
+  var info = null;
+  for (var i = 0; i < styles.length; i++) { if (styles[i].id === style) { info = styles[i]; break; } }
+  if (!info) return;
+  var lv = (_rsState.effective || {}).level;
+  // 🔴 只有"已经选了某个档、但新形态不认它"才降级到第一档。
+  //    空档 = 用户要的就是「默认」，任何形态都成立，不能替他挑一个。
+  if (lv && info.levels.length && info.levels.indexOf(lv) < 0) lv = info.levels[0];
+  if (!info.levels.length) lv = null;      // 新形态只有开关 → 不带档位
+  if (!lv) lv = undefined;                 // 保持"未指定"
+  setReasoning(lv, true, style);
+}
+
+async function probeReasoning(btn) {
+  var st = _rsState;
+  if (!st) return;
+  var old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '检测中…'; }
+  try {
+    var r = await fetch('/api/reasoning/probe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: st.provider, model: st.model })
+    }).then(function(x){ return x.json(); });
+    _rsProbe = r;
+    await renderReasoningSection();
+    if (!r.ok) {
+      var _why = r.error || '没有形态被确认可用';
+      // 403/401 这类错误跟"思考强度"无关，别让用户以为这个模型不能思考
+      if (/401|403|unauthorized|invalid api key/i.test(JSON.stringify(r.tried || []))) {
+        _why = '密钥/权限问题，检测没跑起来（' + _why + '）';
+      }
+      alert('检测没通过：' + _why + '\n\n明细已列在下方，可用「参数形态」手动指定。');
+    }
+  } catch(e) {
+    alert('检测失败：' + (e.message || ''));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = old || '检测'; }
+  }
 }
 
 async function switchModel(provider, modelId) {
@@ -21267,6 +22214,7 @@ document.addEventListener('keydown',function(e){
   if(e.key!=='Escape') return;
   var shown=document.querySelector('.modal-overlay.show');
   if(shown){ if(shown.id==='flowChartModal'){ closeFlowChart(); } else { shown.classList.remove('show'); } return; }
+  if(_vh&&_vh.open){ toggleVhPanel(false); return; }
   if(fbOpen&&xferPanelOpen){ toggleXferPanel(false); return; }
   if(fbOpen&&fbSelected.length){ clearFileSelection(); return; }
   if(assetOpen){ closeAssetView(); return; }
@@ -22357,7 +23305,11 @@ header .hdr-pill,header .hdr-dragzone,header #winCtrls{pointer-events:auto}
 .hdr-info{flex:0 1 auto;min-width:0;display:flex;flex-direction:column;
   justify-content:center;gap:3px}
 .hdr-sub{display:flex;align-items:center;gap:8px;min-width:0;min-height:13px}
-.hdr-pill-r{flex:0 0 auto}
+/* 右岛按钮间距（2026-11-07 第 82 轮）：原来继承 .hdr-pill 的 gap:1px，两枚 32px 键
+   几乎贴在一起，鼠标/手指容易点错。放到 10px（左右边距 6px）：可点区不变，视觉分开。
+   🔴 只覆盖 .hdr-pill-r —— 左岛 .hdr-pill-l 自己那条 gap:10px 不跟着变；
+      手机档「只剩一枚」规则里的 padding:0;gap:0 会把它抵消，38px 正圆形态不受影响。 */
+.hdr-pill-r{flex:0 0 auto;gap:10px;padding:0 6px}
 /* 桌面：两岛之间是"可拖动窗口"的空白带（同时也是内容的可视区）。
    手机没有可拖的窗口 —— 但它必须**留在流里**撑开两岛之间的距离：
    一旦 display:none，右岛就会紧贴着左岛（flex 默认 flex-start），
@@ -22417,7 +23369,7 @@ header h1{font-size:17px;font-weight:600;line-height:1.15;letter-spacing:-.018em
    ⚠ 第 66 轮：字色从 --accent（薄荷绿）改成 --text —— 手机上它是右端**唯一**一枚圆钮，
      与左端 ☰ 成对；一绿一白等于两个体系。绿只留给"正在跑"的状态色，不拿来染按钮。
      另外两个是就地操作，用次要色 --tdim。 */
-#btnFlowChart,#btnFiles,#btnDebug{width:32px;height:32px;padding:0;border:0;
+#btnFlowChart,#btnFiles,#btnDebug,#btnVoiceLib{width:32px;height:32px;padding:0;border:0;
   border-radius:999px;background:transparent;box-shadow:none;flex:0 0 auto;margin:0}
 #btnFlowChart{color:var(--text);opacity:1;
   transition:background .15s ease,transform .1s ease}
@@ -22428,7 +23380,11 @@ header h1{font-size:17px;font-weight:600;line-height:1.15;letter-spacing:-.018em
 
 #btnFiles{color:var(--tdim);opacity:1;
   transition:background .15s ease,color .15s ease,transform .1s ease}
-#btnFiles svg,#btnDebug svg{width:18px;height:18px;stroke-width:1.9}
+#btnFiles svg,#btnDebug svg,#btnVoiceLib svg{width:18px;height:18px;stroke-width:1.9}
+/* 语音库键本体：与 btnDebug 同规格（无底、正文色、flex 居中），hover 同 btnFlowChart */
+#btnVoiceLib{background:none;color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s ease,transform .1s ease}
+#btnVoiceLib:hover,#btnVoiceLib:focus-visible{background:var(--hover)}
+#btnVoiceLib:active{transform:scale(.94)}
 #btnFiles:hover{background:var(--hover);color:var(--text)}
 #btnFiles:active,#btnDebug:active{transform:scale(.94)}
 #btnFiles.on{background:rgba(var(--accent-rgb),.18);color:var(--accent);opacity:1}
@@ -22556,11 +23512,11 @@ html[data-theme="white"] .win-ctrls button:hover{background:rgba(0,0,0,.07)}
   /* §85：玻璃高只改这一个数 —— .hdr-pill / #btnMenu / 留白带全部跟着走 */
   :root{--hdr-glass-h:38px}
   header{gap:6px}
-  #btnFlowChart,#btnFiles,#btnDebug{width:30px;height:30px}
+  #btnFlowChart,#btnFiles,#btnDebug,#btnVoiceLib{width:30px;height:30px}
   /* 圆钮就是按钮本身了 ⇒ 字形要跟着涨一档（18/40 会显得空，见 A/B 图） */
   #btnMenu svg{width:18px;height:18px}
   #btnFlowChart svg{width:21px;height:21px}
-  #btnMenu svg,#btnFiles svg,#btnDebug svg{width:17px;height:17px}
+  #btnMenu svg,#btnFiles svg,#btnDebug svg,#btnVoiceLib svg{width:17px;height:17px}
   header h1{font-size:16px}
   /* padding-top 统一走 --hdr-band（§8d），不再按断点各写一个数 */
   /* 手机的右岛里三枚键，资格各不相同（§118：容器放行 ≠ 里面的按钮都该出来）：
@@ -22571,6 +23527,7 @@ html[data-theme="white"] .win-ctrls button:hover{background:rgba(0,0,0,.07)}
      三枚都不在时整岛 display:none —— 否则右上角会留一个 12px 的空圆壳，比没有更脏。 */
   .hdr-pill-r{display:none}
   .hdr-pill-r:has(> #btnFiles),
+  .hdr-pill-r:has(> #btnVoiceLib),
   .hdr-pill-r:has(> #btnFlowChart.show),
   .hdr-pill-r:has(> #btnDebug.active){display:flex}
   /* 🔴 容器放行 ≠ 里面的按钮都该出来（§118）。
@@ -22583,6 +23540,7 @@ html[data-theme="white"] .win-ctrls button:hover{background:rgba(0,0,0,.07)}
                    靠 mainPanel translateX 滑出），形态完整、顶栏那枚 ✕ 可点 ⇒ 有可用形态。
         #btnDebug  必须自己开着（.active）才认，dev_mode 的内联 display 不再等于"可以出现"。 */
   #btnFiles{display:inline-flex}
+  #btnVoiceLib{display:flex}
   #btnDebug:not(.active){display:none}
 
   /* —— 9. 右岛只剩一枚键时：玻璃归按钮自己（第 66 轮建 · 第 69 轮扩到文件键）——
@@ -22592,16 +23550,18 @@ html[data-theme="white"] .win-ctrls button:hover{background:rgba(0,0,0,.07)}
      现在单枚时岛退成裸容器（不画底 / 不留 pad / 不画边），玻璃搬到按钮身上：
      38×38 正圆 + 圆角 999 + 同一套 --mat-* —— 与左侧 ☰ 同规格；右缘 378 = 390 - 12，
      与 ☰ 左缘 12 左右对称。
-     🔴 文件键常显 ⇒ 手机端"只剩一枚"的实际情形只有一种：流程图没建过图 + 调试面板没开，
+     🔴 文件键+语音库键常显（2026-10-30）⇒ 默认手机端"只剩一枚"不出现；判据保留 :not(:has(>#btnVoiceLib))。
+        2026-11-07 起语音库按钮可在「设置 → 界面」关掉（直接摘 DOM 节点），
+        此时这条判据正好把文件键回落成 38px 正圆，无需另写一套样式。
         也就是只剩 #btnFiles。两枚或三枚同时可见仍走"一条胶囊"（§8d：多条合成一条胶囊），
         所以上面那条胶囊规则不许删，只在单枚时让位。
         若将来 #btnFiles 也改成条件显示，"只剩流程图 / 只剩调试"要一并补进来。
      🔴 选择器靠 :has() 表达"谁还活着"，不要用 JS 补 class —— .show / .active
         是异步补的，JS 补 class 会漏掉首帧。 */
-  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)){
+  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)):not(:has(> #btnVoiceLib)){
     padding:0;gap:0;background:none;border:0;box-shadow:none;
     -webkit-backdrop-filter:none;backdrop-filter:none}
-  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)) > #btnFiles{
+  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)):not(:has(> #btnVoiceLib)) > #btnFiles{
     width:var(--hdr-glass-h);height:var(--hdr-glass-h);
     border:1px solid var(--border2);border-radius:999px;
     background:var(--mat-fill);
@@ -22609,16 +23569,16 @@ html[data-theme="white"] .win-ctrls button:hover{background:rgba(0,0,0,.07)}
     box-shadow:inset 0 1px 0 var(--mat-top),var(--mat-lift)}
   /* 字色：单枚时它是与 ☰ 成对的唯一一枚 ⇒ 正文色（与 ☰ 同一条结论，见 §4 注释）；
      面板开着（.on）仍留给 accent —— 那是"状态"，不是"体系"。 */
-  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)) > #btnFiles:not(.on){
+  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)):not(:has(> #btnVoiceLib)) > #btnFiles:not(.on){
     color:var(--text)}
   /* 图标 17px 是胶囊里的尺寸。文件夹图形在 24 格 viewBox 里占 20/24 ⇒ 17px 只剩 14px 墨迹，
      放进 38 圆只有 37%，比 ☰ 的 18px 三横线轻一档；涨到 20px（墨迹 ~16.7）才等重。 */
-  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)) > #btnFiles svg{
+  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)):not(:has(> #btnVoiceLib)) > #btnFiles svg{
     width:20px;height:20px}
   /* 有了实底，hover 不能再整块换 --hover（会把底换没、变透明）—— 叠一层背景图，
      和 #btnMenu:hover 同一条教训、同一种写法。 */
-  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)) > #btnFiles:hover,
-  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)) > #btnFiles:focus-visible{
+  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)):not(:has(> #btnVoiceLib)) > #btnFiles:hover,
+  .hdr-pill-r:not(:has(> #btnFlowChart.show)):not(:has(> #btnDebug.active)):not(:has(> #btnVoiceLib)) > #btnFiles:focus-visible{
     background-image:linear-gradient(var(--hover),var(--hover))}
 }
 
@@ -23503,7 +24463,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       文件管理器一关（正常聊天态）它随父级一起 display:none，渲染不出任何像素
       （实测 rect=[0,0,0,0]），开着时又被裁剪在那个面板里 —— 表现就是"放大跑别的地方去了"。
       现在挂在 #app 顶层（与 #webPip 同约定：#app 无 transform，fixed 参照系仍是视口）。 -->
- <div id="imgLightbox" data-page-node-id="Hp64U5GBdm1Eww9cDhKnoF">
+ <div id="vhPanel" style="display:none">
+  <div class="vh-head"><span>语音库</span><span class="vh-tabs"><button id="vhTabAll" class="on" onclick="vhSetTab('all')">全部</button><button id="vhTabFav" onclick="vhSetTab('fav')">常用</button></span><button class="xq-close" onclick="toggleVhPanel(false)" title="关闭">✕</button></div>
+  <div id="vhList" class="vh-list"><div class="vh-empty">加载中…</div></div>
+</div>
+<div id="imgLightbox" data-page-node-id="Hp64U5GBdm1Eww9cDhKnoF">
    <div class="iv-name" id="ivName"></div>
    <div class="iv-stage" id="ivStage">
      <img id="ivImg" alt="" draggable="false">
@@ -23546,7 +24510,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
  <div id="wpChip" onclick="wpMinimize(false)">
    <img id="wpChipFav" alt="" onerror="this.style.visibility='hidden'" onload="this.style.visibility='visible'"><span class="wp-chip-t" id="wpChipT"></span><span class="wp-chip-x" onclick="event.stopPropagation();wpChipClose()">✕</span>
  </div>
-<script src="/task-composer.js?v=20261023-newdir"></script>
+<script src="/task-composer.js?v=20261105-rsgrid5"></script>
 <script src="/composer-floating.js?v=20261029-occlude"></script>
 <script>
 /* [2026-10-18] 安卓 WebView 返回键钩子：没有可退的网页历史时，先关最上层浮层，而不是直接退出 App */

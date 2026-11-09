@@ -94,7 +94,7 @@ def get_tool_defs():
     try:
         from mcp_client import get_mcp_tool_defs
         mcp = get_mcp_tool_defs()
-        return builtin + [{"type": "function", **d} for d in mcp]
+        return builtin + mcp
     except Exception:
         return builtin
 
@@ -113,7 +113,7 @@ ALWAYS_ON_TOOLS = {
     # Web
     "web_search", "web_fetch",
     # 文件操作
-    "read_file", "write_file", "grep", "edit_file",
+    "read_file", "write_file", "append_file", "grep", "edit_file",
     # 代码
     "run_python",
     # 任务核心
@@ -153,7 +153,7 @@ CORE_TOOLS = {
     # Web
     "web_search", "web_fetch",
     # 文件操作
-    "read_file", "write_file", "grep", "edit_file",
+    "read_file", "write_file", "append_file", "grep", "edit_file",
     # 代码
     "run_python",
     # 任务核心
